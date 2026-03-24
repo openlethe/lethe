@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -208,13 +209,19 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
 		return
 	}
+	// DEBUG: log what we received
+	log.Printf("[DEBUG] handleCreateEvent: event_type=%q content=%q", req.EventType, req.Content)
+	// Default event_type to "log" if empty
 	if req.EventType == "" {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "event_type is required"})
-		return
+		req.EventType = "log"
 	}
 	// Skip creating event if content is empty/whitespace (treat as no-op)
 	if strings.TrimSpace(req.Content) == "" {
 		writeJSON(w, http.StatusCreated, map[string]interface{}{"event_id": "", "skipped": "empty content"})
+		return
+	}
+	if req.EventType == "task" && req.TaskTitle == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "task_title is required for task events"})
 		return
 	}
 	if req.EventType == "task" && req.TaskTitle == "" {

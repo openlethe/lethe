@@ -177,9 +177,14 @@ export class LetheContextEngine implements ContextEngine {
 
     const { endpoint, apiKey } = this.cfg;
     try {
+      const logContent = messageToLogContent(message);
+      // Skip if content would be empty/whitespace
+      if (!logContent || !logContent.trim()) {
+        return { ingested: true };
+      }
       const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/events`, {
         event_type: "log",
-        content: messageToLogContent(message),
+        content: logContent,
         tags: [],
       });
       return { ingested: res.ok };
@@ -358,7 +363,9 @@ function buildSystemPromptAddition(summaryText: string, recentTokens: number): s
 function messageToLogContent(msg: AgentMessage): string {
   const content = (msg as any).content;
   if (msg.role === "user") {
-    return `[user] ${extractText(msg)}`;
+    const text = extractText(msg);
+    if (!text.trim()) return ""; // Empty user message
+    return `[user] ${text}`;
   }
   if (msg.role === "assistant") {
     const text = extractText(msg);
@@ -366,6 +373,7 @@ function messageToLogContent(msg: AgentMessage): string {
     if (toolCalls.length) {
       return `[assistant] ${text}\n[tools called: ${toolCalls.map((t: any) => t.name).join(", ")}]`;
     }
+    if (!text.trim()) return ""; // Empty assistant message
     return `[assistant] ${text}`;
   }
   return `[${msg.role}] ${JSON.stringify(content)}`;
