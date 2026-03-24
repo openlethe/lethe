@@ -54,6 +54,7 @@ func (s *Server) registerRoutes() {
 		r.Get("/", s.handleListSessions)
 		r.Get("/{sessionID}", s.handleGetSession)
 		r.Get("/{sessionID}/summary", s.handleGetSessionSummary)
+		r.Post("/{sessionID}/compact", s.handleCompact)
 		r.Post("/{sessionID}/heartbeat", s.handleHeartbeat)
 		r.Post("/{sessionID}/interrupt", s.handleInterruptSession)
 		r.Post("/{sessionID}/complete", s.handleCompleteSession)

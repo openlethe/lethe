@@ -386,6 +386,13 @@ func (s *Store) GetSessionEventsCount(ctx context.Context, sessionID string) (in
 	return count, err
 }
 
+// CompactSession writes a summary string to the session.
+func (s *Store) CompactSession(ctx context.Context, sessionID string, summary string) error {
+	q := `UPDATE sessions SET summary=? WHERE session_id=?`
+	_, err := s.ExecContext(ctx, q, nullString(summary), sessionID)
+	return err
+}
+
 // --- Helpers ---
 
 func nullString(v string) sql.NullString {

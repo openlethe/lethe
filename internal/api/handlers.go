@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"net/url"
@@ -475,11 +476,112 @@ func (s *Server) handleGetSessionSummary(w http.ResponseWriter, r *http.Request)
 
 	events, _ := s.store.GetSessionEvents(r.Context(), sess.SessionID, 20, 0)
 
+	// Also surface summary at top level for plugin convenience.
+	var topSummary string
+	if sess.Summary != "" {
+		topSummary = sess.Summary
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"session":        sess,
+		"session":           sess,
+		"summary":           topSummary,
 		"latest_checkpoint": latestCP,
-		"recent_events":  events,
+		"recent_events":     events,
 		"checkpoint_count": len(cps),
-		"event_count":    len(events),
+		"event_count":      len(events),
+	})
+}
+
+// handleCompact generates a text summary from recent checkpoints and stores it
+// in the session's summary field. It returns the summary text.
+func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	if sessionID == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "session_id is required"})
+		return
+	}
+	ctx := r.Context()
+	sess, err := s.resolveSession(ctx, sessionID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if sess == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "session not found"})
+		return
+	}
+
+	cps, err := s.store.GetCheckpoints(ctx, sess.SessionID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "failed to load checkpoints"})
+		return
+	}
+
+	evts, err := s.store.GetSessionEvents(ctx, sess.SessionID, 10, 0)
+	if err != nil {
+		evts = nil // non-fatal
+	}
+
+	// Build summary text from last 5 checkpoints + recent events.
+	var lines []string
+	lines = append(lines, "Session summary:")
+
+	if len(cps) == 0 && evts == nil {
+		lines = append(lines, "(no checkpoints or events yet)")
+	} else {
+		// Checkpoints: cps are ordered DESC by seq (most recent first). Take up to 5.
+		if len(cps) > 0 {
+			lines = append(lines, "Recent checkpoints:")
+			end := 5
+			if len(cps) < 5 {
+				end = len(cps)
+			}
+			for _, cp := range cps[:end] {
+				snap := cp.Snapshot // already a models.Snapshot struct
+				parts := []string{}
+				if snap.CurrentTask != "" {
+					parts = append(parts, "task: "+snap.CurrentTask)
+				}
+				if snap.LastTool != "" {
+					parts = append(parts, "tool: "+snap.LastTool)
+				}
+				if len(snap.OpenThreads) > 0 {
+					parts = append(parts, fmt.Sprintf("%d open threads", len(snap.OpenThreads)))
+				}
+				tag := fmt.Sprintf("  seq=%d", cp.Seq)
+				if len(parts) > 0 {
+					tag += " (" + strings.Join(parts, ", ") + ")"
+				}
+				lines = append(lines, tag)
+			}
+		}
+
+		// Events: include last 10 events (record, log, flag, task)
+		if evts != nil && len(evts) > 0 {
+			lines = append(lines, "Recent events:")
+			for _, ev := range evts {
+				prefix := fmt.Sprintf("  [%s]", ev.EventType)
+				if ev.EventType == "task" && ev.TaskStatus != nil && *ev.TaskStatus != "" {
+					prefix += fmt.Sprintf(" [%s]", ev.TaskStatus)
+				}
+				if ev.EventType == "flag" && ev.Confidence != nil {
+					prefix += fmt.Sprintf(" confidence=%.0f%%", *ev.Confidence*100)
+				}
+				// Truncate long content
+				content := ev.Content
+				if len(content) > 120 {
+					content = content[:120] + "..."
+				}
+				lines = append(lines, fmt.Sprintf("%s %s", prefix, content))
+			}
+		}
+	}
+
+	summaryText := strings.Join(lines, "\n")
+	s.store.CompactSession(ctx, sess.SessionID, summaryText)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"summary":      summaryText,
+		"tokens_after": len(summaryText) / 4,
 	})
 }
