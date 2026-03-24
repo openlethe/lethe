@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mentholmike/lethe/internal/models"
@@ -227,7 +228,7 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		EventType:     models.EventType(req.EventType),
 		Content:       req.Content,
 		Confidence:    req.Confidence,
-		Tags:          req.Tags,
+		Tags:          strings.Join(req.Tags, ","),
 		TaskTitle:     req.TaskTitle,
 	}
 	if req.TaskStatus != "" {
@@ -428,7 +429,7 @@ type CreateEventRequest struct {
 	EventType     string   `json:"event_type"`
 	Content       string   `json:"content"`
 	Confidence    *float64 `json:"confidence,omitempty"`
-	Tags          string   `json:"tags,omitempty"`
+	Tags          []string `json:"tags,omitempty"`
 	ParentEventID string   `json:"parent_event_id,omitempty"`
 	TaskTitle     string   `json:"task_title,omitempty"`
 	TaskStatus    string   `json:"task_status,omitempty"`
