@@ -1,0 +1,29 @@
+{
+  "id": "lethe",
+  "name": "Lethe",
+  "description": "Persistent memory layer for AI agents — the antidote to the river Lethe.",
+  "version": "0.1.0",
+  "kind": "context-engine",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "endpoint": {
+        "type": "string",
+        "description": "Lethe server endpoint (e.g. http://localhost:8080)"
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "API key for Lethe server authentication (optional)"
+      },
+      "agentId": {
+        "type": "string",
+        "description": "Agent identifier used when creating sessions"
+      },
+      "projectId": {
+        "type": "string",
+        "description": "Project identifier for grouping sessions"
+      }
+    }
+  }
+}

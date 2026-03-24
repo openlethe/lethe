@@ -143,7 +143,7 @@ export class LetheContextEngine implements ContextEngine {
       // Session doesn't exist yet — create it.
       // Use sessionKey as the Lethe session_id so we can look it up later.
       const createRes = await letheFetch(endpoint, apiKey, "/sessions", {
-        session_id: sessionKey,
+        session_key: sessionKey,
         agent_id: agentId,
         project_id: projectId,
       });

@@ -212,8 +212,9 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "event_type is required"})
 		return
 	}
-	if req.Content == "" {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "content is required"})
+	// Skip creating event if content is empty/whitespace (treat as no-op)
+	if strings.TrimSpace(req.Content) == "" {
+		writeJSON(w, http.StatusCreated, map[string]interface{}{"event_id": "", "skipped": "empty content"})
 		return
 	}
 	if req.EventType == "task" && req.TaskTitle == "" {
