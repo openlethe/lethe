@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -13,10 +14,27 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// resolveSession looks up a session by sessionKey first, then by sessionID.
+// This allows both human-readable keys (OpenClaw sessionKey) and UUIDs (Lethe session_id)
+// to be used interchangeably in URL paths.
+func (s *Server) resolveSession(ctx context.Context, id string) (*models.Session, error) {
+	// Try sessionKey first.
+	sess, err := s.sessMgr.Store().GetSessionByKey(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if sess != nil {
+		return sess, nil
+	}
+	// Fall back to session_id lookup.
+	return s.sessMgr.GetSession(ctx, id)
+}
+
 // --- Session handlers ---
 
 func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
+		SessionKey  string `json:"session_key"`
 		AgentID     string `json:"agent_id"`
 		ProjectID   string `json:"project_id"`
 		AgentName   string `json:"agent_name"`
@@ -30,7 +48,16 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "agent_id and project_id are required"})
 		return
 	}
-	sess, err := s.sessMgr.StartSession(r.Context(), req.AgentID, req.ProjectID, req.AgentName, req.ProjectName)
+
+	// If a session_key is provided, use StartSessionWithKey to get a stable ID.
+	// Otherwise fall back to the regular StartSession.
+	var sess *models.Session
+	var err error
+	if req.SessionKey != "" {
+		sess, err = s.sessMgr.StartSessionWithKey(r.Context(), req.SessionKey, req.AgentID, req.ProjectID, req.AgentName, req.ProjectName)
+	} else {
+		sess, err = s.sessMgr.StartSession(r.Context(), req.AgentID, req.ProjectID, req.AgentName, req.ProjectName)
+	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -44,7 +71,7 @@ func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: "session manager not available"})
 		return
 	}
-	sess, err := s.sessMgr.GetSession(r.Context(), sessionID)
+	sess, err := s.resolveSession(r.Context(), sessionID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -62,7 +89,16 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: "session manager not available"})
 		return
 	}
-	if err := s.sessMgr.Heartbeat(r.Context(), sessionID); err != nil {
+	sess, err := s.resolveSession(r.Context(), sessionID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if sess == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "session not found"})
+		return
+	}
+	if err := s.sessMgr.Heartbeat(r.Context(), sess.SessionID); err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -75,7 +111,7 @@ func (s *Server) handleInterruptSession(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: "session manager not available"})
 		return
 	}
-	sess, err := s.sessMgr.GetSession(r.Context(), sessionID)
+	sess, err := s.resolveSession(r.Context(), sessionID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -118,7 +154,7 @@ func (s *Server) handleCompleteSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: "session manager not available"})
 		return
 	}
-	sess, err := s.sessMgr.GetSession(r.Context(), sessionID)
+	sess, err := s.resolveSession(r.Context(), sessionID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -150,6 +186,15 @@ func (s *Server) handleCompleteSession(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
+	sess, err := s.resolveSession(r.Context(), sessionID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if sess == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "session not found"})
+		return
+	}
 
 	var req CreateEventRequest
 	if err := readJSON(r, &req); err != nil {
@@ -171,7 +216,7 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 
 	event := &models.Event{
 		EventID:       generateID(),
-		SessionID:     sessionID,
+		SessionID:     sess.SessionID,
 		ParentEventID: req.ParentEventID,
 		EventType:     models.EventType(req.EventType),
 		Content:       req.Content,
@@ -197,6 +242,15 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetSessionEvents(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
+	sess, err := s.resolveSession(r.Context(), sessionID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if sess == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "session not found"})
+		return
+	}
 
 	limit := 50
 	if l := r.URL.Query().Get("limit"); l != "" {
@@ -214,13 +268,13 @@ func (s *Server) handleGetSessionEvents(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 
-	total, err := s.store.GetSessionEventsCount(r.Context(), sessionID)
+	total, err := s.store.GetSessionEventsCount(r.Context(), sess.SessionID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	events, err := s.store.GetSessionEvents(r.Context(), sessionID, limit, offset)
+	events, err := s.store.GetSessionEvents(r.Context(), sess.SessionID, limit, offset)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -242,7 +296,7 @@ func (s *Server) handleCreateCheckpoint(w http.ResponseWriter, r *http.Request) 
 		writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: "session manager not available"})
 		return
 	}
-	sess, err := s.sessMgr.GetSession(r.Context(), sessionID)
+	sess, err := s.resolveSession(r.Context(), sessionID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -267,7 +321,7 @@ func (s *Server) handleCreateCheckpoint(w http.ResponseWriter, r *http.Request) 
 
 	cp := &models.Checkpoint{
 		CheckpointID: generateID(),
-		SessionID:    sessionID,
+		SessionID:    sess.SessionID,
 		Snapshot: models.Snapshot{
 			OpenThreads:    req.Snapshot.OpenThreads,
 			RecentEventIDs: req.Snapshot.RecentEventIDs,
@@ -289,7 +343,16 @@ func (s *Server) handleCreateCheckpoint(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleGetCheckpoints(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
-	cps, err := s.store.GetCheckpoints(r.Context(), sessionID)
+	sess, err := s.resolveSession(r.Context(), sessionID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if sess == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "session not found"})
+		return
+	}
+	cps, err := s.store.GetCheckpoints(r.Context(), sess.SessionID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -379,7 +442,7 @@ func (s *Server) handleGetSessionSummary(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: "session manager not available"})
 		return
 	}
-	sess, err := s.sessMgr.GetSession(r.Context(), sessionID)
+	sess, err := s.resolveSession(r.Context(), sessionID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -389,13 +452,13 @@ func (s *Server) handleGetSessionSummary(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	cps, _ := s.store.GetCheckpoints(r.Context(), sessionID)
+	cps, _ := s.store.GetCheckpoints(r.Context(), sess.SessionID)
 	var latestCP *models.Checkpoint
 	if len(cps) > 0 {
 		latestCP = cps[0]
 	}
 
-	events, _ := s.store.GetSessionEvents(r.Context(), sessionID, 20, 0)
+	events, _ := s.store.GetSessionEvents(r.Context(), sess.SessionID, 20, 0)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"session":        sess,

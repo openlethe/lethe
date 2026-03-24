@@ -34,13 +34,14 @@ const (
 // Session represents a Lethe session.
 type Session struct {
 	SessionID        string       `json:"session_id"`
-	AgentID         string       `json:"agent_id"`
-	ProjectID       string       `json:"project_id"`
-	State           SessionState `json:"state"`
-	StartedAt       time.Time    `json:"started_at"`
-	LastHeartbeatAt sql.NullTime `json:"-"`
-	EndedAt         sql.NullTime `json:"-"`
-	Summary         string       `json:"summary,omitempty"`
+	SessionKey       string       `json:"session_key,omitempty"`
+	AgentID          string       `json:"agent_id"`
+	ProjectID        string       `json:"project_id"`
+	State            SessionState `json:"state"`
+	StartedAt        time.Time    `json:"started_at"`
+	LastHeartbeatAt  sql.NullTime `json:"-"`
+	EndedAt          sql.NullTime `json:"-"`
+	Summary          string       `json:"summary,omitempty"`
 }
 
 // Checkpoint represents a session checkpoint snapshot.

@@ -77,6 +77,10 @@ async function letheFetch(
   });
 }
 
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
 // ---------------------------------------------------------------------------
 // LetheContextEngine
 // ---------------------------------------------------------------------------
@@ -92,7 +96,11 @@ export class LetheContextEngine implements ContextEngine {
   constructor(private cfg: LetheContextEngineConfig) {}
 
   // ------------------------------------------------------------------
-  // Session management (OpenClaw ↔ Lethe)
+  // bootstrap
+  // ------------------------------------------------------------------
+  // Uses sessionKey as the stable Lethe session_id. On first boot creates
+  // the session via POST /sessions. On subsequent boots checks for an
+  // interrupted session and resumes it with a summary injection.
   // ------------------------------------------------------------------
 
   async bootstrap({
@@ -104,22 +112,17 @@ export class LetheContextEngine implements ContextEngine {
   }): Promise<BootstrapResult> {
     const { endpoint, apiKey, agentId, projectId } = this.cfg;
 
-    // Check if Lethe already has an interrupted session for this sessionKey.
     if (!sessionKey) {
       return { bootstrapped: false, reason: "no sessionKey" };
     }
 
     try {
-      const res = await letheFetch(
-        endpoint,
-        apiKey,
-        `/sessions/${sessionKey}`
-      );
+      // Try to get existing session by sessionKey.
+      const res = await letheFetch(endpoint, apiKey, `/sessions/${sessionKey}`);
 
       if (res.ok) {
         const session = await res.json();
         if (session.state === "interrupted") {
-          // Resume: pull the session summary + recent events from Lethe.
           const summaryRes = await letheFetch(
             endpoint,
             apiKey,
@@ -133,13 +136,16 @@ export class LetheContextEngine implements ContextEngine {
             };
           }
         }
+        // Session already exists and is active — nothing to do.
+        return { bootstrapped: true };
       }
 
-      // No interrupted session found — create a fresh one.
+      // Session doesn't exist yet — create it.
+      // Use sessionKey as the Lethe session_id so we can look it up later.
       const createRes = await letheFetch(endpoint, apiKey, "/sessions", {
-        sessionId,
-        agentId,
-        projectId,
+        session_id: sessionKey,
+        agent_id: agentId,
+        project_id: projectId,
       });
 
       if (!createRes.ok && createRes.status !== 409) {
@@ -153,7 +159,7 @@ export class LetheContextEngine implements ContextEngine {
   }
 
   // ------------------------------------------------------------------
-  // Ingest
+  // ingest — passive log ingestion on non-heartbeat turns
   // ------------------------------------------------------------------
 
   async ingest({
@@ -167,17 +173,14 @@ export class LetheContextEngine implements ContextEngine {
     message: AgentMessage;
     isHeartbeat?: boolean;
   }): Promise<IngestResult> {
-    // Heartbeats are handled by afterTurn; skip passive ingestion here.
-    if (isHeartbeat) return { ingested: false };
-
-    if (!sessionKey) return { ingested: false };
+    if (isHeartbeat || !sessionKey) return { ingested: false };
 
     const { endpoint, apiKey } = this.cfg;
     try {
-      const res = await letheFetch(endpoint, apiKey, "/events", {
-        sessionKey,
-        eventType: "log",
+      const res = await letheFetch(endpoint, apiKey, `/sessions/${sessionKey}/events`, {
+        event_type: "log",
         content: messageToLogContent(message),
+        tags: [],
       });
       return { ingested: res.ok };
     } catch {
@@ -186,34 +189,35 @@ export class LetheContextEngine implements ContextEngine {
   }
 
   // ------------------------------------------------------------------
-  // afterTurn — checkpoint + lightweight events
+  // afterTurn — checkpoint on real turns, lightweight heartbeat ping on beats
   // ------------------------------------------------------------------
 
   async afterTurn(params: AfterTurnParams): Promise<void> {
-    const { sessionId, sessionKey, messages, isHeartbeat, tokenBudget } =
-      params;
+    const { sessionKey, messages, isHeartbeat, tokenBudget } = params;
 
     if (!sessionKey) return;
 
     const { endpoint, apiKey } = this.cfg;
 
-    // Heartbeat: lightweight heartbeat ping only.
     if (isHeartbeat) {
       await letheFetch(endpoint, apiKey, `/sessions/${sessionKey}/heartbeat`, {
-        tokenBudget,
+        token_budget: tokenBudget,
       }).catch(() => {});
       return;
     }
 
-    // Real turn: write full checkpoint.
+    // Real turn: write a checkpoint capturing open threads and last tool.
     const lastMsg = messages[messages.length - 1];
     const openThreads = extractOpenThreads(lastMsg);
+    const lastTool = lastMsg ? extractLastTool(lastMsg) : null;
 
     await letheFetch(endpoint, apiKey, `/sessions/${sessionKey}/checkpoints`, {
-      sessionId,
-      openThreads,
-      lastTool: lastMsg ? extractLastTool(lastMsg) : null,
-      tokenBudget,
+      snapshot: {
+        open_threads: openThreads,
+        recent_event_ids: [],
+        current_task: "",
+        last_tool: lastTool,
+      },
     }).catch(() => {});
   }
 
@@ -227,40 +231,34 @@ export class LetheContextEngine implements ContextEngine {
 
     const { endpoint, apiKey } = this.cfg;
 
-    // Stage 1: session summary (the "story so far" — written at graceful end
-    // or last significant checkpoint).
+    // Stage 1: session summary (the "story so far").
     let summaryText = "";
     let summaryTokens = 0;
     try {
-      const res = await letheFetch(
-        endpoint,
-        apiKey,
-        `/sessions/${sessionKey}/summary`
-      );
+      const res = await letheFetch(endpoint, apiKey, `/sessions/${sessionKey}/summary`);
       if (res.ok) {
         const summary = await res.json();
-        if (summary.text) {
-          summaryText = summary.text;
-          summaryTokens = estimateTokens(summary.text);
+        if (summary.summary) {
+          summaryText = summary.summary;
+          summaryTokens = estimateTokens(summaryText);
         }
       }
     } catch {
-      // Network or parse error — proceed without summary.
+      // Proceed without summary.
     }
 
     // Stage 2: recent events, budget-aware.
     let recentEvents: AgentMessage[] = [];
     let recentTokens = 0;
     const budgetForRecent = tokenBudget
-      ? Math.max(0, tokenBudget - summaryTokens - 200) // 200 = buffer
+      ? Math.max(0, tokenBudget - summaryTokens - 200)
       : undefined;
 
     if (!budgetForRecent || budgetForRecent > 100) {
       try {
-        const res = await letheFetch(endpoint, apiKey, `/events`, {
-          sessionKey,
+        const res = await letheFetch(endpoint, apiKey, `/sessions/${sessionKey}/events`, {
           limit: 20,
-          tokenBudget: budgetForRecent,
+          token_budget: budgetForRecent,
         });
         if (res.ok) {
           const data = await res.json();
@@ -272,7 +270,6 @@ export class LetheContextEngine implements ContextEngine {
       }
     }
 
-    // Build the assembled context.
     const systemPromptAddition = buildSystemPromptAddition(summaryText, recentTokens);
     const assembledMessages: any[] = [
       ...(summaryText ? [makeSummaryMessage(summaryText)] : []),
@@ -289,80 +286,60 @@ export class LetheContextEngine implements ContextEngine {
   }
 
   // ------------------------------------------------------------------
-  // compact — Lethe writes reasoning chain to its store, surfaces summary
+  // compact — Lethe writes reasoning chain, surfaces summary
   // ------------------------------------------------------------------
 
   async compact(params: CompactParams): Promise<CompactResult> {
     const { sessionKey, tokenBudget, force, currentTokenCount } = params;
 
-    if (!sessionKey) {
-      return delegateCompactionToRuntime(params);
-    }
+    if (!sessionKey) return delegateCompactionToRuntime(params);
 
     const { endpoint, apiKey } = this.cfg;
 
     try {
-      // Ask Lethe server to compact: write the reasoning chain to its store
-      // and return a summary.
       const res = await letheFetch(
         endpoint,
         apiKey,
         `/sessions/${sessionKey}/compact`,
-        {
-          tokenBudget,
-          force,
-        }
+        { token_budget: tokenBudget, force }
       );
 
-      if (!res.ok) {
-        return delegateCompactionToRuntime(params);
-      }
+      if (!res.ok) return delegateCompactionToRuntime(params);
 
       const data = await res.json();
-
       return {
         ok: true,
         compacted: true,
         result: {
           summary: data.summary,
           tokensBefore: currentTokenCount ?? 0,
-          tokensAfter: data.tokensAfter,
+          tokensAfter: data.tokens_after,
         },
       };
     } catch {
-      // Lethe unavailable — delegate to built-in compaction.
       return delegateCompactionToRuntime(params);
     }
   }
 
-  // ------------------------------------------------------------------
-  // dispose
-  // ------------------------------------------------------------------
-
-  async dispose(): Promise<void> {
-    // Nothing to dispose; the HTTP client has no persistent connections.
-  }
+  async dispose(): Promise<void> {}
 }
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function summaryPrompt(
-  summary: { text: string; updatedAt: string }
-): string {
+function summaryPrompt(summary: { summary?: string; updated_at?: string }): string {
+  const text = summary.summary ?? "";
+  const updated = summary.updated_at ?? "";
   return (
     `\n[Lethe Memory — Previous Session]\n` +
-    `Last updated: ${summary.updatedAt}\n` +
-    `${summary.text}\n` +
+    (updated ? `Last updated: ${updated}\n` : "") +
+    `${text}\n` +
     `[/Lethe Memory]\n`
   );
 }
 
-function buildSystemPromptAddition(
-  summaryText: string,
-  recentTokens: number
-): string {
+function buildSystemPromptAddition(summaryText: string, recentTokens: number): string {
   if (!summaryText && recentTokens === 0) return "";
   const parts: string[] = [];
   if (summaryText) {
@@ -381,14 +358,11 @@ function buildSystemPromptAddition(
 function messageToLogContent(msg: AgentMessage): string {
   const content = (msg as any).content;
   if (msg.role === "user") {
-    const text = extractText(msg);
-    return `[user] ${text}`;
+    return `[user] ${extractText(msg)}`;
   }
   if (msg.role === "assistant") {
     const text = extractText(msg);
-    const toolCalls = (content || []).filter(
-      (c: any) => c.type === "toolCall"
-    );
+    const toolCalls = (content || []).filter((c: any) => c.type === "toolCall");
     if (toolCalls.length) {
       return `[assistant] ${text}\n[tools called: ${toolCalls.map((t: any) => t.name).join(", ")}]`;
     }
@@ -408,13 +382,9 @@ function extractText(msg: AgentMessage): string {
 }
 
 function extractOpenThreads(msg: AgentMessage): string[] {
-  // Look for common "open thread" indicators in the last assistant message.
   const text = extractText(msg);
   const threads: string[] = [];
-  // Match patterns like "## Open thread" or "### TODO" or "[open]" in the
-  // trailing assistant output that hasn't been addressed yet.
-  const lines = text.split("\n");
-  for (const line of lines.slice(-10)) {
+  for (const line of text.split("\n").slice(-10)) {
     const trimmed = line.trim();
     if (
       trimmed.startsWith("##") ||
@@ -432,15 +402,14 @@ function extractLastTool(msg: AgentMessage): string | null {
   const content = (msg as any).content;
   if (!Array.isArray(content)) return null;
   const toolCalls = content.filter((c: any) => c.type === "toolCall");
-  if (!toolCalls.length) return null;
-  return toolCalls[toolCalls.length - 1].name;
+  return toolCalls.length ? toolCalls[toolCalls.length - 1].name : null;
 }
 
 function eventToMessage(event: any): AgentMessage {
   return {
-    id: event.eventId,
+    id: event.event_id,
     role: "assistant",
-    content: event.content,
+    content: [{ type: "text", text: event.content }],
     api: "unknown",
     provider: "unknown",
     model: "unknown",
@@ -459,7 +428,9 @@ function eventToMessage(event: any): AgentMessage {
       },
     },
     stopReason: "stop",
-    timestamp: event.createdAt ? new Date(event.createdAt).getTime() : Date.now(),
+    timestamp: event.created_at
+      ? new Date(event.created_at).getTime()
+      : Date.now(),
   } as AgentMessage;
 }
 
@@ -493,9 +464,4 @@ function makeSummaryMessage(text: string): AgentMessage {
     stopReason: "stop",
     timestamp: Date.now(),
   } as AgentMessage;
-}
-
-function estimateTokens(text: string): number {
-  // Rough approximation: ~4 chars per token for English text.
-  return Math.ceil(text.length / 4);
 }

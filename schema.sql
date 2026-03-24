@@ -26,6 +26,7 @@ CREATE TABLE projects (
 
 CREATE TABLE sessions (
     session_id        TEXT PRIMARY KEY,
+    session_key       TEXT UNIQUE,  -- OpenClaw's stable sessionKey, nullable until first mapped
     agent_id          TEXT NOT NULL REFERENCES agents(agent_id),
     project_id        TEXT NOT NULL REFERENCES projects(project_id),
     state             TEXT DEFAULT 'active' CHECK (state IN ('active','interrupted','completed')),

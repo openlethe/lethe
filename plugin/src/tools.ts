@@ -130,13 +130,10 @@ export class LetheTools {
         const { endpoint, apiKey, agentId, projectId } = this.cfg;
         const sk = sessionKey ?? agentId;
 
-        const res = await lethePost(endpoint, apiKey, "/events", {
-          sessionKey: sk,
-          eventType: "record",
+        const res = await lethePost(endpoint, apiKey, `/sessions/${sk}/events`, {
+          event_type: "record",
           content,
           tags: tags ?? [],
-          agentId,
-          projectId,
         });
 
         if (!res.ok) {
@@ -155,7 +152,7 @@ export class LetheTools {
               text: `Recorded: ${content}${tags?.length ? ` [${tags.join(", ")}]` : ""}`,
             },
           ],
-          details: { ok: true, eventId: data.eventId },
+          details: { ok: true, event_id: data.event_id },
         };
       },
     });
@@ -173,13 +170,10 @@ export class LetheTools {
         const { endpoint, apiKey, agentId, projectId } = this.cfg;
         const sk = sessionKey ?? agentId;
 
-        const res = await lethePost(endpoint, apiKey, "/events", {
-          sessionKey: sk,
-          eventType: "log",
+        const res = await lethePost(endpoint, apiKey, `/sessions/${sk}/events`, {
+          event_type: "log",
           content,
           tags: tags ?? [],
-          agentId,
-          projectId,
         });
 
         if (!res.ok) {
@@ -193,7 +187,7 @@ export class LetheTools {
         const data = await res.json();
         return {
           content: [{ type: "text", text: `Logged: ${content}` }],
-          details: { ok: true, eventId: data.eventId },
+          details: { ok: true, event_id: data.event_id },
         };
       },
     });
@@ -213,13 +207,10 @@ export class LetheTools {
         const { endpoint, apiKey, agentId, projectId } = this.cfg;
         const sk = sessionKey ?? agentId;
 
-        const res = await lethePost(endpoint, apiKey, "/events", {
-          sessionKey: sk,
-          eventType: "flag",
+        const res = await lethePost(endpoint, apiKey, `/sessions/${sk}/events`, {
+          event_type: "flag",
           content,
           confidence,
-          agentId,
-          projectId,
         });
 
         if (!res.ok) {
@@ -238,7 +229,7 @@ export class LetheTools {
               text: `Flagged (confidence ${confidence}): ${content}`,
             },
           ],
-          details: { ok: true, eventId: data.eventId },
+          details: { ok: true, event_id: data.event_id },
         };
       },
     });
@@ -258,14 +249,11 @@ export class LetheTools {
         const { endpoint, apiKey, agentId, projectId } = this.cfg;
         const sk = sessionKey ?? agentId;
 
-        const res = await lethePost(endpoint, apiKey, "/events", {
-          sessionKey: sk,
-          eventType: "task",
+        const res = await lethePost(endpoint, apiKey, `/sessions/${sk}/events`, {
+          event_type: "task",
           content: title,
-          taskStatus: status,
-          parentEventId,
-          agentId,
-          projectId,
+          task_status: status,
+          parent_event_id: parentEventId,
         });
 
         if (!res.ok) {
@@ -284,7 +272,7 @@ export class LetheTools {
               text: `Task [${status}]: ${title}`,
             },
           ],
-          details: { ok: true, eventId: data.eventId, status },
+          details: { ok: true, event_id: data.event_id, status },
         };
       },
     });

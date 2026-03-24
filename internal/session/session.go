@@ -26,6 +26,11 @@ func NewManager(store *db.Store) *Manager {
 	return &Manager{store: store}
 }
 
+// Store returns the underlying store for use by API handlers.
+func (m *Manager) Store() *db.Store {
+	return m.store
+}
+
 // StartSession creates a new active session, upserting agent and project first.
 func (m *Manager) StartSession(ctx context.Context, agentID, projectID, agentName, projectName string) (*models.Session, error) {
 	if err := m.store.UpsertAgent(ctx, &models.Agent{AgentID: agentID, Name: agentName}); err != nil {
@@ -116,4 +121,62 @@ func (m *Manager) Heartbeat(ctx context.Context, sessionID string) error {
 // GetSession returns a session by ID.
 func (m *Manager) GetSession(ctx context.Context, sessionID string) (*models.Session, error) {
 	return m.store.GetSession(ctx, sessionID)
+}
+
+// StartSessionWithKey creates a new session tied to a known sessionKey.
+// If a session with that sessionKey already exists, returns it directly.
+func (m *Manager) StartSessionWithKey(ctx context.Context, sessionKey, agentID, projectID, agentName, projectName string) (*models.Session, error) {
+	// Upsert agent and project.
+	if err := m.store.UpsertAgent(ctx, &models.Agent{AgentID: agentID, Name: agentName}); err != nil {
+		return nil, fmt.Errorf("upsert agent: %w", err)
+	}
+	if err := m.store.UpsertProject(ctx, &models.Project{ProjectID: projectID, Name: projectName}); err != nil {
+		return nil, fmt.Errorf("upsert project: %w", err)
+	}
+
+	// Check if a session with this sessionKey already exists.
+	existing, err := m.store.GetSessionByKey(ctx, sessionKey)
+	if err != nil {
+		return nil, fmt.Errorf("check existing session: %w", err)
+	}
+	if existing != nil {
+		return existing, nil
+	}
+
+	// Create new session.
+	sess := &models.Session{
+		SessionID:  uuid.New().String(),
+		SessionKey: sessionKey,
+		AgentID:   agentID,
+		ProjectID: projectID,
+		State:     models.SessionActive,
+		StartedAt: time.Now().UTC(),
+	}
+	if err := m.store.CreateSession(ctx, sess); err != nil {
+		return nil, fmt.Errorf("create session: %w", err)
+	}
+	return sess, nil
+}
+
+// ResumeSessionByKey finds the most recent interrupted session for a sessionKey
+// and transitions it back to active. Returns ErrNoInterrupted if none found.
+func (m *Manager) ResumeSessionByKey(ctx context.Context, sessionKey string) (*models.Session, error) {
+	sess, err := m.store.GetInterruptedSessionByKey(ctx, sessionKey)
+	if err != nil {
+		return nil, fmt.Errorf("get interrupted session: %w", err)
+	}
+	if sess == nil {
+		return nil, ErrNoInterrupted
+	}
+
+	if !IsValidTransition(sess.State, models.SessionActive) {
+		return nil, fmt.Errorf("%w: %s → %s", ErrInvalidTransition, sess.State, models.SessionActive)
+	}
+
+	sess.State = models.SessionActive
+	if err := m.store.UpdateSessionState(ctx, sess.SessionID, models.SessionActive, "", nil); err != nil {
+		return nil, fmt.Errorf("resume transition: %w", err)
+	}
+
+	return sess, nil
 }

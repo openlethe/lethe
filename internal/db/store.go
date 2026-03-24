@@ -58,11 +58,11 @@ func (s *Store) UpsertProject(ctx context.Context, p *models.Project) error {
 
 // CreateSession inserts a new session.
 func (s *Store) CreateSession(ctx context.Context, sess *models.Session) error {
-	q := `INSERT INTO sessions (session_id, agent_id, project_id, state, started_at, last_heartbeat_at)
-	      VALUES (?, ?, ?, ?, ?, ?)`
+	q := `INSERT INTO sessions (session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at)
+	      VALUES (?, ?, ?, ?, ?, ?, ?)`
 	now := time.Now().UTC()
 	nullTime := sql.NullTime{Time: now, Valid: true}
-	_, err := s.ExecContext(ctx, q, sess.SessionID, sess.AgentID, sess.ProjectID,
+	_, err := s.ExecContext(ctx, q, sess.SessionID, nullString(sess.SessionKey), sess.AgentID, sess.ProjectID,
 		sess.State, now, nullTime)
 	return err
 }
@@ -90,13 +90,14 @@ func (s *Store) TouchSessionHeartbeat(ctx context.Context, sessionID string) err
 
 // GetSession returns a session by ID.
 func (s *Store) GetSession(ctx context.Context, sessionID string) (*models.Session, error) {
-	q := `SELECT session_id, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary
+	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary
 	      FROM sessions WHERE session_id=?`
 	var sess models.Session
+	var sessionKey sql.NullString
 	var lastHb, ended sql.NullTime
 	var summary sql.NullString
 	err := s.QueryRowContext(ctx, q, sessionID).Scan(
-		&sess.SessionID, &sess.AgentID, &sess.ProjectID, &sess.State,
+		&sess.SessionID, &sessionKey, &sess.AgentID, &sess.ProjectID, &sess.State,
 		&sess.StartedAt, &lastHb, &ended, &summary,
 	)
 	if err == sql.ErrNoRows {
@@ -107,6 +108,9 @@ func (s *Store) GetSession(ctx context.Context, sessionID string) (*models.Sessi
 	}
 	sess.LastHeartbeatAt = lastHb
 	sess.EndedAt = ended
+	if sessionKey.Valid {
+		sess.SessionKey = sessionKey.String
+	}
 	if summary.Valid {
 		sess.Summary = summary.String
 	}
@@ -115,15 +119,16 @@ func (s *Store) GetSession(ctx context.Context, sessionID string) (*models.Sessi
 
 // GetInterruptedSession returns the most recent interrupted session for an agent+project.
 func (s *Store) GetInterruptedSession(ctx context.Context, agentID, projectID string) (*models.Session, error) {
-	q := `SELECT session_id, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary
+	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary
 	      FROM sessions
 	      WHERE agent_id=? AND project_id=? AND state='interrupted'
 	      ORDER BY last_heartbeat_at DESC LIMIT 1`
 	var sess models.Session
+	var sessionKey sql.NullString
 	var lastHb, ended sql.NullTime
 	var summary sql.NullString
 	err := s.QueryRowContext(ctx, q, agentID, projectID).Scan(
-		&sess.SessionID, &sess.AgentID, &sess.ProjectID, &sess.State,
+		&sess.SessionID, &sessionKey, &sess.AgentID, &sess.ProjectID, &sess.State,
 		&sess.StartedAt, &lastHb, &ended, &summary,
 	)
 	if err == sql.ErrNoRows {
@@ -134,6 +139,69 @@ func (s *Store) GetInterruptedSession(ctx context.Context, agentID, projectID st
 	}
 	sess.LastHeartbeatAt = lastHb
 	sess.EndedAt = ended
+	if sessionKey.Valid {
+		sess.SessionKey = sessionKey.String
+	}
+	if summary.Valid {
+		sess.Summary = summary.String
+	}
+	return &sess, nil
+}
+
+// GetSessionByKey returns a session by its session_key.
+func (s *Store) GetSessionByKey(ctx context.Context, sessionKey string) (*models.Session, error) {
+	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary
+	      FROM sessions WHERE session_key=?`
+	var sess models.Session
+	var sessionKeyVal sql.NullString
+	var lastHb, ended sql.NullTime
+	var summary sql.NullString
+	err := s.QueryRowContext(ctx, q, sessionKey).Scan(
+		&sess.SessionID, &sessionKeyVal, &sess.AgentID, &sess.ProjectID, &sess.State,
+		&sess.StartedAt, &lastHb, &ended, &summary,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	sess.LastHeartbeatAt = lastHb
+	sess.EndedAt = ended
+	if sessionKeyVal.Valid {
+		sess.SessionKey = sessionKeyVal.String
+	}
+	if summary.Valid {
+		sess.Summary = summary.String
+	}
+	return &sess, nil
+}
+
+// GetInterruptedSessionByKey returns the most recent interrupted session for a sessionKey.
+func (s *Store) GetInterruptedSessionByKey(ctx context.Context, sessionKey string) (*models.Session, error) {
+	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary
+	      FROM sessions
+	      WHERE session_key=? AND state='interrupted'
+	      ORDER BY last_heartbeat_at DESC LIMIT 1`
+	var sess models.Session
+	var sessionKeyVal sql.NullString
+	var lastHb, ended sql.NullTime
+	var summary sql.NullString
+	err := s.QueryRowContext(ctx, q, sessionKey).Scan(
+		&sess.SessionID, &sessionKeyVal, &sess.AgentID, &sess.ProjectID, &sess.State,
+		&sess.StartedAt, &lastHb, &ended, &summary,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	sess.LastHeartbeatAt = lastHb
+	sess.EndedAt = ended
+	if sessionKeyVal.Valid {
+		sess.SessionKey = sessionKeyVal.String
+	}
 	if summary.Valid {
 		sess.Summary = summary.String
 	}
