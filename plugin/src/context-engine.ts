@@ -242,9 +242,10 @@ export class LetheContextEngine implements ContextEngine {
     try {
       const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/summary`);
       if (res.ok) {
-        const summary = await res.json();
-        if (summary.summary) {
-          summaryText = summary.summary;
+        const data = await res.json();
+        const rawSummary = data.summary ?? data.session?.summary ?? null;
+        if (rawSummary) {
+          summaryText = rawSummary;
           summaryTokens = estimateTokens(summaryText);
         }
       }
