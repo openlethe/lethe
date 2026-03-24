@@ -1,0 +1,26 @@
+{
+  "name": "@mentholmike/lethe",
+  "version": "0.1.0",
+  "description": "Lethe — persistent memory layer for AI agents. OpenClaw plugin.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc && tsc-alias",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-agent-core": "^0.61.1",
+    "openclaw": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-agent-core": "^0.61.1",
+    "@types/node": "^20.0.0",
+    "openclaw": "*",
+    "typescript": "^5.4.0",
+    "tsc-alias": "^1.8.0"
+  }
+}

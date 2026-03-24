@@ -18,3 +18,8 @@ Thumbs.db
 
 # Lethe
 lethe.db
+
+# Plugin
+plugin/dist/
+plugin/node_modules/
+
