@@ -118,7 +118,7 @@ export class LetheContextEngine implements ContextEngine {
 
     try {
       // Try to get existing session by sessionKey.
-      const res = await letheFetch(endpoint, apiKey, `/sessions/${sessionKey}`);
+      const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}`);
 
       if (res.ok) {
         const session = await res.json();
@@ -126,7 +126,7 @@ export class LetheContextEngine implements ContextEngine {
           const summaryRes = await letheFetch(
             endpoint,
             apiKey,
-            `/sessions/${sessionKey}/summary`
+            `/sessions/${encodeURIComponent(sessionKey)}/summary`
           );
           if (summaryRes.ok) {
             const summary = await summaryRes.json();
@@ -177,7 +177,7 @@ export class LetheContextEngine implements ContextEngine {
 
     const { endpoint, apiKey } = this.cfg;
     try {
-      const res = await letheFetch(endpoint, apiKey, `/sessions/${sessionKey}/events`, {
+      const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/events`, {
         event_type: "log",
         content: messageToLogContent(message),
         tags: [],
@@ -200,7 +200,7 @@ export class LetheContextEngine implements ContextEngine {
     const { endpoint, apiKey } = this.cfg;
 
     if (isHeartbeat) {
-      await letheFetch(endpoint, apiKey, `/sessions/${sessionKey}/heartbeat`, {
+      await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/heartbeat`, {
         token_budget: tokenBudget,
       }).catch(() => {});
       return;
@@ -211,7 +211,7 @@ export class LetheContextEngine implements ContextEngine {
     const openThreads = extractOpenThreads(lastMsg);
     const lastTool = lastMsg ? extractLastTool(lastMsg) : null;
 
-    await letheFetch(endpoint, apiKey, `/sessions/${sessionKey}/checkpoints`, {
+    await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/checkpoints`, {
       snapshot: {
         open_threads: openThreads,
         recent_event_ids: [],
@@ -235,7 +235,7 @@ export class LetheContextEngine implements ContextEngine {
     let summaryText = "";
     let summaryTokens = 0;
     try {
-      const res = await letheFetch(endpoint, apiKey, `/sessions/${sessionKey}/summary`);
+      const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/summary`);
       if (res.ok) {
         const summary = await res.json();
         if (summary.summary) {
@@ -256,7 +256,7 @@ export class LetheContextEngine implements ContextEngine {
 
     if (!budgetForRecent || budgetForRecent > 100) {
       try {
-        const res = await letheFetch(endpoint, apiKey, `/sessions/${sessionKey}/events`, {
+        const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/events`, {
           limit: 20,
           token_budget: budgetForRecent,
         });
@@ -300,7 +300,7 @@ export class LetheContextEngine implements ContextEngine {
       const res = await letheFetch(
         endpoint,
         apiKey,
-        `/sessions/${sessionKey}/compact`,
+        `/sessions/${encodeURIComponent(sessionKey)}/compact`,
         { token_budget: tokenBudget, force }
       );
 

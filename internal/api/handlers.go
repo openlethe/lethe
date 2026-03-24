@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
@@ -18,8 +19,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 // This allows both human-readable keys (OpenClaw sessionKey) and UUIDs (Lethe session_id)
 // to be used interchangeably in URL paths.
 func (s *Server) resolveSession(ctx context.Context, id string) (*models.Session, error) {
+	// URL-decode the id in case it was percent-encoded by the client.
+	decodedID, err := url.PathUnescape(id)
+	if err != nil {
+		return nil, err
+	}
 	// Try sessionKey first.
-	sess, err := s.sessMgr.Store().GetSessionByKey(ctx, id)
+	sess, err := s.sessMgr.Store().GetSessionByKey(ctx, decodedID)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +33,7 @@ func (s *Server) resolveSession(ctx context.Context, id string) (*models.Session
 		return sess, nil
 	}
 	// Fall back to session_id lookup.
-	return s.sessMgr.GetSession(ctx, id)
+	return s.sessMgr.GetSession(ctx, decodedID)
 }
 
 // --- Session handlers ---
