@@ -18,6 +18,16 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// handleStats returns aggregate stats.
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.store.GetStats(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
 // resolveSession looks up a session by sessionKey first, then by sessionID.
 // This allows both human-readable keys (OpenClaw sessionKey) and UUIDs (Lethe session_id)
 // to be used interchangeably in URL paths.
@@ -505,10 +515,20 @@ func truncate(s string, max int) string {
 	return s[:max] + "…"
 }
 
-// handleListSessions returns all sessions for an agent+project.
+// handleListSessions returns all sessions ordered by last heartbeat.
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
-	// TODO: add agent_id/project_id query filters
-	writeJSON(w, http.StatusOK, map[string]interface{}{"sessions": []interface{}{}})
+	limit := 20
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	sessions, err := s.store.GetAllSessions(r.Context(), limit)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"sessions": sessions})
 }
 
 // handleGetSessionSummary returns a full session view: session + latest checkpoint + recent events.

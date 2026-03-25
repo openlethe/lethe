@@ -1,11 +1,16 @@
 package ui
 
 import (
+	"bytes"
+	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"net/http"
 	"text/template"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 )
@@ -19,15 +24,77 @@ var templatesFS embed.FS
 var templates *template.Template
 
 func init() {
+	funcMap := template.FuncMap{
+		"since": func(v interface{}) string {
+			var t time.Time
+			switch x := v.(type) {
+			case time.Time:
+				t = x
+			case string:
+				var err error
+				t, err = time.Parse(time.RFC3339, x)
+				if err != nil {
+					return x
+				}
+			}
+			d := time.Since(t)
+			if d < time.Minute {
+				return fmt.Sprintf("%.0fs", d.Seconds())
+			}
+			if d < time.Hour {
+				return fmt.Sprintf("%.0fm", d.Minutes())
+			}
+			if d < 24*time.Hour {
+				return fmt.Sprintf("%.0fh", d.Hours())
+			}
+			return fmt.Sprintf("%.0fd", d.Hours()/24)
+		},
+		"mul": func(a, b float64) float64 { return a * b },
+		"slice": func(s string, start, end int) string {
+			if start < 0 {
+				start = 0
+			}
+			runes := []rune(s)
+			if start >= len(runes) {
+				return ""
+			}
+			if end > len(runes) {
+				end = len(runes)
+			}
+			return string(runes[start:end])
+		},
+	}
+
 	// Parse base first so named templates are registered, then page templates.
-	base, err := template.ParseFS(templatesFS, "templates/base.html")
+	// Each page template defines title/content blocks that base's layout references.
+	base, err := template.ParseFS(templatesFS, "templates/base")
 	if err != nil {
 		panic("parse base: " + err.Error())
 	}
-	templates = template.Must(base.Clone())
-	_, err = templates.ParseFS(templatesFS, "templates/*.html")
+	base.Funcs(funcMap)
+	base, err = base.Clone()
+	if err != nil {
+		panic("clone base: " + err.Error())
+	}
+	templates = base
+	// Parse page templates - they define title and content blocks, no template calls.
+	// File order matters: later files can overwrite title blocks, so parse in
+	// alphabetical order so the Render call can execute the specific template.
+	_, err = templates.ParseFS(templatesFS,
+		"templates/dashboard",
+		"templates/flags",
+		"templates/live",
+		"templates/session_checkpoints",
+		"templates/session_detail",
+		"templates/session_events",
+		"templates/sessions",
+	)
 	if err != nil {
 		panic("parse templates: " + err.Error())
+	}
+	_, err = templates.ParseFS(templatesFS, "templates/fragments/*")
+	if err != nil {
+		panic("parse fragments: " + err.Error())
 	}
 }
 
@@ -45,19 +112,125 @@ func UseSubFS(fsys embed.FS, prefix string) (http.FileSystem, error) {
 
 // Render renders a template with the given name and data.
 func Render(w http.ResponseWriter, r *http.Request, name string, data interface{}) {
-	templates.ExecuteTemplate(w, name+".html", data)
+	// Page titles derived from template name to avoid {{define}} conflicts.
+	var title string
+	switch name {
+	case "dashboard":
+		title = "Dashboard"
+	case "sessions":
+		title = "Sessions"
+	case "session_detail":
+		title = "Session Detail"
+	case "session_events":
+		title = "Session Events"
+	case "session_checkpoints":
+		title = "Session Checkpoints"
+	case "flags":
+		title = "Flags"
+	case "live":
+		title = "Live"
+	default:
+		title = "Lethe"
+	}
+
+	type RenderData struct {
+		Title        string
+		Content      string
+		Data         interface{}
+		Request      *http.Request
+		CurrentRoute string
+	}
+
+	// Pre-render page content to a string so each page is independent.
+	// This avoids Go's flat {{define}} namespace conflict where later
+	// parsed templates overwrite earlier ones' blocks.
+	var pageContent string
+	if name != "layout" {
+		var buf bytes.Buffer
+		if err := templates.ExecuteTemplate(&buf, name, data); err != nil {
+			// If the named template doesn't exist, use empty content
+			log.Printf("Render(%q) page template error: %v", name, err)
+			pageContent = ""
+		} else {
+			pageContent = buf.String()
+		}
+	}
+
+	rd := RenderData{
+		Title:        title + " — Lethe",
+		Content:      pageContent,
+		Data:         data,
+		Request:      r,
+		CurrentRoute: name,
+	}
+	if err := templates.ExecuteTemplate(w, "layout", rd); err != nil {
+		log.Printf("Render(%q) layout error: %v", name, err)
+		http.Error(w, err.Error(), 500)
+	}
 }
 
-// SetupRoutes mounts the UI routes on a chi router.
+// SetupRoutes mounts the UI routes on a chi router under /ui.
+// Uses a dedicated sub-router so UI routes don't collide with API routes
+// which are mounted at /api on the same root mux.
 func SetupRoutes(r *chi.Mux) {
-	r.Get("/", redirectTo("/dashboard"))
-	r.Get("/dashboard", handleDashboard)
-	r.Get("/sessions", handleSessions)
-	r.Get("/sessions/{sessionID}", handleSessionDetail)
-	r.Get("/sessions/{sessionID}/events", handleSessionEvents)
-	r.Get("/sessions/{sessionID}/checkpoints", handleSessionCheckpoints)
-	r.Get("/flags", handleFlags)
-	r.Get("/live", handleLive)
+	ui := chi.NewRouter()
+	ui.Get("/", redirectTo("/ui/dashboard"))
+	ui.Get("/dashboard", handleDashboard)
+	ui.Get("/sessions", handleSessions)
+	ui.Get("/sessions/{sessionID}", handleSessionDetail)
+	ui.Get("/sessions/{sessionID}/events", handleSessionEvents)
+	ui.Get("/sessions/{sessionID}/checkpoints", handleSessionCheckpoints)
+	ui.Get("/session/{sessionID}/data", handleSessionDetailData)
+	ui.Get("/session/{sessionID}/events-data", handleSessionEventsData)
+	ui.Get("/session/{sessionID}/checkpoints-data", handleSessionCheckpointsData)
+	ui.Get("/flags", handleFlags)
+	ui.Get("/live", handleLive)
+	// HTMX data endpoints — return rendered HTML fragments
+	ui.Get("/sessions-data", handleSessionsData)
+	ui.Get("/flags-data", handleFlagsData)
+	ui.Get("/debug/templates", func(w http.ResponseWriter, r *http.Request) {
+		var names []string
+		for _, t := range templates.Templates() {
+			names = append(names, t.Name())
+		}
+		fmt.Fprintf(w, "Templates: %v\n", names)
+	})
+	r.Mount("/ui", ui)
+}
+
+// httpGetJSON fetches a JSON resource and returns the parsed map.
+func httpGetJSON[T map[string]int | map[string]interface{}](ctx context.Context, url string) (T, error) {
+	type result struct {
+		val T
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			ch <- result{err: err}
+			return
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			ch <- result{err: err}
+			return
+		}
+		defer resp.Body.Close()
+		var val T
+		if err := json.NewDecoder(resp.Body).Decode(&val); err != nil {
+			ch <- result{err: err}
+			return
+		}
+		ch <- result{val: val}
+	}()
+	select {
+	case <-ctx.Done():
+		var zero T
+		return zero, ctx.Err()
+	case r := <-ch:
+		return r.val, r.err
+	}
 }
 
 func redirectTo(path string) http.HandlerFunc {
@@ -69,7 +242,11 @@ func redirectTo(path string) http.HandlerFunc {
 // --- Page handlers ---
 
 func handleDashboard(w http.ResponseWriter, r *http.Request) {
-	Render(w, r, "dashboard", nil)
+	stats, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/stats")
+	if err != nil || stats == nil {
+		stats = map[string]interface{}{"sessions": 0, "events": 0, "checkpoints": 0, "flags": 0}
+	}
+	Render(w, r, "dashboard", map[string]interface{}{"stats": stats})
 }
 
 func handleSessions(w http.ResponseWriter, r *http.Request) {
@@ -91,12 +268,120 @@ func handleSessionCheckpoints(w http.ResponseWriter, r *http.Request) {
 	Render(w, r, "session_checkpoints", map[string]string{"SessionID": sessionID})
 }
 
+// handleSessionDetailData returns session data fragment for HTMX.
+func handleSessionDetailData(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	data, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID)
+	if err != nil || data == nil {
+		data = map[string]interface{}{}
+	}
+	data["session_id"] = sessionID
+	// Render fragment directly — no Render() wrapper
+	if err := templates.ExecuteTemplate(w, "session_detail_data", data); err != nil {
+		log.Printf("session_detail_data error: %v", err)
+	}
+}
+
+// handleSessionEventsData returns events list fragment for a session.
+func handleSessionEventsData(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	result, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID+"/events?limit=50")
+	var events []map[string]interface{}
+	if err == nil {
+		if e, ok := result["events"].([]interface{}); ok {
+			for _, v := range e {
+				if m, ok := v.(map[string]interface{}); ok {
+					events = append(events, m)
+				}
+			}
+		}
+	}
+	if events == nil {
+		events = []map[string]interface{}{}
+	}
+	data := map[string]interface{}{"items": events}
+	if err := templates.ExecuteTemplate(w, "events_list", data); err != nil {
+		log.Printf("events_list error: %v", err)
+	}
+}
+
+// handleSessionCheckpointsData returns checkpoints list fragment for a session.
+func handleSessionCheckpointsData(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	result, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID+"/checkpoints")
+	var checkpoints []map[string]interface{}
+	if err == nil {
+		if c, ok := result["checkpoints"].([]interface{}); ok {
+			for _, v := range c {
+				if m, ok := v.(map[string]interface{}); ok {
+					checkpoints = append(checkpoints, m)
+				}
+			}
+		}
+	}
+	if checkpoints == nil {
+		checkpoints = []map[string]interface{}{}
+	}
+	data := map[string]interface{}{"checkpoints": checkpoints}
+	if err := templates.ExecuteTemplate(w, "checkpoints_list", data); err != nil {
+		log.Printf("checkpoints_list error: %v", err)
+	}
+}
+
 func handleFlags(w http.ResponseWriter, r *http.Request) {
 	Render(w, r, "flags", nil)
 }
 
 func handleLive(w http.ResponseWriter, r *http.Request) {
 	Render(w, r, "live", nil)
+}
+
+// handleSessionsData returns the sessions list fragment for HTMX.
+func handleSessionsData(w http.ResponseWriter, r *http.Request) {
+	limit := r.URL.Query().Get("limit")
+	if limit == "" {
+		limit = "5"
+	}
+	var sessions []map[string]interface{}
+	stats, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions?limit="+limit)
+	if err == nil {
+		if s, ok := stats["sessions"].([]interface{}); ok {
+			for _, v := range s {
+				if m, ok := v.(map[string]interface{}); ok {
+					sessions = append(sessions, m)
+				}
+			}
+		}
+	}
+	if sessions == nil {
+		sessions = []map[string]interface{}{}
+	}
+	data := map[string]interface{}{"sessions": sessions}
+	if err := templates.ExecuteTemplate(w, "sessions_list", data); err != nil {
+		log.Printf("sessions_list error: %v", err)
+	}
+}
+
+// handleFlagsData returns the flags list fragment for HTMX.
+func handleFlagsData(w http.ResponseWriter, r *http.Request) {
+	var flags []map[string]interface{}
+	result, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/flags?limit=5")
+	if err == nil {
+		if f, ok := result["flags"].([]interface{}); ok {
+			for _, v := range f {
+				if m, ok := v.(map[string]interface{}); ok {
+					flags = append(flags, m)
+				}
+			}
+		}
+	}
+	if flags == nil {
+		flags = []map[string]interface{}{}
+	}
+	data := map[string]interface{}{"flags": flags}
+	if err := templates.ExecuteTemplate(w, "flags_list", data); err != nil {
+		log.Printf("flags_list error: %v", err)
+	}
 }
 
 // APIProxy proxies API calls to the Lethe server.

@@ -117,6 +117,7 @@ func (s *Server) registerRoutes() {
 	r := s.router
 
 	r.Get("/health", s.handleHealth)
+	r.Get("/stats", s.handleStats)
 
 	// Sessions.
 	r.Route("/sessions", func(r chi.Router) {

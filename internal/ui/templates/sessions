@@ -1,0 +1,9 @@
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold">Sessions</h1>
+</div>
+
+<div class="card">
+  <div id="sessions-list" hx-get="/ui/sessions-data?limit=20" hx-trigger="load" hx-swap="innerHTML">
+    <div class="p-8 text-center text-[#6b7280] htmx-indicator">Loading sessions…</div>
+  </div>
+</div>

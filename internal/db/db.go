@@ -41,7 +41,19 @@ func Open(dbPath string) (*DB, error) {
 }
 
 // Migrate runs all embedded SQL migrations.
+// A schema_versions table tracks which migrations have been applied so each
+// migration runs exactly once.
 func (db *DB) Migrate() error {
+	// Ensure the tracking table exists (idempotent).
+	if _, err := db.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_versions (
+			name    TEXT PRIMARY KEY,
+			applied DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`); err != nil {
+		return fmt.Errorf("create schema_versions: %w", err)
+	}
+
 	entries, err := migrationsFS.ReadDir("migrations")
 	if err != nil {
 		return fmt.Errorf("read migrations dir: %w", err)
@@ -55,8 +67,19 @@ func (db *DB) Migrate() error {
 	sort.Strings(names)
 
 	for _, name := range names {
+		// Skip if already applied.
+		var exists int
+		if err := db.QueryRow("SELECT 1 FROM schema_versions WHERE name=?", name).Scan(&exists); err == nil {
+			continue // already applied
+		}
+		if err != nil && err != sql.ErrNoRows {
+			return fmt.Errorf("check schema_versions for %s: %w", name, err)
+		}
 		if err := db.runMigration(name); err != nil {
 			return fmt.Errorf("migration %s: %w", name, err)
+		}
+		if _, err := db.Exec("INSERT INTO schema_versions (name) VALUES (?)", name); err != nil {
+			return fmt.Errorf("record migration %s: %w", name, err)
 		}
 		log.Printf("migrations: applied %s", name)
 	}

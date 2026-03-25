@@ -1,0 +1,45 @@
+<div class="mb-8">
+  <div class="grid grid-cols-4 gap-4">
+    <div class="card p-5 text-center">
+      <div class="text-4xl font-bold text-[#60a5fa]">{{index .stats "sessions"}}</div>
+      <div class="text-[#6b7280] text-sm mt-1">Sessions</div>
+    </div>
+    <div class="card p-5 text-center">
+      <div class="text-4xl font-bold text-[#34d399]">{{index .stats "events"}}</div>
+      <div class="text-[#6b7280] text-sm mt-1">Events</div>
+    </div>
+    <div class="card p-5 text-center">
+      <div class="text-4xl font-bold text-[#a78bfa]">{{index .stats "checkpoints"}}</div>
+      <div class="text-[#6b7280] text-sm mt-1">Checkpoints</div>
+    </div>
+    <div class="card p-5 text-center">
+      <div class="text-4xl font-bold text-[#fbbf24]">{{index .stats "flags"}}</div>
+      <div class="text-[#6b7280] text-sm mt-1">Flags</div>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-2 gap-6">
+  <div class="card p-5">
+    <h2 class="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider mb-4">Recent Sessions</h2>
+    <div id="sessions-list" hx-get="/ui/sessions-data" hx-trigger="load" hx-swap="innerHTML">
+      <div class="text-[#6b7280] text-sm htmx-indicator">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card p-5">
+    <h2 class="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider mb-4">Recent Flags</h2>
+    <div id="flags-list" hx-get="/ui/flags-data" hx-trigger="load" hx-swap="innerHTML">
+      <div class="text-[#6b7280] text-sm htmx-indicator">Loading…</div>
+    </div>
+  </div>
+
+  <div class="card p-5 col-span-2">
+    <h2 class="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider mb-4">Quick Actions</h2>
+    <div class="flex gap-3">
+      <a href="/ui/sessions" class="btn btn-ghost">Browse Sessions</a>
+      <a href="/ui/flags" class="btn btn-ghost">Review Flags</a>
+      <a href="/ui/live" class="btn btn-ghost">Watch Live</a>
+    </div>
+  </div>
+</div>

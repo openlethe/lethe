@@ -1,0 +1,16 @@
+<div class="space-y-3">
+  {{range .items}}
+  <div class="border-b border-[#1f2333] pb-3">
+    <div class="flex items-center gap-2 mb-1">
+      <span class="badge badge-{{.event_type}}">{{.event_type}}</span>
+      {{if .task_title}}<span class="text-xs text-[#9ca3af]">{{.task_title}}</span>{{end}}
+      {{if .task_status}}<span class="badge badge-{{.task_status}} text-xs ml-1">{{.task_status}}</span>{{end}}
+      {{if .confidence}}<span class="text-xs text-[#6b7280] ml-1">{{printf "%.0f" (mul .confidence 100)}}%</span>{{end}}
+      <span class="timestamp ml-auto">{{.created_at | since}} ago</span>
+    </div>
+    <p class="text-sm text-[#d1d5db]">{{.content}}</p>
+    {{if .tags}}<div class="text-xs text-[#6b7280] mt-1">Tags: {{.tags}}</div>{{end}}
+  </div>
+  {{end}}
+</div>
+{{if not .items}}<p class="text-[#6b7280] text-sm text-center p-4">No events.</p>{{end}}

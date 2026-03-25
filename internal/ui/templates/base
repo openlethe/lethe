@@ -1,0 +1,53 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{.Title}}</title>
+  <script src="https://unpkg.com/htmx.org@2.0.0" defer></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #0f1117; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+    .card { background: #1a1d27; border: 1px solid #2d3140; border-radius: 8px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+    .badge-record { background: #1e3a5f; color: #60a5fa; }
+    .badge-log { background: #1a3028; color: #34d399; }
+    .badge-flag { background: #3a2a1a; color: #fbbf24; }
+    .badge-task { background: #2a1a3a; color: #a78bfa; }
+    .htmx-indicator { opacity: 0; transition: opacity 200ms; }
+    .htmx-request .htmx-indicator { opacity: 1; }
+    .htmx-request.htmx-indicator { opacity: 1; }
+    .btn { display: inline-block; padding: 6px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; transition: all 150ms; cursor: pointer; }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-ghost { background: transparent; color: #9ca3af; border: 1px solid #2d3140; }
+    .btn-ghost:hover { background: #1a1d27; color: #e2e8f0; }
+    a { color: #60a5fa; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    nav a.active { color: #e2e8f0; border-bottom: 2px solid #3b82f6; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #2d3140; }
+    th { color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+    tr:hover { background: #1a1d27; }
+    .empty-state { text-align: center; padding: 40px; color: #6b7280; }
+  </style>
+</head>
+<body class="min-h-screen">
+  <nav class="border-b border-[#2d3140] px-6 py-4 mb-8">
+    <div class="max-w-6xl mx-auto flex items-center gap-6">
+      <a href="/ui/dashboard" class="text-lg font-bold text-[#60a5fa]">Lethe</a>
+      <div class="flex gap-4">
+        <a href="/ui/dashboard" {{if eq .CurrentRoute "dashboard"}}class="active"{{end}}>Dashboard</a>
+        <a href="/ui/sessions" {{if eq .CurrentRoute "sessions"}}class="active"{{end}}>Sessions</a>
+        <a href="/ui/flags" {{if eq .CurrentRoute "flags"}}class="active"{{end}}>Flags</a>
+        <a href="/ui/live" {{if eq .CurrentRoute "live"}}class="active"{{end}}>Live</a>
+      </div>
+    </div>
+  </nav>
+  <main class="max-w-6xl mx-auto px-6">
+    {{.Content}}
+  </main>
+</body>
+</html>
+{{end}}

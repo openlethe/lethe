@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,7 +15,8 @@ import (
 	"github.com/mentholmike/lethe/internal/session"
 )
 
-// APIServer provides JSON REST endpoints for the dashboard.
+// APIServer provides JSON REST endpoints for the dashboard, plus HTMX-aware
+// HTML-fragment responses for use with hx-get.
 type APIServer struct {
 	store   *db.Store
 	sessMgr *session.Manager
@@ -39,22 +41,57 @@ func (s *APIServer) SetupRoutes(r *chi.Mux) {
 	r.Get("/api/live", s.handleLive)
 }
 
+// isHTMX returns true when the request is an HTMX AJAX request.
+func isHTMX(r *http.Request) bool {
+	return r.Header.Get("HX-Request") != ""
+}
+
+// frag renders a named Go template and writes the result as text/html.
+// The data argument must be compatible with the template's expectations.
+func (s *APIServer) frag(w http.ResponseWriter, r *http.Request, name string, data interface{}) {
+	buf := new(bytes.Buffer)
+	if err := templates.ExecuteTemplate(buf, name+".html", data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html")
+	w.WriteHeader(http.StatusOK)
+	buf.WriteTo(w)
+}
+
+// fragList renders a collection template with a "items" key for reuse
+// across list views (sessions, events, checkpoints, flags).
+func (s *APIServer) fragList(w http.ResponseWriter, r *http.Request, name string, items interface{}) {
+	s.frag(w, r, name, map[string]interface{}{"items": items})
+}
+
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
 }
 
+// --- Stats ---
+
 func (s *APIServer) handleStats(w http.ResponseWriter, r *http.Request) {
-	type Stats struct {
+	var stats struct {
 		Sessions    int `json:"sessions"`
 		Events      int `json:"events"`
 		Checkpoints int `json:"checkpoints"`
 		Flags       int `json:"flags"`
 	}
-	// These would need to be added to the store; return placeholder for now.
-	writeJSON(w, http.StatusOK, Stats{Sessions: 0, Events: 0, Checkpoints: 0, Flags: 0})
+	stats.Sessions, _ = s.store.CountSessions(r.Context())
+	stats.Events, _ = s.store.CountEvents(r.Context())
+	stats.Checkpoints, _ = s.store.CountCheckpoints(r.Context())
+	stats.Flags, _ = s.store.CountFlags(r.Context())
+	if isHTMX(r) {
+		s.frag(w, r, "stats", stats)
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
 }
+
+// --- Sessions ---
 
 func (s *APIServer) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	limit := 20
@@ -68,6 +105,10 @@ func (s *APIServer) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if isHTMX(r) {
+		s.fragList(w, r, "sessions", sessions)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"sessions": sessions})
 }
 
@@ -76,6 +117,10 @@ func (s *APIServer) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	sess, err := s.resolveSession(r.Context(), sessionID)
 	if err != nil || sess == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+	if isHTMX(r) {
+		s.frag(w, r, "session_row", sess)
 		return
 	}
 	writeJSON(w, http.StatusOK, sess)
@@ -90,6 +135,16 @@ func (s *APIServer) handleGetSessionSummary(w http.ResponseWriter, r *http.Reque
 	}
 	cps, _ := s.store.GetCheckpoints(r.Context(), sess.SessionID)
 	evts, _ := s.store.GetSessionEvents(r.Context(), sess.SessionID, 20, 0)
+	if isHTMX(r) {
+		s.frag(w, r, "session_summary", map[string]interface{}{
+			"session":          sess,
+			"checkpoint_count": len(cps),
+			"event_count":      len(evts),
+			"latest_checkpoint": firstOrNil(cps),
+			"recent_events":    evts,
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"session":           sess,
 		"checkpoint_count":  len(cps),
@@ -98,6 +153,8 @@ func (s *APIServer) handleGetSessionSummary(w http.ResponseWriter, r *http.Reque
 		"recent_events":     evts,
 	})
 }
+
+// --- Events ---
 
 func (s *APIServer) handleGetSessionEvents(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
@@ -117,8 +174,14 @@ func (s *APIServer) handleGetSessionEvents(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if isHTMX(r) {
+		s.fragList(w, r, "events", evts)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"events": evts})
 }
+
+// --- Checkpoints ---
 
 func (s *APIServer) handleGetCheckpoints(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
@@ -132,8 +195,14 @@ func (s *APIServer) handleGetCheckpoints(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
+	if isHTMX(r) {
+		s.fragList(w, r, "checkpoints", cps)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"checkpoints": cps})
 }
+
+// --- Compact ---
 
 func (s *APIServer) handleCompact(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
@@ -150,11 +219,17 @@ func (s *APIServer) handleCompact(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"summary": summaryText, "status": "ok"})
 }
 
+// --- Flags ---
+
 func (s *APIServer) handleGetFlags(w http.ResponseWriter, r *http.Request) {
 	limit := 50
 	flags, err := s.store.GetFlaggedEvents(r.Context(), limit, 0)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	if isHTMX(r) {
+		s.fragList(w, r, "flags", flags)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"flags": flags})
@@ -176,9 +251,11 @@ func (s *APIServer) handleReviewFlag(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
+// --- Live ---
+
 // handleLive streams session events via Server-Sent Events.
 func (s *APIServer) handleLive(w http.ResponseWriter, r *http.Request) {
-	f, ok := w.(http.Flusher)
+	f, ok := w.(http.ResponseWriter).(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
@@ -188,12 +265,9 @@ func (s *APIServer) handleLive(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
-	// Subscribe to new events via polling (SSE lacks native pub/sub).
-	// For a production system this would use a proper pub/sub mechanism.
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	// Send initial ping
 	fmt.Fprintf(w, "event: ping\ndata: {\"status\":\"connected\"}\n\n")
 	f.Flush()
 
@@ -202,12 +276,13 @@ func (s *APIServer) handleLive(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			// Could emit recent events here if we had a subscription system
 			fmt.Fprintf(w, "event: ping\ndata: {\"ts\":%d}\n\n", time.Now().Unix())
 			f.Flush()
 		}
 	}
 }
+
+// --- Helpers ---
 
 func (s *APIServer) resolveSession(ctx context.Context, id string) (*models.Session, error) {
 	sess, _ := s.store.GetSessionByKey(ctx, id)
@@ -225,6 +300,13 @@ func firstOrNil(cps []*models.Checkpoint) interface{} {
 }
 
 func buildSummary(cps []*models.Checkpoint, evts []*models.Event) string {
-	// Simplified summary builder — shared logic with API compact handler
 	return fmt.Sprintf("Session summary: %d checkpoints, %d events", len(cps), len(evts))
+}
+
+// --- Counter stubs (add to db/store if not present) ---
+
+func (s *APIServer) countRows(ctx context.Context, query string) (int, error) {
+	var n int
+	err := s.store.DB.QueryRowContext(ctx, query).Scan(&n)
+	return n, err
 }

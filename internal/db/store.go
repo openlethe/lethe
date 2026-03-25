@@ -378,6 +378,38 @@ func (s *Store) CreateSessionLink(ctx context.Context, link *models.SessionLink)
 	return err
 }
 
+// GetStats returns aggregate stats: session count, total events, total checkpoints, flag count.
+func (s *Store) GetStats(ctx context.Context) (map[string]int, error) {
+	stats := map[string]int{}
+	var count int
+
+	q := `SELECT COUNT(*) FROM sessions`
+	if err := s.QueryRowContext(ctx, q).Scan(&count); err != nil {
+		return nil, err
+	}
+	stats["sessions"] = count
+
+	q = `SELECT COUNT(*) FROM events`
+	if err := s.QueryRowContext(ctx, q).Scan(&count); err != nil {
+		return nil, err
+	}
+	stats["events"] = count
+
+	q = `SELECT COUNT(*) FROM checkpoints`
+	if err := s.QueryRowContext(ctx, q).Scan(&count); err != nil {
+		return nil, err
+	}
+	stats["checkpoints"] = count
+
+	q = `SELECT COUNT(*) FROM events WHERE event_type='flag' AND human_reviewed_at IS NULL`
+	if err := s.QueryRowContext(ctx, q).Scan(&count); err != nil {
+		return nil, err
+	}
+	stats["flags"] = count
+
+	return stats, nil
+}
+
 // GetAllSessions returns all sessions ordered by last heartbeat descending.
 func (s *Store) GetAllSessions(ctx context.Context, limit int) ([]*models.Session, error) {
 	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary
@@ -419,6 +451,38 @@ func (s *Store) GetSessionEventsCount(ctx context.Context, sessionID string) (in
 	q := `SELECT COUNT(*) FROM events WHERE session_id=?`
 	err := s.QueryRowContext(ctx, q, sessionID).Scan(&count)
 	return count, err
+}
+
+// CountSessions returns the total number of sessions.
+func (s *Store) CountSessions(ctx context.Context) (int, error) {
+	var n int
+	q := `SELECT COUNT(*) FROM sessions`
+	err := s.QueryRowContext(ctx, q).Scan(&n)
+	return n, err
+}
+
+// CountEvents returns the total number of events.
+func (s *Store) CountEvents(ctx context.Context) (int, error) {
+	var n int
+	q := `SELECT COUNT(*) FROM events`
+	err := s.QueryRowContext(ctx, q).Scan(&n)
+	return n, err
+}
+
+// CountCheckpoints returns the total number of checkpoints.
+func (s *Store) CountCheckpoints(ctx context.Context) (int, error) {
+	var n int
+	q := `SELECT COUNT(*) FROM checkpoints`
+	err := s.QueryRowContext(ctx, q).Scan(&n)
+	return n, err
+}
+
+// CountFlags returns the number of unreviewed flag events.
+func (s *Store) CountFlags(ctx context.Context) (int, error) {
+	var n int
+	q := `SELECT COUNT(*) FROM events WHERE event_type='flag' AND human_reviewed_at IS NULL`
+	err := s.QueryRowContext(ctx, q).Scan(&n)
+	return n, err
 }
 
 // CompactSession writes a summary string to the session.

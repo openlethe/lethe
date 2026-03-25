@@ -1,0 +1,26 @@
+<div class="card p-6">
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <div class="text-xs text-[#6b7280] uppercase tracking-wider mb-1">Agent</div>
+      <div class="text-[#e2e8f0] font-medium">{{index . "agent_id"}}</div>
+    </div>
+    <div>
+      <div class="text-xs text-[#6b7280] uppercase tracking-wider mb-1">State</div>
+      <div class="text-[#e2e8f0] font-medium">{{index . "state"}}</div>
+    </div>
+    <div>
+      <div class="text-xs text-[#6b7280] uppercase tracking-wider mb-1">Started</div>
+      <div class="text-[#e2e8f0]">{{index . "started_at" | since}} ago</div>
+    </div>
+    <div>
+      <div class="text-xs text-[#6b7280] uppercase tracking-wider mb-1">Session ID</div>
+      <div class="text-[#e2e8f0] text-xs font-mono">{{index . "session_id"}}</div>
+    </div>
+  </div>
+  {{if index . "summary"}}
+  <div class="mt-4 pt-4 border-t border-[#2d3140]">
+    <div class="text-xs text-[#6b7280] uppercase tracking-wider mb-2">Summary</div>
+    <div class="text-sm text-[#d1d5db] whitespace-pre-wrap">{{index . "summary"}}</div>
+  </div>
+  {{end}}
+</div>

@@ -1,0 +1,26 @@
+{{template "layout" .}}
+
+<div class="mb-6 flex items-center gap-3">
+  <a href="/ui/sessions" class="text-[#6b7280] hover:text-[#e2e8f0]">← Sessions</a>
+  <span class="text-[#6b7280]">|</span>
+  <h1 class="text-2xl font-bold">Session Detail</h1>
+</div>
+
+<div id="session-data" hx-get="/ui/session/{{.Data.SessionID}}/data" hx-trigger="load" hx-swap="innerHTML" class="mb-6">
+  <div class="card p-6 htmx-indicator">Loading…</div>
+</div>
+
+<div class="grid grid-cols-2 gap-6">
+  <div class="card">
+    <div class="p-4 border-b border-[#2d3140] font-semibold">Events</div>
+    <div hx-get="/ui/session/{{.Data.SessionID}}/events-data" hx-trigger="load" hx-swap="innerHTML">
+      <div class="p-8 text-center text-[#6b7280] htmx-indicator">Loading…</div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="p-4 border-b border-[#2d3140] font-semibold">Checkpoints</div>
+    <div hx-get="/ui/session/{{.Data.SessionID}}/checkpoints-data" hx-trigger="load" hx-swap="innerHTML">
+      <div class="p-8 text-center text-[#6b7280] htmx-indicator">Loading…</div>
+    </div>
+  </div>
+</div>

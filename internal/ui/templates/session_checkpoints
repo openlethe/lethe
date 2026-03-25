@@ -1,0 +1,13 @@
+{{template "layout" .}}
+
+<div class="mb-6 flex items-center gap-3">
+  <a href="/ui/sessions" class="text-[#6b7280] hover:text-[#e2e8f0]">← Sessions</a>
+  <span class="text-[#6b7280]">|</span>
+  <h1 class="text-2xl font-bold">Session Checkpoints</h1>
+</div>
+
+<div class="card">
+  <div id="checkpoints-list" hx-get="/ui/session/{{.Data.SessionID}}/checkpoints-data" hx-trigger="load" hx-swap="innerHTML">
+    <div class="p-8 text-center text-[#6b7280] htmx-indicator">Loading…</div>
+  </div>
+</div>

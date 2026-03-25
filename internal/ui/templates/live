@@ -1,0 +1,19 @@
+<div class="mb-6 flex items-center gap-3">
+  <div>
+    <h1 class="text-2xl font-bold">Live Session</h1>
+    <p class="text-[#6b7280] text-sm mt-1">Real-time event stream</p>
+  </div>
+  <div class="ml-auto flex gap-2">
+    <button hx-post="/api/sessions/agent%3Amain%3Adiscord%3Achannel%3A1480670530565574749/heartbeat" 
+            hx-swap="none" class="btn btn-ghost text-xs">
+      Ping
+    </button>
+  </div>
+</div>
+
+<div class="card">
+  <div id="live-events" hx-get="/ui/session/agent%3Amain%3Adiscord%3Achannel%3A1480670530565574749/events-data" 
+       hx-trigger="load, every 3s" hx-swap="innerHTML">
+    <div class="p-8 text-center text-[#6b7280] htmx-indicator">Connecting…</div>
+  </div>
+</div>
