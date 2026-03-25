@@ -1,0 +1,43 @@
+{{template "base" .}}
+
+{{define "title"}}Live Events — Lethe{{end}}
+
+{{define "content"}}
+<div class="mb-6 flex items-center justify-between">
+  <div>
+    <h1 class="text-2xl font-bold">Live Event Stream</h1>
+    <p class="text-[#6b7280] text-sm mt-1">Watch events in real-time via SSE</p>
+  </div>
+  <div class="flex items-center gap-2">
+    <span id="stream-status" class="text-xs text-[#6b7280]">
+      <span class="inline-block w-2 h-2 rounded-full bg-[#fb923c] mr-1"></span>
+      Connecting…
+    </span>
+    <button class="btn btn-ghost text-xs" onclick="clearEvents()">Clear</button>
+  </div>
+</div>
+
+<div class="card p-5">
+  <div id="event-stream" class="space-y-2 text-sm mono max-h-[70vh] overflow-y-auto" 
+       hx-ext="sse" sse-connect="/api/live" sse-swap="event" _="on sse/open set #stream-status.textContent to 'Connected' then '🟢 Connected' end on sse/error set #stream-status.textContent to 'Disconnected — reconnecting…' then '🔴 Disconnected' end">
+  </div>
+</div>
+
+<script>
+  let streamConnected = false;
+  
+  function clearEvents() {
+    document.getElementById('event-stream').innerHTML = '';
+  }
+  
+  // HTMX SSE extension auto-reconnects, but let's handle the visual state
+  document.body.addEventListener('sse:open', function() {
+    document.getElementById('stream-status').innerHTML = '<span class="inline-block w-2 h-2 rounded-full bg-[#4ade80] mr-1"></span>🟢 Connected';
+    streamConnected = true;
+  });
+  document.body.addEventListener('sse:close', function() {
+    document.getElementById('stream-status').innerHTML = '<span class="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"></span>🔴 Disconnected';
+    streamConnected = false;
+  });
+</script>
+{{end}}

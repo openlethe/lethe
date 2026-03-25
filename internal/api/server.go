@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -16,10 +18,77 @@ import (
 
 // Server is the HTTP API server.
 type Server struct {
-	router    *chi.Mux
-	store     *db.Store
-	sessMgr   *session.Manager
+	router     *chi.Mux
+	store      *db.Store
+	sessMgr    *session.Manager
 	httpServer *http.Server
+	broadcaster *broadcaster
+}
+
+// broadcaster manages SSE client connections.
+type broadcaster struct {
+	clients    map[chan []byte]struct{}
+	addCh      chan chan []byte
+	removeCh   chan chan []byte
+	broadcastCh chan []byte
+	stopCh     chan struct{}
+}
+
+func newBroadcaster() *broadcaster {
+	b := &broadcaster{
+		clients:    make(map[chan []byte]struct{}),
+		addCh:      make(chan chan []byte),
+		removeCh:   make(chan chan []byte),
+		broadcastCh: make(chan []byte),
+		stopCh:     make(chan struct{}),
+	}
+	go b.run()
+	return b
+}
+
+func (b *broadcaster) run() {
+	for {
+		select {
+		case ch := <-b.addCh:
+			b.clients[ch] = struct{}{}
+		case ch := <-b.removeCh:
+			delete(b.clients, ch)
+			close(ch)
+		case msg := <-b.broadcastCh:
+			for ch := range b.clients {
+				select {
+				case ch <- msg:
+				default:
+					// slow client — skip
+				}
+			}
+		case <-b.stopCh:
+			for ch := range b.clients {
+				close(ch)
+			}
+			return
+		}
+	}
+}
+
+// Broadcast sends an event to all SSE clients.
+func (b *broadcaster) Broadcast(eventType string, data interface{}) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.Encode(data)
+	fmt.Fprintf(&buf, "event: %s\ndata: %s\n\n", eventType, buf.String())
+	b.broadcastCh <- buf.Bytes()
+}
+
+func (b *broadcaster) AddClient() (<-chan []byte, func()) {
+	ch := make(chan []byte, 50)
+	b.addCh <- ch
+	done := func() { b.removeCh <- ch }
+	return ch, done
+}
+
+func (b *broadcaster) Stop() {
+	close(b.stopCh)
 }
 
 // NewServer creates a new API server.
@@ -33,9 +102,10 @@ func NewServer(store *db.Store, sessMgr *session.Manager) *Server {
 	r.Use(middleware.Timeout(30 * time.Second))
 
 	s := &Server{
-		router:  r,
-		store:   store,
-		sessMgr: sessMgr,
+		router:     r,
+		store:      store,
+		sessMgr:    sessMgr,
+		broadcaster: newBroadcaster(),
 	}
 
 	s.registerRoutes()
@@ -76,9 +146,15 @@ func (s *Server) registerRoutes() {
 	r.Get("/flags", s.handleGetFlags)
 	r.Put("/flags/{eventID}/review", s.handleReviewFlag)
 
+	// SSE live stream.
+	r.Get("/live", s.handleSSE)
+
 	// Task chain.
 	r.Get("/events/{eventID}/chain", s.handleGetTaskChain)
 }
+
+// Router returns the underlying chi router for mounting.
+func (s *Server) Router() *chi.Mux { return s.router }
 
 // Listen starts the HTTP server.
 func (s *Server) Listen(addr string) error {
@@ -97,6 +173,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.httpServer == nil {
 		return nil
 	}
+	s.broadcaster.Stop()
 	return s.httpServer.Shutdown(ctx)
 }
 

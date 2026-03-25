@@ -378,6 +378,41 @@ func (s *Store) CreateSessionLink(ctx context.Context, link *models.SessionLink)
 	return err
 }
 
+// GetAllSessions returns all sessions ordered by last heartbeat descending.
+func (s *Store) GetAllSessions(ctx context.Context, limit int) ([]*models.Session, error) {
+	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary
+	      FROM sessions ORDER BY last_heartbeat_at DESC LIMIT ?`
+	rows, err := s.QueryContext(ctx, q, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []*models.Session
+	for rows.Next() {
+		var sess models.Session
+		var sessionKey sql.NullString
+		var lastHb, ended sql.NullTime
+		var summary sql.NullString
+		if err := rows.Scan(
+			&sess.SessionID, &sessionKey, &sess.AgentID, &sess.ProjectID, &sess.State,
+			&sess.StartedAt, &lastHb, &ended, &summary,
+		); err != nil {
+			return nil, err
+		}
+		sess.LastHeartbeatAt = lastHb
+		sess.EndedAt = ended
+		if sessionKey.Valid {
+			sess.SessionKey = sessionKey.String
+		}
+		if summary.Valid {
+			sess.Summary = summary.String
+		}
+		sessions = append(sessions, &sess)
+	}
+	return sessions, rows.Err()
+}
+
 // GetSessionEventsCount returns the total number of events for a session.
 func (s *Store) GetSessionEventsCount(ctx context.Context, sessionID string) (int, error) {
 	var count int

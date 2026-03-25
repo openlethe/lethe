@@ -250,6 +250,17 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Broadcast to SSE clients.
+	if s.broadcaster != nil {
+		s.broadcaster.Broadcast("event", map[string]interface{}{
+			"event_id":   event.EventID,
+			"session_id": event.SessionID,
+			"event_type": event.EventType,
+			"content":    truncate(event.Content, 200),
+			"created_at": event.CreatedAt,
+		})
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"event_id":   event.EventID,
 		"created_at": event.CreatedAt,
@@ -350,6 +361,16 @@ func (s *Server) handleCreateCheckpoint(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Broadcast to SSE clients.
+	if s.broadcaster != nil {
+		s.broadcaster.Broadcast("checkpoint", map[string]interface{}{
+			"checkpoint_id": cp.CheckpointID,
+			"session_id":     cp.SessionID,
+			"seq":            cp.Seq,
+			"created_at":     cp.CreatedAt,
+		})
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"checkpoint_id": cp.CheckpointID,
 		"seq":           cp.Seq,
@@ -394,6 +415,39 @@ func (s *Server) handleGetTaskChain(w http.ResponseWriter, r *http.Request) {
 		"chain": chain,
 		"total": len(chain),
 	})
+}
+
+// handleSSE streams events to connected clients via Server-Sent Events.
+func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
+	f, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	ch, done := s.broadcaster.AddClient()
+	defer done()
+
+	// Send initial ping
+	fmt.Fprintf(w, "event: ping\ndata: {\"status\":\"connected\"}\n\n")
+	f.Flush()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
+			w.Write(msg)
+			f.Flush()
+		}
+	}
 }
 
 // --- Flag handlers ---
@@ -442,6 +496,13 @@ type CreateEventRequest struct {
 	ParentEventID string   `json:"parent_event_id,omitempty"`
 	TaskTitle     string   `json:"task_title,omitempty"`
 	TaskStatus    string   `json:"task_status,omitempty"`
+}
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }
 
 // handleListSessions returns all sessions for an agent+project.
