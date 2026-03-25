@@ -66,6 +66,12 @@ func (db *DB) Migrate() error {
 	}
 	sort.Strings(names)
 
+	// Migrations run in lexical order, so "001_init.sql" always runs before
+	// "002_add_session_key.sql" regardless of filesystem ordering. This is
+	// intentional — later migrations may depend on earlier ones adding columns
+	// or tables that they modify. If a migration fails, subsequent migrations
+	// will not run (the schema_versions table is updated only on success).
+
 	for _, name := range names {
 		// Skip if already applied.
 		var exists int

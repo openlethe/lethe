@@ -88,6 +88,14 @@ func (s *Store) TouchSessionHeartbeat(ctx context.Context, sessionID string) err
 	return err
 }
 
+// InterruptAllActive transitions all active sessions to interrupted.
+// Used during graceful shutdown so sessions are resumable on next startup.
+func (s *Store) InterruptAllActive(ctx context.Context) error {
+	q := `UPDATE sessions SET state=? WHERE state=?`
+	_, err := s.ExecContext(ctx, q, models.SessionInterrupted, models.SessionActive)
+	return err
+}
+
 // GetSession returns a session by ID.
 func (s *Store) GetSession(ctx context.Context, sessionID string) (*models.Session, error) {
 	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary

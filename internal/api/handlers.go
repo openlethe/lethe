@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/mentholmike/lethe/internal/models"
@@ -661,8 +662,15 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 	summaryText := strings.Join(lines, "\n")
 	s.store.CompactSession(ctx, sess.SessionID, summaryText)
 
+	// Count tokens using Unicode codepoint-aware approximation.
+	// Words (whitespace-separated) tend to correlate with tokens at ~1.3x.
+	// This is more accurate than len()/4 which uses byte count and
+	// underestimates non-Latin scripts. Using rune count / 4 as a
+	// middle ground that's simple and handles all Unicode correctly.
+	tokenCount := utf8.RuneCountInString(summaryText) / 4
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"summary":      summaryText,
-		"tokens_after": len(summaryText) / 4,
+		"tokens_after": tokenCount,
 	})
 }

@@ -118,6 +118,12 @@ func (m *Manager) Heartbeat(ctx context.Context, sessionID string) error {
 	return m.store.TouchSessionHeartbeat(ctx, sessionID)
 }
 
+// InterruptAllActive transitions every active session to interrupted.
+// Used during graceful shutdown so sessions are resumable on next startup.
+func (m *Manager) InterruptAllActive(ctx context.Context) error {
+	return m.store.InterruptAllActive(ctx)
+}
+
 // GetSession returns a session by ID.
 func (m *Manager) GetSession(ctx context.Context, sessionID string) (*models.Session, error) {
 	return m.store.GetSession(ctx, sessionID)
