@@ -1,0 +1,12 @@
+services:
+  lethe:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lethe:latest
+    container_name: lethe-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /home/ubuntu/lethe-data:/data
