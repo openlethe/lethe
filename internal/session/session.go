@@ -186,3 +186,8 @@ func (m *Manager) ResumeSessionByKey(ctx context.Context, sessionKey string) (*m
 
 	return sess, nil
 }
+
+// ResumeSessionByID transitions a specific session (by ID) to active.
+func (m *Manager) ResumeSessionByID(ctx context.Context, sessionID string) error {
+	return m.store.UpdateSessionState(ctx, sessionID, models.SessionActive, "", nil)
+}

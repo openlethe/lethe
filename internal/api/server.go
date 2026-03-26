@@ -128,6 +128,7 @@ func (s *Server) registerRoutes() {
 		r.Post("/{sessionID}/compact", s.handleCompact)
 		r.Post("/{sessionID}/heartbeat", s.handleHeartbeat)
 		r.Post("/{sessionID}/interrupt", s.handleInterruptSession)
+		r.Post("/{sessionID}/resume", s.handleResumeSession)
 		r.Post("/{sessionID}/complete", s.handleCompleteSession)
 	})
 

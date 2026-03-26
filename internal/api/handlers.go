@@ -300,6 +300,34 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	if s.sessMgr == nil {
+		writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: "session manager not available"})
+		return
+	}
+	sess, err := s.resolveSession(r.Context(), sessionID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if sess == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "session not found"})
+		return
+	}
+	if sess.State == models.SessionActive {
+		writeJSON(w, http.StatusOK, sess)
+		return
+	}
+	if err := s.sessMgr.ResumeSessionByID(r.Context(), sess.SessionID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	// Re-fetch to return updated session.
+	sess, _ = s.resolveSession(r.Context(), sessionID)
+	writeJSON(w, http.StatusOK, sess)
+}
+
 func (s *Server) handleGetSessionEvents(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
 	sess, err := s.resolveSession(r.Context(), sessionID)
