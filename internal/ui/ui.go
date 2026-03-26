@@ -251,6 +251,7 @@ func SetupRoutes(r *chi.Mux) {
 	ui.Get("/session/{sessionID}/data", handleSessionDetailData)
 	ui.Get("/session/{sessionID}/events-data", handleSessionEventsData)
 	ui.Get("/session/{sessionID}/checkpoints-data", handleSessionCheckpointsData)
+	ui.Get("/session/{sessionID}/stats-data", handleSessionStatsData)
 	ui.Get("/flags", handleFlags)
 	ui.Get("/live", handleLive)
 	// HTMX data endpoints — return rendered HTML fragments
@@ -478,6 +479,38 @@ func handleSessionCheckpointsData(w http.ResponseWriter, r *http.Request) {
 
 func handleFlags(w http.ResponseWriter, r *http.Request) {
 	Render(w, r, "flags", nil)
+}
+
+// handleSessionStatsData returns the stats fragment for a session.
+func handleSessionStatsData(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	result, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID)
+	if err != nil || result == nil {
+		result = map[string]interface{}{}
+	}
+	eventsResult, _ := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID+"/events?limit=1")
+	eventCount := 0
+	if eventsResult != nil {
+		if total, ok := eventsResult["total"].(float64); ok {
+			eventCount = int(total)
+		}
+	}
+	cpResult, _ := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID+"/checkpoints")
+	cpCount := 0
+	if cpResult != nil {
+		if cps, ok := cpResult["checkpoints"].([]interface{}); ok {
+			cpCount = len(cps)
+		}
+	}
+	data := map[string]interface{}{
+		"events":      eventCount,
+		"checkpoints": cpCount,
+		"flag_count":  0,
+		"task_count":  0,
+	}
+	if err := templates.ExecuteTemplate(w, "session_stats", data); err != nil {
+		log.Printf("session_stats error: %v", err)
+	}
 }
 
 func handleLive(w http.ResponseWriter, r *http.Request) {

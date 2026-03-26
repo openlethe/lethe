@@ -185,7 +185,7 @@
       <div class="card-header">
         <span class="card-title">Stats</span>
         <span class="card-action"
-          hx-get="/api/sessions/{{index .session "session_id"}}/summary"
+          hx-get="/ui/session/{{index .session "session_id"}}/stats-data"
           hx-target="#session-stats"
           hx-swap="innerHTML">↺ refresh</span>
       </div>

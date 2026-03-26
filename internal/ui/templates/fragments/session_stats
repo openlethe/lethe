@@ -1,0 +1,18 @@
+<div class="stat-grid">
+  <div class="stat-box">
+    <div class="stat-val c-blue">{{len .events}}</div>
+    <div class="stat-lbl">Events</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-val c-purple">{{len .checkpoints}}</div>
+    <div class="stat-lbl">Checkpoints</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-val c-amber">{{index . "flag_count"}}</div>
+    <div class="stat-lbl">Flags</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-val c-green">{{index . "task_count"}}</div>
+    <div class="stat-lbl">Tasks</div>
+  </div>
+</div>
