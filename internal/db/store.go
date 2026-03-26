@@ -93,6 +93,13 @@ func (s *Store) TouchSessionHeartbeat(ctx context.Context, sessionID string, tok
 	return err
 }
 
+// UpdateTokenBudget persists the latest token_budget for a session.
+func (s *Store) UpdateTokenBudget(ctx context.Context, sessionID string, tokenBudget int) error {
+	q := `UPDATE sessions SET token_budget=? WHERE session_id=?`
+	_, err := s.ExecContext(ctx, q, tokenBudget, sessionID)
+	return err
+}
+
 // InterruptAllActive transitions all active sessions to interrupted.
 // Used during graceful shutdown so sessions are resumable on next startup.
 func (s *Store) InterruptAllActive(ctx context.Context) error {

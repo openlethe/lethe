@@ -649,6 +649,16 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse optional token_budget from request body.
+	tokenBudget := 0
+	if r.Body != nil {
+		var body struct {
+			TokenBudget int `json:"token_budget"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		tokenBudget = body.TokenBudget
+	}
+
 	cps, err := s.store.GetCheckpoints(ctx, sess.SessionID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "failed to load checkpoints"})
@@ -724,6 +734,11 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 	// underestimates non-Latin scripts. Using rune count / 4 as a
 	// middle ground that's simple and handles all Unicode correctly.
 	tokenCount := utf8.RuneCountInString(summaryText) / 4
+
+	// Persist the token budget so the dashboard and SSE have the latest count.
+	if tokenBudget > 0 {
+		s.sessMgr.UpdateTokenBudget(ctx, sess.SessionID, tokenBudget)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"summary":      summaryText,

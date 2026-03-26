@@ -191,3 +191,8 @@ func (m *Manager) ResumeSessionByKey(ctx context.Context, sessionKey string) (*m
 func (m *Manager) ResumeSessionByID(ctx context.Context, sessionID string) error {
 	return m.store.UpdateSessionState(ctx, sessionID, models.SessionActive, "", nil)
 }
+
+// UpdateTokenBudget persists the latest token count for a session.
+func (m *Manager) UpdateTokenBudget(ctx context.Context, sessionID string, tokenBudget int) error {
+	return m.store.UpdateTokenBudget(ctx, sessionID, tokenBudget)
+}
