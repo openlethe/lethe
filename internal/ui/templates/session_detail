@@ -9,7 +9,7 @@
     <div class="session-label">Session</div>
     <div class="session-id">
       {{index .session "session_key"}}
-      <span class="session-id-copy" onclick="navigator.clipboard.writeText('{{index .session "session_key"}}')">copy</span>
+      <span class="session-id-copy" onclick="copyToClipboard('{{index .session "session_key"}}').then(() => showCopiedFeedback(this))">copy</span>
     </div>
     <div class="session-meta">
       <span class="badge badge-{{index .session "state"}}">
@@ -23,14 +23,22 @@
   </div>
   <div class="header-actions">
     <button class="btn btn-ghost"
-      hx-post="/api/sessions/{{index .session "session_key"}}/complete"
+      hx-post="/api/sessions/{{index .session "session_id"}}/complete"
       hx-vals='{"summary": "Completed via dashboard"}'
       hx-confirm="Mark this session as completed?"
       hx-target="closest .header-actions"
       hx-swap="outerHTML">
       Mark Complete
     </button>
-    <button class="btn btn-amber" onclick="showConfirm()">⬡ Compact Now</button>
+    <button class="btn btn-amber"
+      hx-post="/api/sessions/{{index .session "session_id"}}/compact"
+      hx-vals='{"force":true}'
+      hx-target="#summary-text"
+      hx-swap="innerHTML"
+      hx-indicator="#compact-spinner">
+      <span id="compact-spinner" class="htmx-indicator spinner"></span>
+      ⬡ Compact Now
+    </button>
   </div>
 </div>
 
@@ -114,8 +122,8 @@
             <span id="compact-spinner" class="htmx-indicator spinner"></span>
             Recompact
           </button>
-          <button class="btn btn-ghost"
-            onclick="navigator.clipboard.writeText(document.getElementById('summary-text').innerText)">
+          <button class="btn btn-ghost" id="copy-summary-btn"
+            onclick="copyToClipboard(document.getElementById('summary-text').innerText).then(() => showCopiedFeedback(document.getElementById('copy-summary-btn')))">
             Copy
           </button>
         </div>
@@ -248,12 +256,15 @@
   setInterval(updateTimes, 15000);
 
   // SSE for live events and token count
+  const SESSION_KEY = '{{index .session "session_key"}}';
+
   function connectSSE() {
     const es = new EventSource('/live');
-    es.addEventListener('event', e => {
+    es.addEventListener('tick', e => {
       const data = JSON.parse(e.data);
-      if (data.event_type === 'tick') {
-        // Token meter update
+      // Only show ticks for the current session
+      if (data.session_key !== SESSION_KEY && data.session_id !== SESSION_KEY) return;
+      // Token meter update
         const pct = Math.round((data.tokens / 200000) * 100);
         const bar = document.getElementById('token-bar');
         const current = document.getElementById('token-current');

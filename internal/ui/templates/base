@@ -416,6 +416,29 @@
   </div>
 
   <script>
+    async function copyToClipboard(text) {
+      let success = false;
+      try {
+        await navigator.clipboard.writeText(text);
+        success = true;
+      } catch {
+        const el = document.createElement('textarea');
+        el.value = text;
+        el.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+        document.body.appendChild(el);
+        el.select();
+        try { success = document.execCommand('copy'); } catch { success = false; }
+        document.body.removeChild(el);
+      }
+      return success;
+    }
+    function showCopiedFeedback(el) {
+      if (!el) return;
+      const orig = el.textContent;
+      el.textContent = '✓ Copied';
+      el.style.color = 'var(--green)';
+      setTimeout(() => { el.textContent = orig; el.style.color = ''; }, 1500);
+    }
     function switchTab(btn, showId, hideId) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       btn.classList.add('active');

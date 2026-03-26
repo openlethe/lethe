@@ -7,6 +7,7 @@
       <div class="event-footer">
         <span class="event-time">{{.created_at | since}} ago</span>
         {{if .confidence}}<span class="conf-chip">conf {{printf "%.0f" (mul .confidence 100)}}%</span>{{end}}
+        {{if .tags}}<span class="conf-chip" style="background:rgba(79,74,128,.1);color:var(--purple);">{{.tags}}</span>{{end}}
       </div>
     </div>
     <div class="event-actions">
