@@ -64,6 +64,32 @@ func init() {
 			return t.Format("Jan 2, 15:04")
 		},
 		"mul": func(a, b float64) float64 { return a * b },
+		"div": func(a, b float64) float64 { return a / b },
+		"int": func(v interface{}) int {
+			switch x := v.(type) {
+			case float64:
+				return int(x)
+			case int:
+				return x
+			}
+			return 0
+		},
+		"sub": func(a, b interface{}) int {
+			ai, bi := 0, 0
+			if x, ok := a.(float64); ok {
+				ai = int(x)
+			}
+			if x, ok := b.(float64); ok {
+				bi = int(x)
+			}
+			return ai - bi
+		},
+		"hasActiveSession": func(v interface{}) bool {
+			if b, ok := v.(bool); ok {
+				return b
+			}
+			return false
+		},
 		"slice": func(s string, start, end int) string {
 			if start < 0 {
 				start = 0
@@ -289,30 +315,49 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		stats = map[string]interface{}{"sessions": 0, "events": 0, "checkpoints": 0, "flags": 0}
 	}
 
-	// Find the most recent active session for the live token meter.
-	var currentSessionKey string
-	var currentTokenBudget int
-	activeSessions, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions?limit=10")
+	// Find the most recent session and check for any active session.
+	// Prefer the active session's token_budget; fall back to the most recent.
+	var mostRecentKey string
+	var mostRecentBudget int
+	var activeKey string
+	var activeBudget int
+	activeSessions, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions?limit=20")
 	if err == nil {
 		if sessions, ok := activeSessions["sessions"].([]interface{}); ok {
 			for _, s := range sessions {
 				if sm, ok := s.(map[string]interface{}); ok {
-					if state, ok := sm["state"].(string); ok && state == "active" {
-						currentSessionKey, _ = sm["session_key"].(string)
+					if mostRecentKey == "" {
+						mostRecentKey, _ = sm["session_key"].(string)
 						if tb, ok := sm["token_budget"].(float64); ok {
-							currentTokenBudget = int(tb)
+							mostRecentBudget = int(tb)
 						}
-						break
+					}
+					if state, ok := sm["state"].(string); ok && state == "active" {
+						activeKey, _ = sm["session_key"].(string)
+						if tb, ok := sm["token_budget"].(float64); ok {
+							activeBudget = int(tb)
+						}
 					}
 				}
 			}
 		}
 	}
 
+	currentSessionKey := activeKey
+	currentTokenBudget := activeBudget
+	hasActiveSession := activeKey != ""
+	if !hasActiveSession && mostRecentKey != "" {
+		currentSessionKey = mostRecentKey
+		currentTokenBudget = mostRecentBudget
+	}
+	hasTokenData := currentSessionKey != ""
+
 	Render(w, r, "dashboard", map[string]interface{}{
 		"stats":              stats,
 		"currentSessionKey":   currentSessionKey,
 		"currentTokenBudget": currentTokenBudget,
+		"hasActiveSession":   hasActiveSession,
+		"hasTokenData":       hasTokenData,
 	})
 }
 

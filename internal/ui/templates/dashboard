@@ -15,20 +15,24 @@
   <div style="padding:16px 18px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
       <div>
-        <div style="font-size:12px;font-family:var(--mono);color:var(--muted);margin-bottom:2px;">{{.currentSessionKey}}</div>
-        <div style="font-size:11px;color:var(--muted);">Token budget</div>
+        <div style="font-size:12px;font-family:var(--mono);color:var(--muted);margin-bottom:2px;">{{if .currentSessionKey}}{{.currentSessionKey}}{{else}}No sessions{{end}}</div>
+        <div style="font-size:11px;color:var(--muted);">
+          {{if .hasActiveSession}}Active session · live updates via SSE{{else if .currentSessionKey}}Session ended · final count{{else}}No active session{{end}}
+        </div>
       </div>
       <div style="text-align:right;">
-        <div id="token-current" style="font-size:20px;font-weight:700;font-family:var(--mono);color:var(--accent);">—</div>
+        <div id="token-current" style="font-size:20px;font-weight:700;font-family:var(--mono);color:var(--accent);">{{if .currentTokenBudget}}{{.currentTokenBudget}}{{else}}—{{end}}</div>
         <div style="font-size:11px;color:var(--muted);">/ 200k</div>
       </div>
     </div>
     <div class="meter-bar" style="height:6px;border-radius:3px;overflow:hidden;margin-bottom:10px;">
-      <div id="token-bar" class="meter-fill ok" style="width:0%;height:100%;border-radius:3px;transition:width 600ms ease;"></div>
+      <div id="token-bar" class="meter-fill {{if .hasActiveSession}}ok{{else}}muted{{end}}" style="width:{{if .currentTokenBudget}}{{div (mul .currentTokenBudget 100.0) 200000.0}}{{else}}0{{end}}%;height:100%;border-radius:3px;transition:width 600ms ease;"></div>
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;">
-      <div style="font-size:11px;color:var(--muted);font-family:var(--mono);" id="token-note">Awaiting heartbeat…</div>
-      <div style="font-size:11px;font-family:var(--mono);" id="token-pct">0%</div>
+      <div style="font-size:11px;color:var(--muted);font-family:var(--mono);" id="token-note">
+        {{if .hasActiveSession}}{{sub 200000.0 .currentTokenBudget}} tokens remaining{{else if .hasTokenData}}{{.currentTokenBudget}} final tokens{{else}}No token data yet{{end}}
+      </div>
+      <div style="font-size:11px;font-family:var(--mono);" id="token-pct">{{if .currentTokenBudget}}{{div (mul .currentTokenBudget 100.0) 200000.0}}{{else}}0{{end}}% used</div>
     </div>
   </div>
 </div>
