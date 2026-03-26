@@ -5,6 +5,8 @@ export type BootstrapResult = {
   importedMessages?: number;
   reason?: string;
   systemPromptAddition?: string;
+  /** Number of events in the session so assemble() can decide whether to surface them. */
+  sessionEventCount?: number;
 };
 
 export type AssembleResult = {

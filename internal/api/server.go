@@ -208,6 +208,7 @@ type ErrorResponse struct {
 // StoreInterface captures the store methods used by handlers (allows test doubles).
 type StoreInterface interface {
 	GetSessionEvents(ctx context.Context, sessionID string, limit, offset int) ([]*models.Event, error)
+	GetRecentSessionEvents(ctx context.Context, sessionID string, limit int) ([]*models.Event, error)
 	GetSessionEventsCount(ctx context.Context, sessionID string) (int, error)
 	CreateCheckpoint(ctx context.Context, c *models.Checkpoint) error
 	GetCheckpoints(ctx context.Context, sessionID string) ([]*models.Checkpoint, error)

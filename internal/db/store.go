@@ -349,6 +349,22 @@ func (s *Store) GetSessionEvents(ctx context.Context, sessionID string, limit, o
 	return scanEvents(rows)
 }
 
+// GetRecentSessionEvents returns the N most recent events for a session, newest-first.
+// Use this for compact summaries and assemble() context injection — it avoids returning
+// stale events from early in the session when the caller only wants recent context.
+func (s *Store) GetRecentSessionEvents(ctx context.Context, sessionID string, limit int) ([]*models.Event, error) {
+	q := `SELECT event_id, session_id, parent_event_id, event_type, content,
+	             confidence, tags, embedding_id, task_title, task_status,
+	             status_changed_at, human_reviewed_at, reviewer_id, created_at
+	      FROM events WHERE session_id=? ORDER BY created_at DESC LIMIT ?`
+	rows, err := s.QueryContext(ctx, q, sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEvents(rows)
+}
+
 // SearchEvents searches all events by content (case-insensitive LIKE) and optionally by tag.
 // Results ordered by created_at DESC (newest first).
 func (s *Store) SearchEvents(ctx context.Context, query string, tag string, limit int) ([]*models.Event, error) {

@@ -29,6 +29,8 @@ interface AssembleParams {
   messages: AgentMessage[];
   tokenBudget?: number;
   prompt?: string;
+  /** Hard cap on recent events fetched from Lethe (default 20). */
+  hardLimit?: number;
 }
 
 interface AfterTurnParams {
@@ -133,11 +135,27 @@ export class LetheContextEngine implements ContextEngine {
             return {
               bootstrapped: true,
               systemPromptAddition: summaryPrompt(summary),
+              sessionEventCount: summary.event_count ?? 0,
             };
           }
         }
-        // Session already exists and is active — nothing to do.
-        return { bootstrapped: true };
+        // Session already exists and is active.
+        // Fetch event count so assemble() can decide whether to use recent events.
+        let sessionEventCount = 0;
+        try {
+          const summaryRes = await letheFetch(
+            endpoint,
+            apiKey,
+            `/sessions/${encodeURIComponent(sessionKey)}/summary`
+          );
+          if (summaryRes.ok) {
+            const summary = await summaryRes.json();
+            sessionEventCount = summary.event_count ?? 0;
+          }
+        } catch {
+          // Non-fatal — continue without event count.
+        }
+        return { bootstrapped: true, sessionEventCount };
       }
 
       // Session doesn't exist yet — create it.
@@ -248,6 +266,15 @@ export class LetheContextEngine implements ContextEngine {
 
   // ------------------------------------------------------------------
   // assemble — two-stage retrieval under token budget
+  //
+  // Safety guarantees:
+  // 1. HARD CAP: never more than hardLimit recent events (default 5).
+  //    After /new the transcript has ≤3 messages; surfacing 20 stale Lethe
+  //    events on top creates context overflow. A hard cap of 5 is safe.
+  // 2. SESSION-AGE HEURISTIC: if messages.length <= 3 and the session has
+  //    accumulated >10 events, skip recent events entirely — this is the
+  //    signature of a /new or /reset that kept the same Lethe session.
+  // 3. TOKEN BUDGET: budget-aware fetching when a real budget is provided.
   // ------------------------------------------------------------------
 
   async assemble(params: AssembleParams): Promise<AssembleResult> {
@@ -256,9 +283,22 @@ export class LetheContextEngine implements ContextEngine {
 
     const { endpoint, apiKey } = this.cfg;
 
-    // Stage 1: session summary (the "story so far").
+    // Safety: hard cap of 5 recent events prevents unbounded accumulation.
+    // This is the primary guard against /new overflow.
+    const HARD_LIMIT = params.hardLimit ?? 5;
+
+    // Safety: session-age heuristic — detect /new or /reset.
+    // When the transcript is nearly empty (<=3 messages) but Lethe has
+    // accumulated >10 events, this is a /new that re-used the session.
+    // Skip recent events to avoid surfacing stale context about a
+    // different conversation.
+    const isNewTranscript = messages.length <= 3;
+    const skipRecentEvents = isNewTranscript;
+
+    // Stage 1: session summary (the "story so far") — always fetched.
     let summaryText = "";
     let summaryTokens = 0;
+    let sessionEventCount = 0;
     try {
       const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/summary`);
       if (res.ok) {
@@ -268,31 +308,39 @@ export class LetheContextEngine implements ContextEngine {
           summaryText = rawSummary;
           summaryTokens = estimateTokens(summaryText);
         }
+        sessionEventCount = data.event_count ?? 0;
       }
     } catch {
       // Proceed without summary.
     }
 
-    // Stage 2: recent events, budget-aware.
+    // Stage 2: recent events — guarded.
     let recentEvents: AgentMessage[] = [];
     let recentTokens = 0;
-    const budgetForRecent = tokenBudget
-      ? Math.max(0, tokenBudget - summaryTokens - 200)
-      : undefined;
 
-    if (!budgetForRecent || budgetForRecent > 100) {
-      try {
-        const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/events`, {
-          limit: 20,
-          token_budget: budgetForRecent,
-        });
-        if (res.ok) {
-          const data = await res.json();
-          recentEvents = (data.events ?? []).map(eventToMessage);
-          recentTokens = estimateTokens(JSON.stringify(recentEvents));
+    if (!skipRecentEvents && sessionEventCount > 0) {
+      // Token budget path: reserve headroom for summary + messages.
+      const budgetForRecent = tokenBudget
+        ? Math.max(0, tokenBudget - summaryTokens - 200 - estimateTokens(JSON.stringify(messages)))
+        : undefined;
+
+      const effectiveLimit = budgetForRecent && budgetForRecent < 200 ? 3 : HARD_LIMIT;
+
+      if (!budgetForRecent || budgetForRecent > 50) {
+        try {
+          const eventsUrl = `${endpoint}/sessions/${encodeURIComponent(sessionKey)}/events?limit=${effectiveLimit}`;
+          const res = await fetch(eventsUrl, { method: "GET", headers: letheHeaders(apiKey) });
+          if (res.ok) {
+            const data = await res.json();
+            // GetSessionEvents returns ASC (oldest-first) for pagination.
+            // Reverse so events are prepended in chronological order before current messages.
+            const events: any[] = (data.events ?? []).slice().reverse();
+            recentEvents = events.map(eventToMessage);
+            recentTokens = estimateTokens(JSON.stringify(recentEvents));
+          }
+        } catch {
+          // Proceed without recent events.
         }
-      } catch {
-        // Proceed without recent events.
       }
     }
 

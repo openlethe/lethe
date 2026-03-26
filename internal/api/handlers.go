@@ -658,7 +658,9 @@ func (s *Server) handleGetSessionSummary(w http.ResponseWriter, r *http.Request)
 		latestCP = cps[0]
 	}
 
-	events, _ := s.store.GetSessionEvents(r.Context(), sess.SessionID, 20, 0)
+	// Use GetRecentSessionEvents (DESC) to surface the most recent 20 events,
+	// not the oldest 20. The UI tab reverses for display; plugin uses newest-first.
+	events, _ := s.store.GetRecentSessionEvents(r.Context(), sess.SessionID, 20)
 
 	// Also surface summary at top level for plugin convenience.
 	var topSummary string
@@ -666,13 +668,16 @@ func (s *Server) handleGetSessionSummary(w http.ResponseWriter, r *http.Request)
 		topSummary = sess.Summary
 	}
 
+	// Use the real total count, not the length of the fetched slice.
+	totalEventCount, _ := s.store.GetSessionEventsCount(r.Context(), sess.SessionID)
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"session":           sess,
 		"summary":           topSummary,
 		"latest_checkpoint": latestCP,
 		"recent_events":     events,
 		"checkpoint_count": len(cps),
-		"event_count":      len(events),
+		"event_count":      totalEventCount,
 	})
 }
 
@@ -711,7 +716,9 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	evts, err := s.store.GetSessionEvents(ctx, sess.SessionID, 10, 0)
+	// Use GetRecentSessionEvents (DESC) so compact summaries describe what the
+	// agent was *just* doing, not what it did 2 days ago.
+	evts, err := s.store.GetRecentSessionEvents(ctx, sess.SessionID, 10)
 	if err != nil {
 		evts = nil // non-fatal
 	}
