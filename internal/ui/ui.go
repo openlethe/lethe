@@ -274,7 +274,32 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if err != nil || stats == nil {
 		stats = map[string]interface{}{"sessions": 0, "events": 0, "checkpoints": 0, "flags": 0}
 	}
-	Render(w, r, "dashboard", map[string]interface{}{"stats": stats})
+
+	// Find the most recent active session for the live token meter.
+	var currentSessionKey string
+	var currentTokenBudget int
+	activeSessions, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions?limit=10")
+	if err == nil {
+		if sessions, ok := activeSessions["sessions"].([]interface{}); ok {
+			for _, s := range sessions {
+				if sm, ok := s.(map[string]interface{}); ok {
+					if state, ok := sm["state"].(string); ok && state == "active" {
+						currentSessionKey, _ = sm["session_key"].(string)
+						if tb, ok := sm["token_budget"].(float64); ok {
+							currentTokenBudget = int(tb)
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+
+	Render(w, r, "dashboard", map[string]interface{}{
+		"stats":              stats,
+		"currentSessionKey":   currentSessionKey,
+		"currentTokenBudget": currentTokenBudget,
+	})
 }
 
 func handleSessions(w http.ResponseWriter, r *http.Request) {

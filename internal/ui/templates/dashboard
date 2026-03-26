@@ -3,6 +3,36 @@
   <p style="font-size:13px;color:var(--muted);">Lethe — persistent memory for AI agents</p>
 </div>
 
+<!-- LIVE SESSION CARD (SSE-driven token meter) -->
+<div class="card" style="margin-bottom:24px;">
+  <div class="card-header">
+    <span class="card-title">Live Session</span>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <div id="sse-status" style="font-size:11px;color:var(--muted);font-family:var(--mono);">Connecting…</div>
+      <div id="sse-dot" style="width:6px;height:6px;border-radius:50%;background:var(--muted);transition:background 300ms;"></div>
+    </div>
+  </div>
+  <div style="padding:16px 18px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+      <div>
+        <div style="font-size:12px;font-family:var(--mono);color:var(--muted);margin-bottom:2px;">{{.currentSessionKey}}</div>
+        <div style="font-size:11px;color:var(--muted);">Token budget</div>
+      </div>
+      <div style="text-align:right;">
+        <div id="token-current" style="font-size:20px;font-weight:700;font-family:var(--mono);color:var(--accent);">—</div>
+        <div style="font-size:11px;color:var(--muted);">/ 200k</div>
+      </div>
+    </div>
+    <div class="meter-bar" style="height:6px;border-radius:3px;overflow:hidden;margin-bottom:10px;">
+      <div id="token-bar" class="meter-fill ok" style="width:0%;height:100%;border-radius:3px;transition:width 600ms ease;"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-size:11px;color:var(--muted);font-family:var(--mono);" id="token-note">Awaiting heartbeat…</div>
+      <div style="font-size:11px;font-family:var(--mono);" id="token-pct">0%</div>
+    </div>
+  </div>
+</div>
+
 <!-- STATS ROW -->
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;">
   <div class="card" style="text-align:center;padding:20px;">
@@ -19,7 +49,7 @@
   </div>
   <div class="card" style="text-align:center;padding:20px;">
     <div style="font-size:32px;font-weight:700;font-family:var(--mono);color:var(--amber);">{{index .stats "flags"}}</div>
-    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:6px;">Flags</div>
+    <div style="font-size:11px;color:var(--muted);text-transform:upperphone;letter-spacing:.06em;margin-top:6px;">Flags</div>
   </div>
 </div>
 
@@ -57,3 +87,53 @@
     </div>
   </div>
 </div>
+
+<script>
+  const CURRENT_SESSION = '{{.currentSessionKey}}';
+  const MAX_TOKENS = 200000;
+
+  function connectDashboardSSE() {
+    const es = new EventSource('/live');
+    const status = document.getElementById('sse-status');
+    const dot = document.getElementById('sse-dot');
+
+    es.addEventListener('ping', () => {
+      status.textContent = 'SSE connected';
+      dot.style.background = 'var(--green)';
+    });
+
+    es.addEventListener('tick', e => {
+      const data = JSON.parse(e.data);
+      // Only show ticks for the current session
+      if (data.session_id !== CURRENT_SESSION && data.session_key !== CURRENT_SESSION) return;
+      updateMeter(data.tokens || 0);
+    });
+
+    es.onerror = () => {
+      status.textContent = 'SSE disconnected — retrying…';
+      dot.style.background = 'var(--muted)';
+      es.close();
+      setTimeout(connectDashboardSSE, 3000);
+    };
+  }
+
+  function updateMeter(tokens) {
+    const pct = Math.min(100, Math.round((tokens / MAX_TOKENS) * 100));
+    const bar = document.getElementById('token-bar');
+    const current = document.getElementById('token-current');
+    const note = document.getElementById('token-note');
+    const pctEl = document.getElementById('token-pct');
+
+    if (bar) {
+      bar.style.width = pct + '%';
+      bar.className = 'meter-fill ' + (pct > 85 ? 'critical' : pct > 70 ? 'warn' : 'ok');
+    }
+    if (current) current.textContent = tokens.toLocaleString();
+    if (note) note.textContent = tokens > 0
+      ? (MAX_TOKENS - tokens).toLocaleString() + ' tokens remaining'
+      : 'Awaiting heartbeat…';
+    if (pctEl) pctEl.textContent = pct + '% used';
+  }
+
+  connectDashboardSSE();
+</script>
