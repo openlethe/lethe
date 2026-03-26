@@ -75,18 +75,7 @@
   </div>
 </div>
 
-<div style="margin-top:24px;">
-  <div class="card">
-    <div class="card-header">
-      <span class="card-title">Quick Actions</span>
-    </div>
-    <div class="card-body" style="display:flex;gap:8px;">
-      <a href="/ui/sessions" class="btn btn-ghost">Browse Sessions</a>
-      <a href="/ui/flags" class="btn btn-ghost">Review Flags</a>
-      <a href="/ui/live" class="btn btn-ghost">Watch Live</a>
-    </div>
-  </div>
-</div>
+
 
 <script>
   const CURRENT_SESSION = '{{.currentSessionKey}}';

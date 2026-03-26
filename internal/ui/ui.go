@@ -49,6 +49,20 @@ func init() {
 			}
 			return fmt.Sprintf("%.0fd", d.Hours()/24)
 		},
+		"formatTime": func(v interface{}) string {
+			var t time.Time
+			switch x := v.(type) {
+			case time.Time:
+				t = x
+			case string:
+				var err error
+				t, err = time.Parse(time.RFC3339, x)
+				if err != nil {
+					return x
+				}
+			}
+			return t.Format("Jan 2, 15:04")
+		},
 		"mul": func(a, b float64) float64 { return a * b },
 		"slice": func(s string, start, end int) string {
 			if start < 0 {
