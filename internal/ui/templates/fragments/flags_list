@@ -1,21 +1,28 @@
-{{if .flags}}
-<div class="space-y-3">
+<div>
   {{range .flags}}
-  <div class="p-4 rounded-lg" style="background: #2a2518; border: 1px solid #3d3520;">
-    <div class="flex items-start justify-between gap-3">
-      <div class="flex-1">
-        <div class="text-sm text-[#fbbf24] mb-1">⚑ Flag</div>
-        <p class="text-sm text-[#d1d5db]">{{.Content}}</p>
-        {{if .Tags}}<div class="text-xs text-[#6b7280] mt-2">Tags: {{.Tags}}</div>{{end}}
+  <div class="event-row">
+    <span class="event-type-pill pill-flag">flag</span>
+    <div class="event-content">
+      <div class="event-text">{{.content}}</div>
+      <div class="event-footer">
+        <span class="event-time">{{.created_at | since}} ago</span>
+        {{if .confidence}}<span class="conf-chip">conf {{printf "%.0f" (mul .confidence 100)}}%</span>{{end}}
       </div>
-      <span class="text-xs text-[#6b7280] whitespace-nowrap">{{.CreatedAt | since}} ago</span>
+    </div>
+    <div class="event-actions">
+      <button class="icon-btn"
+        hx-put="/api/flags/{{.event_id}}/review"
+        hx-vals='{"reviewer_id":"human"}'
+        hx-target="closest .event-row"
+        hx-swap="outerHTML"
+        title="Mark reviewed">✓</button>
     </div>
   </div>
   {{end}}
+  {{if not .flags}}
+  <div class="empty-state" style="padding:32px;text-align:center;color:var(--muted);">
+    <div style="font-size:24px;margin-bottom:8px;">✓</div>
+    <div>No flags — everything looks good.</div>
+  </div>
+  {{end}}
 </div>
-{{else}}
-<div class="text-center py-8">
-  <div class="text-3xl mb-2">✓</div>
-  <p class="text-[#34d399] text-sm">No flags — everything looks good.</p>
-</div>
-{{end}}

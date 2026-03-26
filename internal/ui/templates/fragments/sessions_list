@@ -1,21 +1,20 @@
-{{if .sessions}}
-<div class="space-y-2">
+<div>
   {{range .sessions}}
-  <div class="flex items-center justify-between p-3 rounded-lg" style="background: #1a1d27;">
-    <div class="flex items-center gap-3">
-      <div class="w-2 h-2 rounded-full {{if eq .state "active"}}bg-green-400{{else}}bg-gray-500{{end}}"></div>
+  <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div style="width:8px;height:8px;border-radius:50%;background:{{if eq .state "active"}}var(--green){{else if eq .state "interrupted"}}var(--accent){{else}}var(--muted){{end}};"></div>
       <div>
-        <div class="text-sm font-medium text-[#e2e8f0]">{{.agent_id}}</div>
-        <div class="text-xs text-[#6b7280]">Started {{.started_at | since}} ago</div>
+        <div style="font-size:14px;font-weight:600;color:var(--text);">{{.agent_id}}</div>
+        <div style="font-size:12px;color:var(--muted);font-family:var(--mono);">Started {{.started_at | since}} ago</div>
       </div>
     </div>
-    <div class="flex items-center gap-3">
-      <span class="text-xs px-2 py-1 rounded {{if eq .state "active"}}bg-green-900 text-green-300{{else}}bg-gray-700 text-gray-300{{end}}">{{.state}}</span>
-      <a href="/ui/sessions/{{.session_id}}" class="text-xs text-[#60a5fa] hover:underline">View →</a>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="font-size:11px;font-family:var(--mono);padding:2px 8px;border-radius:12px;background:{{if eq .state "active"}}rgba(58,125,94,.1);color:var(--green){{else if eq .state "interrupted"}}rgba(61,90,115,.1);color:var(--accent){{else}}rgba(138,125,107,.12);color:var(--muted){{end}};border:1px solid currentColor;">{{.state}}</span>
+      <a href="/ui/sessions/{{.session_id}}" style="font-size:12px;color:var(--accent);">View →</a>
     </div>
   </div>
   {{end}}
+  {{if not .sessions}}
+  <div class="empty-state">No sessions found.</div>
+  {{end}}
 </div>
-{{else}}
-<p class="text-[#6b7280] text-sm text-center py-8">No sessions recorded yet.</p>
-{{end}}

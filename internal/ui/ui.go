@@ -110,8 +110,34 @@ func UseSubFS(fsys embed.FS, prefix string) (http.FileSystem, error) {
 	return http.FS(dir), nil
 }
 
+// RenderData is the data passed to the layout template.
+type RenderData struct {
+	Title        string
+	Content      string
+	Layout       string // extra CSS class for the page wrapper (e.g. "page-with-sidebar")
+	Data         interface{}
+	Request      *http.Request
+	CurrentRoute string
+}
+
+type renderOption func(*RenderData)
+
+func withLayout(layout string) renderOption {
+	return func(rd *RenderData) { rd.Layout = layout }
+}
+
+// RenderWithLayout renders a page with a specific layout class (e.g. "page-with-sidebar").
+func RenderWithLayout(w http.ResponseWriter, r *http.Request, name string, layout string, data interface{}) {
+	Render(w, r, name, data, withLayout(layout))
+}
+
+// RenderWithData renders a page with custom page data (for pre-populated pages like session detail).
+func RenderWithData(w http.ResponseWriter, r *http.Request, name string, data interface{}) {
+	Render(w, r, name, data)
+}
+
 // Render renders a template with the given name and data.
-func Render(w http.ResponseWriter, r *http.Request, name string, data interface{}) {
+func Render(w http.ResponseWriter, r *http.Request, name string, data interface{}, opts ...renderOption) {
 	// Page titles derived from template name to avoid {{define}} conflicts.
 	var title string
 	switch name {
@@ -136,6 +162,7 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 	type RenderData struct {
 		Title        string
 		Content      string
+		Layout       string // optional extra CSS class for the page wrapper
 		Data         interface{}
 		Request      *http.Request
 		CurrentRoute string
@@ -162,6 +189,7 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 		Data:         data,
 		Request:      r,
 		CurrentRoute: name,
+		Layout:       "",
 	}
 	if err := templates.ExecuteTemplate(w, "layout", rd); err != nil {
 		log.Printf("Render(%q) layout error: %v", name, err)
@@ -255,17 +283,53 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 
 func handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
-	Render(w, r, "session_detail", map[string]string{"SessionID": sessionID})
+
+	// Pre-fetch all session data so the page is fully rendered on load.
+	// HTMX will still update events/checkpoints fragments dynamically.
+	sessData, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID)
+	if err != nil || sessData == nil {
+		sessData = map[string]interface{}{}
+	}
+
+	eventsResult, _ := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID+"/events?limit=50")
+	var events []map[string]interface{}
+	if eventsResult != nil {
+		if e, ok := eventsResult["events"].([]interface{}); ok {
+			for _, v := range e {
+				if m, ok := v.(map[string]interface{}); ok {
+					events = append(events, m)
+				}
+			}
+		}
+	}
+
+	cpResult, _ := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID+"/checkpoints")
+	var checkpoints []map[string]interface{}
+	if cpResult != nil {
+		if c, ok := cpResult["checkpoints"].([]interface{}); ok {
+			for _, v := range c {
+				if m, ok := v.(map[string]interface{}); ok {
+					checkpoints = append(checkpoints, m)
+				}
+			}
+		}
+	}
+
+	pageData := map[string]interface{}{
+		"session":    sessData,
+		"events":     events,
+		"checkpoints": checkpoints,
+	}
+
+	RenderWithLayout(w, r, "session_detail", "page-with-sidebar", pageData)
 }
 
 func handleSessionEvents(w http.ResponseWriter, r *http.Request) {
-	sessionID := chi.URLParam(r, "sessionID")
-	Render(w, r, "session_events", map[string]string{"SessionID": sessionID})
+	Render(w, r, "session_events", nil)
 }
 
 func handleSessionCheckpoints(w http.ResponseWriter, r *http.Request) {
-	sessionID := chi.URLParam(r, "sessionID")
-	Render(w, r, "session_checkpoints", map[string]string{"SessionID": sessionID})
+	Render(w, r, "session_checkpoints", nil)
 }
 
 // handleSessionDetailData returns session data fragment for HTMX.

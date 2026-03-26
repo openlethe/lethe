@@ -1,8 +1,8 @@
-<div class="mb-6">
-  <h1 class="text-2xl font-bold">Flags Queue</h1>
-  <p class="text-[#6b7280] text-sm mt-1">Items that need human review</p>
-</div>
+<div class="session-label" style="margin-bottom:16px">Flags Queue</div>
+<p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Items that need human review</p>
 
-<div id="flags-list" hx-get="/ui/flags-data" hx-trigger="load" hx-swap="innerHTML">
-  <div class="card p-8 text-center text-[#6b7280] htmx-indicator">Loading…</div>
+<div class="card">
+  <div id="flags-list" hx-get="/ui/flags-data" hx-trigger="load" hx-swap="innerHTML">
+    <div class="empty-state">Loading…</div>
+  </div>
 </div>

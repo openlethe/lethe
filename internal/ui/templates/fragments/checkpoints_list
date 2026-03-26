@@ -1,17 +1,20 @@
-<div class="space-y-2">
-  {{range .checkpoints}}
-  <div class="flex items-start gap-3 p-3 rounded bg-[#0f1117] border border-[#2d3140]">
-    <div class="mt-1 text-[#6b7280]">▸</div>
-    <div class="flex-1 min-w-0">
-      <div class="flex items-center gap-2 mb-1">
-        <span class="mono text-xs text-[#60a5fa]">#{{.seq}}</span>
-        <span class="timestamp">@ {{.created_at | since}} ago</span>
-      </div>
-      {{if .snapshot.current_task}}<div class="text-xs text-[#9ca3af] mb-1">Task: {{.snapshot.current_task}}</div>{{end}}
-      {{if .snapshot.last_tool}}<div class="text-xs text-[#6b7280]">Tool: {{.snapshot.last_tool}}</div>{{end}}
-      {{if .snapshot.open_threads}}<div class="text-xs text-[#6b7280]">Threads: {{len .snapshot.open_threads}}</div>{{end}}
+{{range .checkpoints}}
+<div class="checkpoint-row">
+  <div class="seq-badge">#{{.seq}}</div>
+  <div class="cp-body">
+    {{if .snapshot.current_task}}<div class="cp-task">{{.snapshot.current_task}}</div>{{else}}<div class="cp-task-none">(no current task)</div>{{end}}
+    <div class="cp-meta">
+      {{if .snapshot.last_tool}}<span class="cp-meta-item">tool: <strong>{{.snapshot.last_tool}}</strong></span>{{end}}
+      <span class="cp-meta-item">{{.created_at | since}} ago</span>
     </div>
+    {{if .snapshot.open_threads}}
+    <div class="cp-threads">
+      {{range .snapshot.open_threads}}
+      <span class="thread-tag">{{.}}</span>
+      {{end}}
+    </div>
+    {{end}}
   </div>
-  {{end}}
 </div>
-{{if not .checkpoints}}<p class="text-[#6b7280] text-sm text-center p-4">No checkpoints.</p>{{end}}
+{{end}}
+{{if not .checkpoints}}<div class="empty-state">No checkpoints yet.</div>{{end}}

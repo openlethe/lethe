@@ -1,26 +1,272 @@
-{{template "layout" .}}
-
-<div class="mb-6 flex items-center gap-3">
-  <a href="/ui/sessions" class="text-[#6b7280] hover:text-[#e2e8f0]">← Sessions</a>
-  <span class="text-[#6b7280]">|</span>
-  <h1 class="text-2xl font-bold">Session Detail</h1>
+<div id="interrupted-banner" class="dismiss-banner" style="display:none">
+  <span class="dismiss-icon">⚠</span>
+  <p><strong>Session interrupted.</strong> Last heartbeat was <span id="heartbeat-ago">—</span> ago.</p>
+  <button class="btn btn-ghost" style="flex-shrink:0;font-size:11px;" onclick="document.getElementById('interrupted-banner').remove()">Dismiss</button>
 </div>
 
-<div id="session-data" hx-get="/ui/session/{{.Data.SessionID}}/data" hx-trigger="load" hx-swap="innerHTML" class="mb-6">
-  <div class="card p-6 htmx-indicator">Loading…</div>
-</div>
-
-<div class="grid grid-cols-2 gap-6">
-  <div class="card">
-    <div class="p-4 border-b border-[#2d3140] font-semibold">Events</div>
-    <div hx-get="/ui/session/{{.Data.SessionID}}/events-data" hx-trigger="load" hx-swap="innerHTML">
-      <div class="p-8 text-center text-[#6b7280] htmx-indicator">Loading…</div>
+<div class="session-header">
+  <div>
+    <div class="session-label">Session</div>
+    <div class="session-id">
+      {{index .session "session_key"}}
+      <span class="session-id-copy" onclick="navigator.clipboard.writeText('{{index .session "session_key"}}')">copy</span>
+    </div>
+    <div class="session-meta">
+      <span class="badge badge-{{index .session "state"}}">
+        <span class="badge-dot"></span>{{index .session "state"}}
+      </span>
+      <span class="meta-divider"></span>
+      <span class="meta-item">Agent: <strong>{{index .session "agent_id"}}</strong></span>
+      <span class="meta-divider"></span>
+      <span class="meta-item">Started <strong id="started-ago">—</strong></span>
     </div>
   </div>
-  <div class="card">
-    <div class="p-4 border-b border-[#2d3140] font-semibold">Checkpoints</div>
-    <div hx-get="/ui/session/{{.Data.SessionID}}/checkpoints-data" hx-trigger="load" hx-swap="innerHTML">
-      <div class="p-8 text-center text-[#6b7280] htmx-indicator">Loading…</div>
-    </div>
+  <div class="header-actions">
+    <button class="btn btn-ghost"
+      hx-post="/api/sessions/{{index .session "session_key"}}/complete"
+      hx-vals='{"summary": "Completed via dashboard"}'
+      hx-confirm="Mark this session as completed?"
+      hx-target="closest .header-actions"
+      hx-swap="outerHTML">
+      Mark Complete
+    </button>
+    <button class="btn btn-amber" onclick="showConfirm()">⬡ Compact Now</button>
   </div>
 </div>
+
+<div class="page-with-sidebar">
+  <div class="main-col">
+
+    <!-- EVENTS + CHECKPOINTS CARD -->
+    <div class="card">
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab(this,'events-pane','checkpoints-pane')">Events</button>
+        <button class="tab" onclick="switchTab(this,'checkpoints-pane','events-pane')">Checkpoints</button>
+      </div>
+
+      <!-- EVENTS PANE -->
+      <div id="events-pane"
+        hx-get="/ui/session/{{index .session "session_id"}}/events-data"
+        hx-trigger="load"
+        hx-swap="innerHTML">
+        <div class="htmx-indicator" style="padding:32px;text-align:center;color:var(--muted);">Loading…</div>
+      </div>
+
+      <!-- CHECKPOINTS PANE (hidden initially) -->
+      <div id="checkpoints-pane" style="display:none"
+        hx-get="/ui/session/{{index .session "session_id"}}/checkpoints-data"
+        hx-trigger="revealed"
+        hx-swap="innerHTML">
+      </div>
+    </div>
+
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- COMPACT PANEL -->
+    <div class="compact-panel">
+      <div class="compact-header">
+        <div class="compact-title-row">
+          <div class="compact-icon">⬡</div>
+          <div>
+            <div class="compact-label">Memory Compaction</div>
+            <div class="compact-sublabel">Token budget + reasoning chain</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Token meter -->
+      <div class="token-meter">
+        <div class="token-meter-row">
+          <span class="token-label">Context tokens</span>
+          <span class="token-value">
+            <span class="current" id="token-current">—</span>
+            <span class="max"> / 200k</span>
+          </span>
+        </div>
+        <div class="meter-bar">
+          <div class="meter-fill ok" id="token-bar" style="width:0%"></div>
+        </div>
+        <div class="token-note" id="token-note">Connect to SSE for live token count</div>
+      </div>
+
+      <!-- Stored summary -->
+      <div class="compact-summary">
+        <div class="summary-label">
+          <span>Stored summary</span>
+          <span class="token-count" id="summary-tokens">— tokens</span>
+        </div>
+        <div class="summary-text" id="summary-text">
+          {{if index .session "summary"}}{{index .session "summary"}}{{else}}<em class="empty-state" style="display:block;padding:12px;">No summary yet. Compact to generate.</em>{{end}}
+        </div>
+      </div>
+
+      <!-- Compact actions -->
+      <div class="compact-actions">
+        <div class="btn-row">
+          <button class="btn btn-ghost"
+            hx-post="/api/sessions/{{index .session "session_id"}}/compact"
+            hx-target="#summary-text"
+            hx-swap="innerHTML"
+            hx-indicator="#compact-spinner">
+            <span id="compact-spinner" class="htmx-indicator spinner"></span>
+            Recompact
+          </button>
+          <button class="btn btn-ghost"
+            onclick="navigator.clipboard.writeText(document.getElementById('summary-text').innerText)">
+            Copy
+          </button>
+        </div>
+        <button class="btn btn-danger" style="width:100%;justify-content:center;" onclick="showConfirm()">
+          Dispose Session
+        </button>
+      </div>
+
+      <!-- Inline confirm -->
+      <div class="confirm-box" id="confirm-box">
+        <p>This will mark the session as <strong>completed</strong> and write a final summary.</p>
+        <div class="confirm-actions">
+          <button class="btn btn-danger" style="flex:1;justify-content:center;"
+            hx-post="/api/sessions/{{index .session "session_id"}}/complete"
+            hx-vals='{"summary":"Disposed via dashboard"}'
+            hx-target="#compact-panel-state"
+            hx-swap="innerHTML"
+            hx-on::after-request="hideConfirm()">
+            Confirm Dispose
+          </button>
+          <button class="btn btn-ghost" onclick="hideConfirm()">Cancel</button>
+        </div>
+      </div>
+
+      <div style="padding:0 18px 14px;" id="compact-panel-state">
+        <div class="compact-note" id="compact-note">Compact to generate summary</div>
+      </div>
+    </div>
+
+    <!-- SESSION INFO -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">Session info</span></div>
+      <div style="padding:4px 18px 12px;">
+        <div class="info-row">
+          <span class="info-key">State</span>
+          <span class="info-val" id="session-state-badge" style="color:var(--accent)">{{index .session "state"}}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Session key</span>
+          <span class="info-val">{{index .session "session_key"}}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Session ID</span>
+          <span class="info-val" style="font-size:11px;color:var(--muted)">{{index .session "session_id"}}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Started</span>
+          <span class="info-val" id="info-started">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Heartbeat</span>
+          <span class="info-val" id="info-heartbeat">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATS -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Stats</span>
+        <span class="card-action"
+          hx-get="/api/sessions/{{index .session "session_id"}}/summary"
+          hx-target="#session-stats"
+          hx-swap="innerHTML">↺ refresh</span>
+      </div>
+      <div class="card-body" id="session-stats">
+        <div class="stat-grid">
+          <div class="stat-box">
+            <div class="stat-val c-blue">{{len .events}}</div>
+            <div class="stat-lbl">Events</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val c-purple">{{len .checkpoints}}</div>
+            <div class="stat-lbl">Checkpoints</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val c-amber">—</div>
+            <div class="stat-lbl">Flags</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-val c-green">—</div>
+            <div class="stat-lbl">Tasks</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // Time formatting helpers
+  function formatAgo(isoString) {
+    if (!isoString) return '—';
+    const diff = Date.now() - new Date(isoString + 'Z').getTime();
+    const s = Math.floor(diff / 1000);
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + 'm';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + 'h';
+    return Math.floor(h / 24) + 'd';
+  }
+
+  function updateTimes() {
+    const startedAgo = document.getElementById('started-ago');
+    const heartbeatAgo = document.getElementById('heartbeat-ago');
+    const infoStarted = document.getElementById('info-started');
+    const infoHeartbeat = document.getElementById('info-heartbeat');
+    const banner = document.getElementById('interrupted-banner');
+    const state = '{{index .session "state"}}';
+
+    const started = '{{index .session "started_at"}}'.replace('Z','').replace('T',' ');
+    const heartbeat = '{{index .session "last_heartbeat_at"}}'.replace('Z','').replace('T',' ');
+
+    const sAgo = formatAgo('{{index .session "started_at"}}');
+    const hAgo = formatAgo('{{index .session "last_heartbeat_at"}}');
+
+    if (startedAgo) startedAgo.textContent = sAgo;
+    if (infoStarted) infoStarted.textContent = sAgo + ' ago';
+    if (heartbeatAgo) heartbeatAgo.textContent = hAgo;
+    if (infoHeartbeat) infoHeartbeat.textContent = hAgo + ' ago';
+
+    if (banner && state === 'interrupted') {
+      banner.style.display = 'flex';
+    }
+  }
+
+  updateTimes();
+  setInterval(updateTimes, 15000);
+
+  // SSE for live events and token count
+  function connectSSE() {
+    const es = new EventSource('/live');
+    es.addEventListener('event', e => {
+      const data = JSON.parse(e.data);
+      if (data.event_type === 'tick') {
+        // Token meter update
+        const pct = Math.round((data.tokens / 200000) * 100);
+        const bar = document.getElementById('token-bar');
+        const current = document.getElementById('token-current');
+        const note = document.getElementById('token-note');
+        if (bar) {
+          bar.style.width = pct + '%';
+          bar.className = 'meter-fill ' + (pct > 85 ? 'critical' : pct > 70 ? 'warn' : 'ok');
+        }
+        if (current) current.textContent = data.tokens.toLocaleString();
+        if (note) note.textContent = pct + '% used · ' + (200000 - data.tokens).toLocaleString() + ' tokens remaining';
+      }
+    });
+    es.onerror = () => { es.close(); /* fallback to polling */ };
+  }
+  connectSSE();
+</script>

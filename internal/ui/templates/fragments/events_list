@@ -1,16 +1,28 @@
 <div class="space-y-3">
   {{range .items}}
-  <div class="border-b border-[#1f2333] pb-3">
-    <div class="flex items-center gap-2 mb-1">
-      <span class="badge badge-{{.event_type}}">{{.event_type}}</span>
-      {{if .task_title}}<span class="text-xs text-[#9ca3af]">{{.task_title}}</span>{{end}}
-      {{if .task_status}}<span class="badge badge-{{.task_status}} text-xs ml-1">{{.task_status}}</span>{{end}}
-      {{if .confidence}}<span class="text-xs text-[#6b7280] ml-1">{{printf "%.0f" (mul .confidence 100)}}%</span>{{end}}
-      <span class="timestamp ml-auto">{{.created_at | since}} ago</span>
+  <div class="event-row">
+    <span class="event-type-pill pill-{{index . "event_type"}}">{{index . "event_type"}}</span>
+    <div class="event-content">
+      <div class="event-text">{{index . "content"}}</div>
+      <div class="event-footer">
+        <span class="event-time">{{index . "created_at" | since}} ago</span>
+        {{if (index . "confidence")}}<span class="conf-chip">conf {{printf "%.0f" (mul (index . "confidence") 100)}}%</span>{{end}}
+        {{if (index . "task_status")}}<span class="task-status-chip chip-{{index . "task_status"}}">{{index . "task_status"}}</span>{{end}}
+        {{if (index . "human_reviewed_at")}}<span class="event-flag-reviewed">✓ reviewed</span>{{end}}
+      </div>
     </div>
-    <p class="text-sm text-[#d1d5db]">{{.content}}</p>
-    {{if .tags}}<div class="text-xs text-[#6b7280] mt-1">Tags: {{.tags}}</div>{{end}}
+    <div class="event-actions">
+      <button class="icon-btn" title="View chain">⬡</button>
+    </div>
   </div>
   {{end}}
 </div>
-{{if not .items}}<p class="text-[#6b7280] text-sm text-center p-4">No events.</p>{{end}}
+{{if not .items}}<div class="empty-state">No events yet.</div>{{end}}
+<div class="load-more" style="display:none">
+  <button class="btn btn-ghost"
+    hx-get="/ui/session/{{.session_id}}/events-data?offset=20"
+    hx-target="closest .space-y-3"
+    hx-swap="beforeend">
+    Load more <span class="htmx-indicator spinner"></span>
+  </button>
+</div>

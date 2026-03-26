@@ -1,42 +1,56 @@
-<div class="mb-8">
-  <div class="grid grid-cols-4 gap-4">
-    <div class="card p-5 text-center">
-      <div class="text-4xl font-bold text-[#60a5fa]">{{index .stats "sessions"}}</div>
-      <div class="text-[#6b7280] text-sm mt-1">Sessions</div>
+<div style="margin-bottom:24px">
+  <h1 style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px;">Dashboard</h1>
+  <p style="font-size:13px;color:var(--muted);">Lethe — persistent memory for AI agents</p>
+</div>
+
+<!-- STATS ROW -->
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;">
+  <div class="card" style="text-align:center;padding:20px;">
+    <div style="font-size:32px;font-weight:700;font-family:var(--mono);color:var(--accent);">{{index .stats "sessions"}}</div>
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:6px;">Sessions</div>
+  </div>
+  <div class="card" style="text-align:center;padding:20px;">
+    <div style="font-size:32px;font-weight:700;font-family:var(--mono);color:var(--green);">{{index .stats "events"}}</div>
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:6px;">Events</div>
+  </div>
+  <div class="card" style="text-align:center;padding:20px;">
+    <div style="font-size:32px;font-weight:700;font-family:var(--mono);color:var(--purple);">{{index .stats "checkpoints"}}</div>
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:6px;">Checkpoints</div>
+  </div>
+  <div class="card" style="text-align:center;padding:20px;">
+    <div style="font-size:32px;font-weight:700;font-family:var(--mono);color:var(--amber);">{{index .stats "flags"}}</div>
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:6px;">Flags</div>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Recent Sessions</span>
+      <a href="/ui/sessions" style="font-size:12px;color:var(--accent);">View all →</a>
     </div>
-    <div class="card p-5 text-center">
-      <div class="text-4xl font-bold text-[#34d399]">{{index .stats "events"}}</div>
-      <div class="text-[#6b7280] text-sm mt-1">Events</div>
+    <div id="sessions-list" hx-get="/ui/sessions-data?limit=5" hx-trigger="load" hx-swap="innerHTML">
+      <div class="empty-state">Loading…</div>
     </div>
-    <div class="card p-5 text-center">
-      <div class="text-4xl font-bold text-[#a78bfa]">{{index .stats "checkpoints"}}</div>
-      <div class="text-[#6b7280] text-sm mt-1">Checkpoints</div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Recent Flags</span>
+      <a href="/ui/flags" style="font-size:12px;color:var(--accent);">View all →</a>
     </div>
-    <div class="card p-5 text-center">
-      <div class="text-4xl font-bold text-[#fbbf24]">{{index .stats "flags"}}</div>
-      <div class="text-[#6b7280] text-sm mt-1">Flags</div>
+    <div id="flags-list" hx-get="/ui/flags-data" hx-trigger="load" hx-swap="innerHTML">
+      <div class="empty-state">Loading…</div>
     </div>
   </div>
 </div>
 
-<div class="grid grid-cols-2 gap-6">
-  <div class="card p-5">
-    <h2 class="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider mb-4">Recent Sessions</h2>
-    <div id="sessions-list" hx-get="/ui/sessions-data" hx-trigger="load" hx-swap="innerHTML">
-      <div class="text-[#6b7280] text-sm htmx-indicator">Loading…</div>
+<div style="margin-top:24px;">
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Quick Actions</span>
     </div>
-  </div>
-
-  <div class="card p-5">
-    <h2 class="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider mb-4">Recent Flags</h2>
-    <div id="flags-list" hx-get="/ui/flags-data" hx-trigger="load" hx-swap="innerHTML">
-      <div class="text-[#6b7280] text-sm htmx-indicator">Loading…</div>
-    </div>
-  </div>
-
-  <div class="card p-5 col-span-2">
-    <h2 class="text-sm font-semibold text-[#9ca3af] uppercase tracking-wider mb-4">Quick Actions</h2>
-    <div class="flex gap-3">
+    <div class="card-body" style="display:flex;gap:8px;">
       <a href="/ui/sessions" class="btn btn-ghost">Browse Sessions</a>
       <a href="/ui/flags" class="btn btn-ghost">Review Flags</a>
       <a href="/ui/live" class="btn btn-ghost">Watch Live</a>
