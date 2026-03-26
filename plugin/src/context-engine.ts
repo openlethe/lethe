@@ -211,11 +211,13 @@ export class LetheContextEngine implements ContextEngine {
       return;
     }
 
-    // Real turn: write a checkpoint capturing open threads and last tool.
+    // Real turn: write a checkpoint and auto-log tool calls and thread state.
     const lastMsg = messages[messages.length - 1];
     const openThreads = extractOpenThreads(lastMsg);
     const lastTool = lastMsg ? extractLastTool(lastMsg) : null;
+    const allTools = lastMsg ? extractAllToolCallNames(lastMsg) : [];
 
+    // Write checkpoint.
     await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/checkpoints`, {
       snapshot: {
         open_threads: openThreads,
@@ -224,6 +226,24 @@ export class LetheContextEngine implements ContextEngine {
         last_tool: lastTool,
       },
     }).catch(() => {});
+
+    // Auto-log: tools used (only if there were actual tool calls, not just text).
+    if (allTools.length > 0) {
+      await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/events`, {
+        event_type: "log",
+        content: `tools: ${allTools.join(" → ")}`,
+        tags: ["auto", "tool-call"],
+      }).catch(() => {});
+    }
+
+    // Auto-log: open threads detected in the conversation.
+    if (openThreads.length > 0) {
+      await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/events`, {
+        event_type: "log",
+        content: `threads: ${openThreads.join(" | ")}`,
+        tags: ["auto", "thread"],
+      }).catch(() => {});
+    }
   }
 
   // ------------------------------------------------------------------
@@ -388,6 +408,13 @@ function extractText(msg: AgentMessage): string {
     .filter((c: any) => c.type === "text")
     .map((c: any) => c.text)
     .join("\n");
+}
+
+// extractAllToolCallNames returns all tool call names from the last assistant message.
+function extractAllToolCallNames(msg: AgentMessage): string[] {
+  const content = (msg as any)?.content;
+  if (!Array.isArray(content)) return [];
+  return content.filter((c: any) => c.type === "toolCall").map((c: any) => c.name);
 }
 
 function extractOpenThreads(msg: AgentMessage): string[] {
