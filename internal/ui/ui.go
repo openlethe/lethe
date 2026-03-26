@@ -317,9 +317,10 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Find the most recent session and check for any active session.
-	// Prefer the active session's token_budget; fall back to the most recent.
+	// Prefer the active session's token_budget; fall back to the most recently started.
 	var mostRecentKey string
 	var mostRecentBudget int
+	var mostRecentStarted string
 	var activeKey string
 	var activeBudget int
 	activeSessions, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions?limit=20")
@@ -327,17 +328,23 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		if sessions, ok := activeSessions["sessions"].([]interface{}); ok {
 			for _, s := range sessions {
 				if sm, ok := s.(map[string]interface{}); ok {
-					if mostRecentKey == "" {
-						mostRecentKey, _ = sm["session_key"].(string)
-						if tb, ok := sm["token_budget"].(float64); ok {
-							mostRecentBudget = int(tb)
-						}
+					started, _ := sm["started_at"].(string)
+					state, _ := sm["state"].(string)
+					sk, _ := sm["session_key"].(string)
+					tb := 0
+					if tb64, ok := sm["token_budget"].(float64); ok {
+						tb = int(tb64)
 					}
-					if state, ok := sm["state"].(string); ok && state == "active" {
-						activeKey, _ = sm["session_key"].(string)
-						if tb, ok := sm["token_budget"].(float64); ok {
-							activeBudget = int(tb)
-						}
+					// Active session takes priority.
+					if state == "active" && activeKey == "" {
+						activeKey = sk
+						activeBudget = tb
+					}
+					// Track the session with the latest started_at.
+					if started > mostRecentStarted {
+						mostRecentStarted = started
+						mostRecentKey = sk
+						mostRecentBudget = tb
 					}
 				}
 			}
