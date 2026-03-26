@@ -1,6 +1,11 @@
+{{$sessionID := index .session "session_id"}}
+{{$sessionKey := index .session "session_key"}}
+{{$state := index .session "state"}}
+{{$summary := index .session "summary"}}
+
 <div id="interrupted-banner" class="dismiss-banner" style="display:none">
   <span class="dismiss-icon">⚠</span>
-  <p><strong>Session interrupted.</strong> Last heartbeat was <span id="heartbeat-ago">—</span> ago.</p>
+  <p><strong>Session inactive.</strong> Last heartbeat was <span id="heartbeat-ago">—</span> ago.</p>
   <button class="btn btn-ghost" style="flex-shrink:0;font-size:11px;" onclick="document.getElementById('interrupted-banner').remove()">Dismiss</button>
 </div>
 
@@ -8,37 +13,18 @@
   <div>
     <div class="session-label">Session</div>
     <div class="session-id">
-      {{index .session "session_key"}}
-      <span class="session-id-copy" onclick="copyToClipboard('{{index .session "session_key"}}').then(() => showCopiedFeedback(this))">copy</span>
+      {{$sessionKey}}
+      <span class="session-id-copy" onclick="copyToClipboard('{{$sessionKey}}').then(() => showCopiedFeedback(this))">copy</span>
     </div>
     <div class="session-meta">
-      <span class="badge badge-{{index .session "state"}}">
-        <span class="badge-dot"></span>{{index .session "state"}}
+      <span class="badge badge-{{$state}}">
+        <span class="badge-dot"></span>{{if eq $state "active"}}Active{{else}}Inactive{{end}}
       </span>
       <span class="meta-divider"></span>
       <span class="meta-item">Agent: <strong>{{index .session "agent_id"}}</strong></span>
       <span class="meta-divider"></span>
       <span class="meta-item">Started <strong id="started-ago">—</strong></span>
     </div>
-  </div>
-  <div class="header-actions">
-    <button class="btn btn-ghost"
-      hx-post="/api/sessions/{{index .session "session_id"}}/complete"
-      hx-vals='{"summary": "Completed via dashboard"}'
-      hx-confirm="Mark this session as completed?"
-      hx-target="closest .header-actions"
-      hx-swap="outerHTML">
-      Mark Complete
-    </button>
-    <button class="btn btn-amber"
-      hx-post="/api/sessions/{{index .session "session_id"}}/compact"
-      hx-vals='{"force":true}'
-      hx-target="#summary-text"
-      hx-swap="innerHTML"
-      hx-indicator="#compact-spinner">
-      <span id="compact-spinner" class="htmx-indicator spinner"></span>
-      ⬡ Compact Now
-    </button>
   </div>
 </div>
 
@@ -54,7 +40,7 @@
 
       <!-- EVENTS PANE -->
       <div id="events-pane"
-        hx-get="/ui/session/{{index .session "session_id"}}/events-data"
+        hx-get="/ui/session/{{$sessionID}}/events-data"
         hx-trigger="load"
         hx-swap="innerHTML">
         <div class="htmx-indicator" style="padding:32px;text-align:center;color:var(--muted);">Loading…</div>
@@ -62,7 +48,7 @@
 
       <!-- CHECKPOINTS PANE (hidden initially) -->
       <div id="checkpoints-pane" style="display:none"
-        hx-get="/ui/session/{{index .session "session_id"}}/checkpoints-data"
+        hx-get="/ui/session/{{$sessionID}}/checkpoints-data"
         hx-trigger="revealed"
         hx-swap="innerHTML">
       </div>
@@ -107,49 +93,25 @@
           <span class="token-count" id="summary-tokens">— tokens</span>
         </div>
         <div class="summary-text" id="summary-text">
-          {{if index .session "summary"}}{{index .session "summary"}}{{else}}<em class="empty-state" style="display:block;padding:12px;">No summary yet. Compact to generate.</em>{{end}}
+          {{if $summary}}{{$summary}}{{else}}<em class="empty-state" style="display:block;padding:12px;">No summary yet. Compact to generate.</em>{{end}}
         </div>
       </div>
 
-      <!-- Compact actions -->
+      <!-- Compact actions — plain JS fetch, no HTMX dependency -->
       <div class="compact-actions">
         <div class="btn-row">
-          <button class="btn btn-ghost"
-            hx-post="/api/sessions/{{index .session "session_id"}}/compact"
-            hx-target="#summary-text"
-            hx-swap="innerHTML"
-            hx-indicator="#compact-spinner">
-            <span id="compact-spinner" class="htmx-indicator spinner"></span>
-            Recompact
+          <button class="btn btn-ghost" id="compact-btn" onclick="compactNow('{{$sessionID}}')">
+            ⬡ Compact Now
           </button>
           <button class="btn btn-ghost" id="copy-summary-btn"
             onclick="copyToClipboard(document.getElementById('summary-text').innerText).then(() => showCopiedFeedback(document.getElementById('copy-summary-btn')))">
             Copy
           </button>
         </div>
-        <button class="btn btn-danger" style="width:100%;justify-content:center;" onclick="showConfirm()">
-          Dispose Session
-        </button>
       </div>
 
-      <!-- Inline confirm -->
-      <div class="confirm-box" id="confirm-box">
-        <p>This will mark the session as <strong>completed</strong> and write a final summary.</p>
-        <div class="confirm-actions">
-          <button class="btn btn-danger" style="flex:1;justify-content:center;"
-            hx-post="/api/sessions/{{index .session "session_id"}}/complete"
-            hx-vals='{"summary":"Disposed via dashboard"}'
-            hx-target="#compact-panel-state"
-            hx-swap="innerHTML"
-            hx-on::after-request="hideConfirm()">
-            Confirm Dispose
-          </button>
-          <button class="btn btn-ghost" onclick="hideConfirm()">Cancel</button>
-        </div>
-      </div>
-
-      <div style="padding:0 18px 14px;" id="compact-panel-state">
-        <div class="compact-note" id="compact-note">Compact to generate summary</div>
+      <div style="padding:0 18px 14px;" id="compact-status">
+        <div class="compact-note" id="compact-note">Compact writes a summary of all recorded events</div>
       </div>
     </div>
 
@@ -159,23 +121,25 @@
       <div style="padding:4px 18px 12px;">
         <div class="info-row">
           <span class="info-key">State</span>
-          <span class="info-val" id="session-state-badge" style="color:var(--accent)">{{index .session "state"}}</span>
+          <span class="info-val" id="session-state-badge" style="color:var(--accent)">
+            {{if eq $state "active"}}Active{{else}}Inactive{{end}}
+          </span>
         </div>
         <div class="info-row">
-          <span class="info-key">Session key</span>
-          <span class="info-val">{{index .session "session_key"}}</span>
-        </div>
-        <div class="info-row">
-          <span class="info-key">Session ID</span>
-          <span class="info-val" style="font-size:11px;color:var(--muted)">{{index .session "session_id"}}</span>
+          <span class="info-key">Agent</span>
+          <span class="info-val">{{index .session "agent_id"}}</span>
         </div>
         <div class="info-row">
           <span class="info-key">Started</span>
           <span class="info-val" id="info-started">—</span>
         </div>
         <div class="info-row">
-          <span class="info-key">Heartbeat</span>
+          <span class="info-key">Last heartbeat</span>
           <span class="info-val" id="info-heartbeat">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Total tokens</span>
+          <span class="info-val">{{index .session "total_tokens_consumed"}}</span>
         </div>
       </div>
     </div>
@@ -185,7 +149,7 @@
       <div class="card-header">
         <span class="card-title">Stats</span>
         <span class="card-action"
-          hx-get="/ui/session/{{index .session "session_id"}}/stats-data"
+          hx-get="/ui/session/{{$sessionID}}/stats-data"
           hx-target="#session-stats"
           hx-swap="innerHTML">↺ refresh</span>
       </div>
@@ -215,10 +179,10 @@
 </div>
 
 <script>
-  // Time formatting helpers
+  // Time formatting
   function formatAgo(isoString) {
     if (!isoString) return '—';
-    const diff = Date.now() - new Date(isoString + 'Z').getTime();
+    const diff = Date.now() - new Date(isoString).getTime();
     const s = Math.floor(diff / 1000);
     if (s < 60) return s + 's';
     const m = Math.floor(s / 60);
@@ -229,25 +193,23 @@
   }
 
   function updateTimes() {
-    const startedAgo = document.getElementById('started-ago');
-    const heartbeatAgo = document.getElementById('heartbeat-ago');
+    const startedRaw = '{{index .session "started_at"}}';
+    const heartbeatRaw = '{{index .session "last_heartbeat_at"}}';
+    const state = '{{$state}}';
+
+    const startedEl = document.getElementById('started-ago');
     const infoStarted = document.getElementById('info-started');
     const infoHeartbeat = document.getElementById('info-heartbeat');
+    const heartbeatAgo = document.getElementById('heartbeat-ago');
     const banner = document.getElementById('interrupted-banner');
-    const state = '{{index .session "state"}}';
 
-    const started = '{{index .session "started_at"}}'.replace('Z','').replace('T',' ');
-    const heartbeat = '{{index .session "last_heartbeat_at"}}'.replace('Z','').replace('T',' ');
+    if (startedEl) startedEl.textContent = formatAgo(startedRaw);
+    if (infoStarted) infoStarted.textContent = formatAgo(startedRaw) + ' ago';
+    if (infoHeartbeat) infoHeartbeat.textContent = heartbeatRaw ? formatAgo(heartbeatRaw) + ' ago' : '—';
+    if (heartbeatAgo) heartbeatAgo.textContent = heartbeatRaw ? formatAgo(heartbeatRaw) : '—';
 
-    const sAgo = formatAgo('{{index .session "started_at"}}');
-    const hAgo = formatAgo('{{index .session "last_heartbeat_at"}}');
-
-    if (startedAgo) startedAgo.textContent = sAgo;
-    if (infoStarted) infoStarted.textContent = sAgo + ' ago';
-    if (heartbeatAgo) heartbeatAgo.textContent = hAgo;
-    if (infoHeartbeat) infoHeartbeat.textContent = hAgo + ' ago';
-
-    if (banner && state === 'interrupted') {
+    // Show banner for non-active sessions
+    if (banner && state !== 'active') {
       banner.style.display = 'flex';
     }
   }
@@ -255,29 +217,49 @@
   updateTimes();
   setInterval(updateTimes, 15000);
 
-  // SSE for live events and token count
-  const SESSION_KEY = '{{index .session "session_key"}}';
+  // Compact — plain fetch, no HTMX
+  async function compactNow(sessionId) {
+    const btn = document.getElementById('compact-btn');
+    const note = document.getElementById('compact-note');
+    const summaryEl = document.getElementById('summary-text');
+    btn.disabled = true;
+    btn.textContent = 'Compacting…';
+    try {
+      const res = await fetch('/api/sessions/' + sessionId + '/compact', { method: 'POST', headers: {'Content-Type':'application/json'}, body: '{}' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      if (summaryEl && data.summary) {
+        summaryEl.textContent = data.summary;
+        summaryEl.style.fontStyle = 'normal';
+      }
+      if (note) note.textContent = 'Compacted · ' + (data.tokens_after ?? '?') + ' tokens in summary';
+    } catch (e) {
+      if (note) note.textContent = 'Compact failed: ' + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '⬡ Compact Now';
+    }
+  }
 
+  // SSE for live token meter
+  const SESSION_KEY = '{{$sessionKey}}';
   function connectSSE() {
     const es = new EventSource('/live');
     es.addEventListener('tick', e => {
       const data = JSON.parse(e.data);
-      // Only show ticks for the current session
       if (data.session_key !== SESSION_KEY && data.session_id !== SESSION_KEY) return;
-      // Token meter update
-        const pct = Math.round((data.tokens / 200000) * 100);
-        const bar = document.getElementById('token-bar');
-        const current = document.getElementById('token-current');
-        const note = document.getElementById('token-note');
-        if (bar) {
-          bar.style.width = pct + '%';
-          bar.className = 'meter-fill ' + (pct > 85 ? 'critical' : pct > 70 ? 'warn' : 'ok');
-        }
-        if (current) current.textContent = data.tokens.toLocaleString();
-        if (note) note.textContent = pct + '% used · ' + (200000 - data.tokens).toLocaleString() + ' tokens remaining';
+      const pct = Math.round((data.tokens / 200000) * 100);
+      const bar = document.getElementById('token-bar');
+      const current = document.getElementById('token-current');
+      const tokenNote = document.getElementById('token-note');
+      if (bar) {
+        bar.style.width = pct + '%';
+        bar.className = 'meter-fill ' + (pct > 85 ? 'critical' : pct > 70 ? 'warn' : 'ok');
       }
+      if (current) current.textContent = data.tokens.toLocaleString();
+      if (tokenNote) tokenNote.textContent = pct + '% used · ' + (200000 - data.tokens).toLocaleString() + ' tokens remaining';
     });
-    es.onerror = () => { es.close(); /* fallback to polling */ };
+    es.onerror = () => es.close();
   }
   connectSSE();
 </script>

@@ -1,21 +1,26 @@
 <div>
   {{range .sessions}}
+  {{$inactive := or (eq .state "interrupted") (eq .state "completed")}}
   <div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:8px;">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
       <div style="display:flex;align-items:center;gap:10px;">
-        <div style="width:8px;height:8px;border-radius:50%;background:{{if eq .state "active"}}var(--green){{else if eq .state "interrupted"}}var(--accent){{else}}var(--muted){{end}};flex-shrink:0;"></div>
+        <div style="width:8px;height:8px;border-radius:50%;background:{{if eq .state "active"}}var(--green){{else}}var(--muted){{end}};flex-shrink:0;"></div>
         <div>
           <div style="font-size:14px;font-weight:600;color:var(--text);">{{.agent_id}}</div>
           <div style="font-size:12px;color:var(--muted);font-family:var(--mono);">{{.started_at | since}} ago · {{.started_at | formatTime}}</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
-        <span style="font-size:11px;font-family:var(--mono);padding:2px 8px;border-radius:12px;background:{{if eq .state "active"}}rgba(58,125,94,.1);color:var(--green){{else if eq .state "interrupted"}}rgba(61,90,115,.1);color:var(--accent){{else}}rgba(138,125,107,.12);color:var(--muted){{end}};border:1px solid currentColor;">{{.state}}</span>
+        <span style="font-size:11px;font-family:var(--mono);padding:2px 8px;border-radius:12px;{{if eq .state "active"}}background:rgba(58,125,94,.1);color:var(--green);border:1px solid var(--green){{else}}background:rgba(138,125,107,.12);color:var(--muted);border:1px solid var(--muted){{end}};">
+          {{if eq .state "active"}}Active{{else}}Inactive{{end}}
+        </span>
         <a href="/ui/sessions/{{.session_id}}" style="font-size:12px;color:var(--accent);">View →</a>
       </div>
     </div>
     {{if .summary}}
-    <div style="font-size:12px;color:var(--muted);padding-left:18px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{.summary}}</div>
+    <div style="font-size:12px;color:var(--muted);padding-left:18px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{slice .summary 0 140}}</div>
+    {{else}}
+    <div style="font-size:12px;color:var(--muted);padding-left:18px;font-style:italic;">No summary yet</div>
     {{end}}
   </div>
   {{end}}
