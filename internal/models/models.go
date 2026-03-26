@@ -42,6 +42,7 @@ type Session struct {
 	LastHeartbeatAt  sql.NullTime `json:"-"`
 	EndedAt          sql.NullTime `json:"-"`
 	Summary          string       `json:"summary,omitempty"`
+	TokenBudget      int          `json:"token_budget"` // latest token count from heartbeat
 }
 
 // Checkpoint represents a session checkpoint snapshot.

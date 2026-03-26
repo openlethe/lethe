@@ -114,8 +114,8 @@ func (m *Manager) CompleteSession(ctx context.Context, sess *models.Session, sum
 }
 
 // Heartbeat updates the session's last_heartbeat_at timestamp.
-func (m *Manager) Heartbeat(ctx context.Context, sessionID string) error {
-	return m.store.TouchSessionHeartbeat(ctx, sessionID)
+func (m *Manager) Heartbeat(ctx context.Context, sessionID string, tokenBudget int) error {
+	return m.store.TouchSessionHeartbeat(ctx, sessionID, tokenBudget)
 }
 
 // InterruptAllActive transitions every active session to interrupted.

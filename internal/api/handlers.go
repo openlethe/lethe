@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -118,10 +119,30 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "session not found"})
 		return
 	}
-	if err := s.sessMgr.Heartbeat(r.Context(), sess.SessionID); err != nil {
+
+	// Parse optional token_budget from request body.
+	tokenBudget := 0
+	if r.Body != nil {
+		var body struct {
+			TokenBudget int `json:"token_budget"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		tokenBudget = body.TokenBudget
+	}
+
+	if err := s.sessMgr.Heartbeat(r.Context(), sess.SessionID, tokenBudget); err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
 	}
+
+	// Broadcast token budget to SSE clients so the UI can update the meter.
+	if tokenBudget > 0 {
+		s.broadcaster.Broadcast("tick", map[string]interface{}{
+			"session_id": sess.SessionID,
+			"tokens":    tokenBudget,
+		})
+	}
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
