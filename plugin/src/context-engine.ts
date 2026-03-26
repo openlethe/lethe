@@ -288,37 +288,49 @@ export class LetheContextEngine implements ContextEngine {
     const HARD_LIMIT = params.hardLimit ?? 5;
 
     // Safety: session-age heuristic — detect /new or /reset.
-    // When the transcript is nearly empty (<=3 messages) but Lethe has
-    // accumulated >10 events, this is a /new that re-used the session.
-    // Skip recent events to avoid surfacing stale context about a
-    // different conversation.
-    const isNewTranscript = messages.length <= 3;
-    const skipRecentEvents = isNewTranscript;
+    // Condition: fresh transcript (<=3 messages) AND last event was >30 min ago.
+    // This avoids false positives on the very first message of a real conversation
+    // (messages.length=1 but events are from 10 seconds ago = don't skip).
+    // A /new after heavy work will have: messages.length<=3 AND events from minutes/hours ago.
+    // minutesSinceLastEvent is computed after the summary fetch (which includes recent_events).
+    let minutesSinceLastEvent = Infinity;
 
     // Stage 1: session summary (the "story so far") — always fetched.
     let summaryText = "";
     let summaryTokens = 0;
     let sessionEventCount = 0;
+    let summaryData: any = null;
     try {
       const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/summary`);
       if (res.ok) {
-        const data = await res.json();
-        const rawSummary = data.summary ?? data.session?.summary ?? null;
+        summaryData = await res.json();
+        const rawSummary = summaryData.summary ?? summaryData.session?.summary ?? null;
         if (rawSummary) {
           summaryText = rawSummary;
           summaryTokens = estimateTokens(summaryText);
         }
-        sessionEventCount = data.event_count ?? 0;
+        sessionEventCount = summaryData.event_count ?? 0;
       }
     } catch {
       // Proceed without summary.
     }
 
+    // Compute session-age heuristic now that we have event timestamps.
+    // A /new reset signature: fresh transcript (<=3 messages) AND last event was >30 min ago.
+    // If events are recent (< 30 min), this is the first message of a live conversation — don't skip.
+    const recentEventsForHeuristic = (summaryData as any)?.recent_events ?? [];
+    const lastEventTimestamp = recentEventsForHeuristic[0]?.created_at;
+    if (lastEventTimestamp) {
+      minutesSinceLastEvent = (Date.now() - new Date(lastEventTimestamp).getTime()) / 60000;
+    }
+    const isNewEpoch = messages.length <= 3 && minutesSinceLastEvent > 30;
+    const shouldSkipRecentEvents = isNewEpoch;
+
     // Stage 2: recent events — guarded.
     let recentEvents: AgentMessage[] = [];
     let recentTokens = 0;
 
-    if (!skipRecentEvents && sessionEventCount > 0) {
+    if (!shouldSkipRecentEvents && sessionEventCount > 0) {
       // Token budget path: reserve headroom for summary + messages.
       const budgetForRecent = tokenBudget
         ? Math.max(0, tokenBudget - summaryTokens - 200 - estimateTokens(JSON.stringify(messages)))

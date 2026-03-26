@@ -41,8 +41,9 @@ type Session struct {
 	StartedAt        time.Time    `json:"started_at"`
 	LastHeartbeatAt  sql.NullTime `json:"-"`
 	EndedAt          sql.NullTime `json:"-"`
-	Summary          string       `json:"summary,omitempty"`
-	TokenBudget      int          `json:"token_budget"` // latest token count from heartbeat
+	Summary               string       `json:"summary,omitempty"`
+	TokenBudget           int          `json:"token_budget"`            // latest token count from heartbeat
+	TotalTokensConsumed   int          `json:"total_tokens_consumed"`   // lifetime accumulator across compacts
 }
 
 // Checkpoint represents a session checkpoint snapshot.

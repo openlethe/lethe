@@ -789,8 +789,10 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 	tokenCount := utf8.RuneCountInString(summaryText) / 4
 
 	// Persist the token budget so the dashboard and SSE have the latest count.
+	// Also accumulate into the lifetime total across compactions.
 	if tokenBudget > 0 {
 		s.sessMgr.UpdateTokenBudget(ctx, sess.SessionID, tokenBudget)
+		s.sessMgr.AddTokensConsumed(ctx, sess.SessionID, tokenBudget)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{

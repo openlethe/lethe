@@ -196,3 +196,9 @@ func (m *Manager) ResumeSessionByID(ctx context.Context, sessionID string) error
 func (m *Manager) UpdateTokenBudget(ctx context.Context, sessionID string, tokenBudget int) error {
 	return m.store.UpdateTokenBudget(ctx, sessionID, tokenBudget)
 }
+
+// AddTokensConsumed increments total_tokens_consumed for a session.
+// Called on every compact so lifetime token usage accumulates across compactions.
+func (m *Manager) AddTokensConsumed(ctx context.Context, sessionID string, tokens int) error {
+	return m.store.AddTokensConsumed(ctx, sessionID, tokens)
+}

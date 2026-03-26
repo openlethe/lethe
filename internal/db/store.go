@@ -100,6 +100,14 @@ func (s *Store) UpdateTokenBudget(ctx context.Context, sessionID string, tokenBu
 	return err
 }
 
+// AddTokensConsumed atomically increments total_tokens_consumed for a session.
+// Called on every compact to accumulate lifetime token usage across compactions.
+func (s *Store) AddTokensConsumed(ctx context.Context, sessionID string, tokens int) error {
+	q := `UPDATE sessions SET total_tokens_consumed = total_tokens_consumed + ? WHERE session_id = ?`
+	_, err := s.ExecContext(ctx, q, tokens, sessionID)
+	return err
+}
+
 // InterruptAllActive transitions all active sessions to interrupted.
 // Used during graceful shutdown so sessions are resumable on next startup.
 func (s *Store) InterruptAllActive(ctx context.Context) error {
@@ -110,7 +118,7 @@ func (s *Store) InterruptAllActive(ctx context.Context) error {
 
 // GetSession returns a session by ID.
 func (s *Store) GetSession(ctx context.Context, sessionID string) (*models.Session, error) {
-	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget
+	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget, total_tokens_consumed
 	      FROM sessions WHERE session_id=?`
 	var sess models.Session
 	var sessionKey sql.NullString
@@ -119,7 +127,7 @@ func (s *Store) GetSession(ctx context.Context, sessionID string) (*models.Sessi
 	var tokenBudget sql.NullInt64
 	err := s.QueryRowContext(ctx, q, sessionID).Scan(
 		&sess.SessionID, &sessionKey, &sess.AgentID, &sess.ProjectID, &sess.State,
-		&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget,
+		&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget, &sess.TotalTokensConsumed,
 	)
 	if tokenBudget.Valid {
 		sess.TokenBudget = int(tokenBudget.Int64)
@@ -143,7 +151,7 @@ func (s *Store) GetSession(ctx context.Context, sessionID string) (*models.Sessi
 
 // GetInterruptedSession returns the most recent interrupted session for an agent+project.
 func (s *Store) GetInterruptedSession(ctx context.Context, agentID, projectID string) (*models.Session, error) {
-	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget
+	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget, total_tokens_consumed
 	      FROM sessions
 	      WHERE agent_id=? AND project_id=? AND state='interrupted'
 	      ORDER BY last_heartbeat_at DESC LIMIT 1`
@@ -154,7 +162,7 @@ func (s *Store) GetInterruptedSession(ctx context.Context, agentID, projectID st
 	var tokenBudget sql.NullInt64
 	err := s.QueryRowContext(ctx, q, agentID, projectID).Scan(
 		&sess.SessionID, &sessionKey, &sess.AgentID, &sess.ProjectID, &sess.State,
-		&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget,
+		&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget, &sess.TotalTokensConsumed,
 	)
 	if tokenBudget.Valid {
 		sess.TokenBudget = int(tokenBudget.Int64)
@@ -178,7 +186,7 @@ func (s *Store) GetInterruptedSession(ctx context.Context, agentID, projectID st
 
 // GetSessionByKey returns a session by its session_key.
 func (s *Store) GetSessionByKey(ctx context.Context, sessionKey string) (*models.Session, error) {
-	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget
+	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget, total_tokens_consumed
 	      FROM sessions WHERE session_key=?`
 	var sess models.Session
 	var sessionKeyVal sql.NullString
@@ -187,7 +195,7 @@ func (s *Store) GetSessionByKey(ctx context.Context, sessionKey string) (*models
 	var tokenBudget sql.NullInt64
 	err := s.QueryRowContext(ctx, q, sessionKey).Scan(
 		&sess.SessionID, &sessionKeyVal, &sess.AgentID, &sess.ProjectID, &sess.State,
-		&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget,
+		&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget, &sess.TotalTokensConsumed,
 	)
 	if tokenBudget.Valid {
 		sess.TokenBudget = int(tokenBudget.Int64)
@@ -211,7 +219,7 @@ func (s *Store) GetSessionByKey(ctx context.Context, sessionKey string) (*models
 
 // GetInterruptedSessionByKey returns the most recent interrupted session for a sessionKey.
 func (s *Store) GetInterruptedSessionByKey(ctx context.Context, sessionKey string) (*models.Session, error) {
-	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget
+	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget, total_tokens_consumed
 	      FROM sessions
 	      WHERE session_key=? AND state='interrupted'
 	      ORDER BY last_heartbeat_at DESC LIMIT 1`
@@ -222,7 +230,7 @@ func (s *Store) GetInterruptedSessionByKey(ctx context.Context, sessionKey strin
 	var tokenBudget sql.NullInt64
 	err := s.QueryRowContext(ctx, q, sessionKey).Scan(
 		&sess.SessionID, &sessionKeyVal, &sess.AgentID, &sess.ProjectID, &sess.State,
-		&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget,
+		&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget, &sess.TotalTokensConsumed,
 	)
 	if tokenBudget.Valid {
 		sess.TokenBudget = int(tokenBudget.Int64)
@@ -490,7 +498,7 @@ func (s *Store) GetStats(ctx context.Context) (map[string]int, error) {
 
 // GetAllSessions returns all sessions ordered by last heartbeat descending.
 func (s *Store) GetAllSessions(ctx context.Context, limit int) ([]*models.Session, error) {
-	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget
+	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget, total_tokens_consumed
 	      FROM sessions ORDER BY last_heartbeat_at DESC LIMIT ?`
 	rows, err := s.QueryContext(ctx, q, limit)
 	if err != nil {
@@ -507,7 +515,7 @@ func (s *Store) GetAllSessions(ctx context.Context, limit int) ([]*models.Sessio
 		var tokenBudget sql.NullInt64
 		if err := rows.Scan(
 			&sess.SessionID, &sessionKey, &sess.AgentID, &sess.ProjectID, &sess.State,
-			&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget,
+			&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget, &sess.TotalTokensConsumed,
 		); err != nil {
 			return nil, err
 		}
