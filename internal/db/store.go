@@ -349,6 +349,32 @@ func (s *Store) GetSessionEvents(ctx context.Context, sessionID string, limit, o
 	return scanEvents(rows)
 }
 
+// SearchEvents searches all events by content (case-insensitive LIKE) and optionally by tag.
+// Results ordered by created_at DESC (newest first).
+func (s *Store) SearchEvents(ctx context.Context, query string, tag string, limit int) ([]*models.Event, error) {
+	q := `SELECT event_id, session_id, parent_event_id, event_type, content,
+	             confidence, tags, embedding_id, task_title, task_status,
+	             status_changed_at, human_reviewed_at, reviewer_id, created_at
+	      FROM events
+	      WHERE content LIKE ?`
+	args := []interface{}{"%" + query + "%"}
+
+	if tag != "" {
+		q += ` AND tags LIKE ?`
+		args = append(args, "%"+tag+"%")
+	}
+
+	q += ` ORDER BY created_at DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEvents(rows)
+}
+
 // GetTaskChain walks the parent chain from an event_id back to the root.
 // Returns events newest-first (the queried event first, oldest task last).
 // Uses iterative parent lookup for deterministic ordering.

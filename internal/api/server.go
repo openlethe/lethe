@@ -151,6 +151,9 @@ func (s *Server) registerRoutes() {
 	// SSE live stream.
 	r.Get("/live", s.handleSSE)
 
+	// Event search.
+	r.Get("/events/search", s.handleSearchEvents)
+
 	// Task chain.
 	r.Get("/events/{eventID}/chain", s.handleGetTaskChain)
 }
@@ -209,5 +212,6 @@ type StoreInterface interface {
 	CreateCheckpoint(ctx context.Context, c *models.Checkpoint) error
 	GetCheckpoints(ctx context.Context, sessionID string) ([]*models.Checkpoint, error)
 	CreateEvent(ctx context.Context, e *models.Event) error
+	SearchEvents(ctx context.Context, query string, tag string, limit int) ([]*models.Event, error)
 	GetTaskChain(ctx context.Context, eventID string) ([]*models.Event, error)
 }

@@ -461,6 +461,52 @@ func (s *Server) handleGetCheckpoints(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleSearchEvents searches all events by content and optionally by tag.
+// GET /api/events/search?q=query&tag=tag&limit=20
+func (s *Server) handleSearchEvents(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "q parameter is required"})
+		return
+	}
+	tag := r.URL.Query().Get("tag")
+	limit := 20
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if n, err := strconv.Atoi(l); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	events, err := s.store.SearchEvents(r.Context(), query, tag, limit)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	eventsOut := make([]map[string]interface{}, len(events))
+	for i, e := range events {
+		eventsOut[i] = map[string]interface{}{
+			"event_id":          e.EventID,
+			"session_id":       e.SessionID,
+			"parent_event_id":  e.ParentEventID,
+			"event_type":       e.EventType,
+			"content":           e.Content,
+			"confidence":       e.Confidence,
+			"tags":             e.Tags,
+			"task_title":       e.TaskTitle,
+			"task_status":      e.TaskStatus,
+			"created_at":       e.CreatedAt,
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"query":  query,
+		"tag":    tag,
+		"count":  len(events),
+		"events": eventsOut,
+	})
+}
+
 func (s *Server) handleGetTaskChain(w http.ResponseWriter, r *http.Request) {
 	eventID := chi.URLParam(r, "eventID")
 	chain, err := s.store.GetTaskChain(r.Context(), eventID)
