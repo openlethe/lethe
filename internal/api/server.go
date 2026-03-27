@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -112,50 +113,66 @@ func NewServer(store *db.Store, sessMgr *session.Manager) *Server {
 	return s
 }
 
-// registerRoutes sets up all API routes.
+// registerRoutes sets up all API routes under /api prefix.
 func (s *Server) registerRoutes() {
 	r := s.router
 
-	r.Get("/health", s.handleHealth)
-	r.Get("/stats", s.handleStats)
+	// Mount all routes under /api prefix.
+	r.Group(func(api chi.Router) {
+		api.Get("/health", s.handleHealth)
+		api.Get("/stats", s.handleStats)
 
-	// Sessions.
-	r.Route("/sessions", func(r chi.Router) {
-		r.Post("/", s.handleCreateSession)
-		r.Get("/", s.handleListSessions)
-		r.Get("/{sessionID}", s.handleGetSession)
-		r.Get("/{sessionID}/summary", s.handleGetSessionSummary)
-		r.Post("/{sessionID}/compact", s.handleCompact)
-		r.Post("/{sessionID}/heartbeat", s.handleHeartbeat)
-		r.Post("/{sessionID}/interrupt", s.handleInterruptSession)
-		r.Post("/{sessionID}/resume", s.handleResumeSession)
-		r.Post("/{sessionID}/complete", s.handleCompleteSession)
+		// Sessions.
+		api.Route("/sessions", func(r chi.Router) {
+			r.Post("/", s.handleCreateSession)
+			r.Get("/", s.handleListSessions)
+			r.Get("/{sessionID}", s.handleGetSession)
+			r.Get("/{sessionID}/summary", s.handleGetSessionSummary)
+			r.Post("/{sessionID}/compact", s.handleCompact)
+			r.Post("/{sessionID}/heartbeat", s.handleHeartbeat)
+			r.Post("/{sessionID}/interrupt", s.handleInterruptSession)
+			r.Post("/{sessionID}/resume", s.handleResumeSession)
+			r.Post("/{sessionID}/complete", s.handleCompleteSession)
+		})
+
+		// Events.
+		api.Route("/sessions/{sessionID}/events", func(r chi.Router) {
+			r.Post("/", s.handleCreateEvent)
+			r.Get("/", s.handleGetSessionEvents)
+		})
+
+		// Checkpoints.
+		api.Route("/sessions/{sessionID}/checkpoints", func(r chi.Router) {
+			r.Post("/", s.handleCreateCheckpoint)
+			r.Get("/", s.handleGetCheckpoints)
+		})
+
+		// Threads (session-scoped).
+		api.Route("/sessions/{sessionID}/threads", func(r chi.Router) {
+			r.Get("/", s.handleGetThreads)
+		})
+
+		// Threads (standalone).
+		api.Route("/threads", func(r chi.Router) {
+			r.Post("/", s.handleCreateThread)
+			r.Get("/{threadID}", s.handleGetThread)
+			r.Patch("/{threadID}", s.handleUpdateThread)
+			r.Get("/{threadID}/events", s.handleGetThreadEvents)
+		})
+
+		// Flag review.
+		api.Get("/flags", s.handleGetFlags)
+		api.Put("/flags/{eventID}/review", s.handleReviewFlag)
+
+		// SSE live stream.
+		api.Get("/live", s.handleSSE)
+
+		// Event search.
+		api.Get("/events/search", s.handleSearchEvents)
+
+		// Task chain.
+		api.Get("/events/{eventID}/chain", s.handleGetTaskChain)
 	})
-
-	// Events.
-	r.Route("/sessions/{sessionID}/events", func(r chi.Router) {
-		r.Post("/", s.handleCreateEvent)
-		r.Get("/", s.handleGetSessionEvents)
-	})
-
-	// Checkpoints.
-	r.Route("/sessions/{sessionID}/checkpoints", func(r chi.Router) {
-		r.Post("/", s.handleCreateCheckpoint)
-		r.Get("/", s.handleGetCheckpoints)
-	})
-
-	// Flag review.
-	r.Get("/flags", s.handleGetFlags)
-	r.Put("/flags/{eventID}/review", s.handleReviewFlag)
-
-	// SSE live stream.
-	r.Get("/live", s.handleSSE)
-
-	// Event search.
-	r.Get("/events/search", s.handleSearchEvents)
-
-	// Task chain.
-	r.Get("/events/{eventID}/chain", s.handleGetTaskChain)
 }
 
 // Router returns the underlying chi router for mounting.
@@ -197,6 +214,20 @@ func readJSON(r *http.Request, v interface{}) error {
 // generateID returns a new random UUID string.
 func generateID() string {
 	return uuid.New().String()
+}
+
+// makeSlug converts a string to a URL-safe slug.
+// Lowercases, replaces spaces with hyphens, removes non-alphanumeric chars.
+func makeSlug(s string) string {
+	slug := strings.ToLower(s)
+	slug = strings.ReplaceAll(slug, " ", "-")
+	var result strings.Builder
+	for _, r := range slug {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
+			result.WriteRune(r)
+		}
+	}
+	return strings.Trim(result.String(), "-")
 }
 
 // ErrorResponse represents an API error.
