@@ -61,51 +61,30 @@ curl -s "http://localhost:18483/api/sessions/${SESSION_KEY}/checkpoints" | jq '.
 
 ---
 
-## Before Answering — Check Memory First
+## Before Answering — Drink from Mnemosyne
 
-> In Greek mythology, the river Lethe made souls forget — but the spring Mnemosyne preserved all memory. Before answering questions about past decisions, prior work, or project context: always check Lethe first. Never guess. Never re-reason when the answer already exists.
+> The spring Mnemosyne preserves memory; the river Lethe makes souls forget.
+> Before answering history questions, check Lethe first. Never invent.
 
-### When to check memory
+**Trigger:** User asks about past decisions, prior work, preferences, or anything that implies prior context.
 
-Call `GET /api/events/search?q=<terms>` or fetch session events **before** answering when:
+**Action:**
+1. Search: `GET /api/events/search?q=<relevant terms>`
+2. Found → cite it. Not found → say "I don't have that in memory yet."
 
-- User asks "what were we working on?", "did we decide on X?", "what's the status of Y?"
-- User references something from a previous session or days ago
-- User's question implies knowledge of a prior decision, preference, or commitment
-- Any question where the answer might already exist in memory
+**Anti-patterns:**
+- Don't answer from incomplete memory — search first
+- Don't re-reason a decision already recorded — retrieve and cite
+- Don't claim prior context without checking
 
-### The pattern
+**Common searches:**
 
-```
-User question implies prior context
-  → search Lethe (GET /api/events/search?q=<terms>)
-  → found something? deliver with the evidence
-  → found nothing? say "I don't have that in memory yet" — do not invent
-```
-
-### What to search for
-
-| Question type | What to search |
-|--------------|---------------|
-| "what were we doing?" | topic keywords, project/app names |
-| "did we decide on X?" | "decision", X as keyword |
-| "what's the status of Y?" | Y, status, open threads |
-| "what approach for Z?" | Z, approach, decided |
-| Preferences / tastes | preference, like, dislike |
-
-### Anti-patterns to avoid
-
-- **Don't answer from incomplete context.** If you remember fragments but not the full picture, say so and search.
-- **Don't re-reason a decision that already exists.** If a `record` event has it, retrieve and cite it.
-- **Don't say "based on our previous conversation" if you haven't checked.** If in doubt, search first — the cost is near zero.
-
-### Example
-
-> **User:** "Did we ever figure out why the UI was broken?"
->
-> ✅ *"Let me check."* → searches Lethe → finds `record: Fixed hardcoded 127.0.0.1:8080 port bug in UI backend` → delivers accurate answer.
->
-> ❌ *"I think we found it was a port mismatch..."* → guesses, may be wrong, erodes trust.
+| Question | Search for |
+|----------|-----------|
+| "what were we doing?" | topic/project keywords |
+| "did we decide on X?" | "decision" + X |
+| "status of Y?" | Y + "status" |
+| "approach for Z?" | Z + "decided" |
 
 ---
 
