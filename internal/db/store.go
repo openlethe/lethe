@@ -82,14 +82,33 @@ func (s *Store) UpdateSessionState(ctx context.Context, sessionID string, state 
 }
 
 // TouchSessionHeartbeat updates last_heartbeat_at and optionally token_budget.
+// If the session is currently interrupted, it is transitioned back to active.
 func (s *Store) TouchSessionHeartbeat(ctx context.Context, sessionID string, tokenBudget int) error {
-	q := `UPDATE sessions SET last_heartbeat_at=? WHERE session_id=?`
-	args := []interface{}{time.Now().UTC(), sessionID}
-	if tokenBudget > 0 {
-		q = `UPDATE sessions SET last_heartbeat_at=?, token_budget=? WHERE session_id=?`
-		args = []interface{}{time.Now().UTC(), tokenBudget, sessionID}
+	// Check current state — if interrupted, reactivate.
+	var currentState string
+	err := s.QueryRowContext(ctx, `SELECT state FROM sessions WHERE session_id=?`, sessionID).Scan(&currentState)
+	if err != nil {
+		return err
 	}
-	_, err := s.ExecContext(ctx, q, args...)
+	reactivate := currentState == string(models.SessionInterrupted)
+
+	if tokenBudget > 0 {
+		if reactivate {
+			q := `UPDATE sessions SET last_heartbeat_at=?, token_budget=?, state=? WHERE session_id=?`
+			_, err = s.ExecContext(ctx, q, time.Now().UTC(), tokenBudget, models.SessionActive, sessionID)
+		} else {
+			q := `UPDATE sessions SET last_heartbeat_at=?, token_budget=? WHERE session_id=?`
+			_, err = s.ExecContext(ctx, q, time.Now().UTC(), tokenBudget, sessionID)
+		}
+	} else {
+		if reactivate {
+			q := `UPDATE sessions SET last_heartbeat_at=?, state=? WHERE session_id=?`
+			_, err = s.ExecContext(ctx, q, time.Now().UTC(), models.SessionActive, sessionID)
+		} else {
+			q := `UPDATE sessions SET last_heartbeat_at=? WHERE session_id=?`
+			_, err = s.ExecContext(ctx, q, time.Now().UTC(), sessionID)
+		}
+	}
 	return err
 }
 
@@ -326,15 +345,15 @@ func (s *Store) CreateEvent(ctx context.Context, e *models.Event) error {
 	q := `INSERT INTO events
 	      (event_id, session_id, parent_event_id, event_type, content,
 	       confidence, tags, embedding_id, task_title, task_status, status_changed_at,
-	       human_reviewed_at, reviewer_id, created_at)
-	      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	       human_reviewed_at, reviewer_id, thread_id, created_at)
+	      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	now := time.Now().UTC()
 	_, err := s.ExecContext(ctx, q,
 		e.EventID, e.SessionID, nullString(e.ParentEventID), e.EventType, e.Content,
 		e.Confidence, nullString(e.Tags), nullString(e.EmbeddingID),
 		nullString(e.TaskTitle), e.TaskStatus,
 		e.StatusChangedAt, e.HumanReviewedAt, nullString(e.ReviewerID),
-		now,
+		nullString(e.ThreadID), now,
 	)
 	if err != nil {
 		return err
@@ -347,7 +366,7 @@ func (s *Store) CreateEvent(ctx context.Context, e *models.Event) error {
 func (s *Store) GetSessionEvents(ctx context.Context, sessionID string, limit, offset int) ([]*models.Event, error) {
 	q := `SELECT event_id, session_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
-	             status_changed_at, human_reviewed_at, reviewer_id, created_at
+	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events WHERE session_id=? ORDER BY created_at ASC LIMIT ? OFFSET ?`
 	rows, err := s.QueryContext(ctx, q, sessionID, limit, offset)
 	if err != nil {
@@ -363,7 +382,7 @@ func (s *Store) GetSessionEvents(ctx context.Context, sessionID string, limit, o
 func (s *Store) GetRecentSessionEvents(ctx context.Context, sessionID string, limit int) ([]*models.Event, error) {
 	q := `SELECT event_id, session_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
-	             status_changed_at, human_reviewed_at, reviewer_id, created_at
+	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events WHERE session_id=? ORDER BY created_at DESC LIMIT ?`
 	rows, err := s.QueryContext(ctx, q, sessionID, limit)
 	if err != nil {
@@ -378,7 +397,7 @@ func (s *Store) GetRecentSessionEvents(ctx context.Context, sessionID string, li
 func (s *Store) SearchEvents(ctx context.Context, query string, tag string, limit int) ([]*models.Event, error) {
 	q := `SELECT event_id, session_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
-	             status_changed_at, human_reviewed_at, reviewer_id, created_at
+	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events
 	      WHERE content LIKE ?`
 	args := []interface{}{"%" + query + "%"}
@@ -409,7 +428,7 @@ func (s *Store) GetTaskChain(ctx context.Context, eventID string) ([]*models.Eve
 	for {
 		q := `SELECT event_id, session_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
-	             status_changed_at, human_reviewed_at, reviewer_id, created_at
+	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events WHERE event_id = ?`
 		rows, err := s.QueryContext(ctx, q, currentID)
 		if err != nil {
@@ -436,7 +455,7 @@ func (s *Store) GetTaskChain(ctx context.Context, eventID string) ([]*models.Eve
 func (s *Store) GetFlaggedEvents(ctx context.Context, limit, offset int) ([]*models.Event, error) {
 	q := `SELECT event_id, session_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
-	             status_changed_at, human_reviewed_at, reviewer_id, created_at
+	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events WHERE event_type='flag' AND human_reviewed_at IS NULL
 	      ORDER BY created_at DESC LIMIT ? OFFSET ?`
 	rows, err := s.QueryContext(ctx, q, limit, offset)
@@ -464,7 +483,106 @@ func (s *Store) CreateSessionLink(ctx context.Context, link *models.SessionLink)
 	return err
 }
 
-// GetStats returns aggregate stats: session count, total events, total checkpoints, flag count.
+// --- Threads ---
+
+// CreateThread creates a new thread.
+func (s *Store) CreateThread(ctx context.Context, t *models.Thread) error {
+	q := `INSERT INTO threads (thread_id, session_id, name, title, status, created_at, updated_at)
+	      VALUES (?, ?, ?, ?, ?, ?, ?)`
+	now := time.Now().UTC()
+	_, err := s.ExecContext(ctx, q, t.ThreadID, t.SessionID, t.Name, t.Title, t.Status, now, now)
+	if err != nil {
+		return err
+	}
+	t.CreatedAt = now
+	t.UpdatedAt = now
+	return nil
+}
+
+// GetThread returns a thread by ID.
+func (s *Store) GetThread(ctx context.Context, threadID string) (*models.Thread, error) {
+	q := `SELECT thread_id, session_id, name, title, status, created_at, updated_at, resolved_at
+	      FROM threads WHERE thread_id=?`
+	var t models.Thread
+	var resolvedAt sql.NullTime
+	err := s.QueryRowContext(ctx, q, threadID).Scan(
+		&t.ThreadID, &t.SessionID, &t.Name, &t.Title, &t.Status,
+		&t.CreatedAt, &t.UpdatedAt, &resolvedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	t.ResolvedAt = resolvedAt
+	return &t, nil
+}
+
+// GetThreadsBySession returns all threads for a session, optionally filtered by status.
+func (s *Store) GetThreadsBySession(ctx context.Context, sessionID string, status *models.ThreadState) ([]*models.Thread, error) {
+	var q string
+	var args []interface{}
+	if status != nil {
+		q = `SELECT thread_id, session_id, name, title, status, created_at, updated_at, resolved_at
+		     FROM threads WHERE session_id=? AND status=? ORDER BY updated_at DESC`
+		args = []interface{}{sessionID, *status}
+	} else {
+		q = `SELECT thread_id, session_id, name, title, status, created_at, updated_at, resolved_at
+		     FROM threads WHERE session_id=? ORDER BY updated_at DESC`
+		args = []interface{}{sessionID}
+	}
+	rows, err := s.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var threads []*models.Thread
+	for rows.Next() {
+		var t models.Thread
+		var resolvedAt sql.NullTime
+		if err := rows.Scan(&t.ThreadID, &t.SessionID, &t.Name, &t.Title, &t.Status,
+			&t.CreatedAt, &t.UpdatedAt, &resolvedAt); err != nil {
+			return nil, err
+		}
+		t.ResolvedAt = resolvedAt
+		threads = append(threads, &t)
+	}
+	return threads, rows.Err()
+}
+
+// UpdateThreadStatus updates a thread's status and resolved_at timestamp.
+func (s *Store) UpdateThreadStatus(ctx context.Context, threadID string, status models.ThreadState) error {
+	var q string
+	var args []interface{}
+	now := time.Now().UTC()
+	if status == models.ThreadResolved {
+		q = `UPDATE threads SET status=?, resolved_at=? WHERE thread_id=?`
+		args = []interface{}{status, now, threadID}
+	} else {
+		q = `UPDATE threads SET status=?, resolved_at=NULL WHERE thread_id=?`
+		args = []interface{}{status, threadID}
+	}
+	_, err := s.ExecContext(ctx, q, args...)
+	return err
+}
+
+// GetThreadEvents returns all events for a thread, ordered oldest-first.
+func (s *Store) GetThreadEvents(ctx context.Context, threadID string) ([]*models.Event, error) {
+	q := `SELECT event_id, session_id, parent_event_id, event_type, content,
+	             confidence, tags, embedding_id, task_title, task_status,
+	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
+	      FROM events WHERE thread_id=? ORDER BY created_at ASC`
+	rows, err := s.QueryContext(ctx, q, threadID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanEvents(rows)
+}
+
+// GetStats returns aggregate stats: session count, total events, total checkpoints, open thread count.
 func (s *Store) GetStats(ctx context.Context) (map[string]int, error) {
 	stats := map[string]int{}
 	var count int
@@ -492,6 +610,12 @@ func (s *Store) GetStats(ctx context.Context) (map[string]int, error) {
 		return nil, err
 	}
 	stats["flags"] = count
+
+	q = `SELECT COUNT(*) FROM threads WHERE status = 'open'`
+	if err := s.QueryRowContext(ctx, q).Scan(&count); err != nil {
+		return nil, err
+	}
+	stats["threads"] = count
 
 	return stats, nil
 }
@@ -592,13 +716,13 @@ func scanEvents(rows *sql.Rows) ([]*models.Event, error) {
 	var events []*models.Event
 	for rows.Next() {
 		var e models.Event
-		var parent, tags, embID, taskTitle, reviewerID sql.NullString
+		var parent, tags, embID, taskTitle, reviewerID, threadID sql.NullString
 		var conf sql.NullFloat64
 		var statusChanged, reviewedAt sql.NullTime
 		err := rows.Scan(
 			&e.EventID, &e.SessionID, &parent, &e.EventType, &e.Content,
 			&conf, &tags, &embID, &taskTitle, &e.TaskStatus,
-			&statusChanged, &reviewedAt, &reviewerID, &e.CreatedAt,
+			&statusChanged, &reviewedAt, &reviewerID, &threadID, &e.CreatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -620,6 +744,9 @@ func scanEvents(rows *sql.Rows) ([]*models.Event, error) {
 		}
 		if reviewerID.Valid {
 			e.ReviewerID = reviewerID.String
+		}
+		if threadID.Valid {
+			e.ThreadID = threadID.String
 		}
 		e.StatusChangedAt = statusChanged
 		e.HumanReviewedAt = reviewedAt
