@@ -1,15 +1,15 @@
 # Build stage
-FROM golang:1.25-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /build
 
 ENV GOTOOLCHAIN=auto
 
-# Copy go mod files first for better caching
-COPY go.mod go.sum ./
-RUN go mod download
-
+# Copy everything first so module resolution works locally
 COPY . .
+
+# Download deps (source is already present, so this finds local packages)
+RUN go mod download
 
 # Build static binary (pure Go, no CGO needed)
 RUN GOOS=linux go build -ldflags="-s -w" -o lethe ./cmd/lethe
@@ -27,10 +27,10 @@ COPY --from=builder /build/lethe /app/lethe
 RUN adduser -D -g '' appuser
 USER appuser
 
-EXPOSE 8080
+EXPOSE 18483
 
 ENTRYPOINT ["/app/lethe"]
-CMD ["--db", "/data/lethe.db", "--http", ":8080"]
+CMD ["--db", "/data/lethe.db", "--http", ":18483"]
 
 # Mount volume for persistent data
 VOLUME ["/data"]
