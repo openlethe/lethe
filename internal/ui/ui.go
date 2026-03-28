@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"text/template"
 	"time"
 
@@ -22,6 +23,10 @@ var staticFS embed.FS
 var templatesFS embed.FS
 
 var templates *template.Template
+
+// apiBase is the base URL UI handlers use to reach the Lethe API.
+// Set during SetupRoutes from the --http or --api-port flag.
+var apiBase string
 
 func init() {
 	funcMap := template.FuncMap{
@@ -103,6 +108,9 @@ func init() {
 			}
 			return string(runes[start:end])
 		},
+		"urlenc": func(s string) string {
+			return url.PathEscape(s)
+		},
 	}
 
 	// Parse base first so named templates are registered, then page templates.
@@ -128,6 +136,8 @@ func init() {
 		"templates/session_detail",
 		"templates/session_events",
 		"templates/sessions",
+		"templates/threads",
+		"templates/thread_detail",
 	)
 	if err != nil {
 		panic("parse templates: " + err.Error())
@@ -240,7 +250,10 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 // SetupRoutes mounts the UI routes on a chi router under /ui.
 // Uses a dedicated sub-router so UI routes don't collide with API routes
 // which are mounted at /api on the same root mux.
-func SetupRoutes(r *chi.Mux) {
+// baseURL is the base URL the UI handlers should use to reach the API
+// (e.g. "http://127.0.0.1:18483").
+func SetupRoutes(r *chi.Mux, baseURL string) {
+	apiBase = baseURL
 	ui := chi.NewRouter()
 	ui.Get("/", redirectTo("/ui/dashboard"))
 	ui.Get("/dashboard", handleDashboard)
@@ -254,9 +267,13 @@ func SetupRoutes(r *chi.Mux) {
 	ui.Get("/session/{sessionID}/stats-data", handleSessionStatsData)
 	ui.Get("/flags", handleFlags)
 	ui.Get("/live", handleLive)
+	ui.Get("/threads", handleThreads)
+	ui.Get("/threads/{threadID}", handleThreadDetail)
+	ui.Get("/threads/{threadID}/events-data", handleThreadEventsData)
 	// HTMX data endpoints — return rendered HTML fragments
 	ui.Get("/sessions-data", handleSessionsData)
 	ui.Get("/flags-data", handleFlagsData)
+	ui.Get("/open-threads-data", handleOpenThreadsData)
 	ui.Get("/debug/templates", func(w http.ResponseWriter, r *http.Request) {
 		var names []string
 		for _, t := range templates.Templates() {
@@ -311,19 +328,15 @@ func redirectTo(path string) http.HandlerFunc {
 // --- Page handlers ---
 
 func handleDashboard(w http.ResponseWriter, r *http.Request) {
-	stats, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/stats")
+	stats, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/stats")
 	if err != nil || stats == nil {
 		stats = map[string]interface{}{"sessions": 0, "events": 0, "checkpoints": 0, "flags": 0}
 	}
 
-	// Find the most recent session and check for any active session.
-	// Prefer the active session's token_budget; fall back to the most recently started.
 	var mostRecentKey string
-	var mostRecentBudget int
 	var mostRecentStarted string
 	var activeKey string
-	var activeBudget int
-	activeSessions, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions?limit=20")
+	activeSessions, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions?limit=20")
 	if err == nil {
 		if sessions, ok := activeSessions["sessions"].([]interface{}); ok {
 			for _, s := range sessions {
@@ -331,20 +344,12 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 					started, _ := sm["started_at"].(string)
 					state, _ := sm["state"].(string)
 					sk, _ := sm["session_key"].(string)
-					tb := 0
-					if tb64, ok := sm["token_budget"].(float64); ok {
-						tb = int(tb64)
-					}
-					// Active session takes priority.
 					if state == "active" && activeKey == "" {
 						activeKey = sk
-						activeBudget = tb
 					}
-					// Track the session with the latest started_at.
 					if started > mostRecentStarted {
 						mostRecentStarted = started
 						mostRecentKey = sk
-						mostRecentBudget = tb
 					}
 				}
 			}
@@ -352,20 +357,31 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	currentSessionKey := activeKey
-	currentTokenBudget := activeBudget
 	hasActiveSession := activeKey != ""
 	if !hasActiveSession && mostRecentKey != "" {
 		currentSessionKey = mostRecentKey
-		currentTokenBudget = mostRecentBudget
 	}
-	hasTokenData := currentSessionKey != ""
+
+	var openThreads []map[string]interface{}
+	if currentSessionKey != "" {
+		threadsRes, _ := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions/"+
+			url.PathEscape(currentSessionKey)+"/threads?status=open")
+		if threadsRes != nil {
+			if t, ok := threadsRes["threads"].([]interface{}); ok {
+				for _, v := range t {
+					if tm, ok := v.(map[string]interface{}); ok {
+						openThreads = append(openThreads, tm)
+					}
+				}
+			}
+		}
+	}
 
 	Render(w, r, "dashboard", map[string]interface{}{
 		"stats":              stats,
-		"currentSessionKey":   currentSessionKey,
-		"currentTokenBudget": currentTokenBudget,
+		"currentSessionKey":  currentSessionKey,
 		"hasActiveSession":   hasActiveSession,
-		"hasTokenData":       hasTokenData,
+		"openThreads":        openThreads,
 	})
 }
 
@@ -376,14 +392,12 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 func handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
 
-	// Pre-fetch all session data so the page is fully rendered on load.
-	// HTMX will still update events/checkpoints fragments dynamically.
-	sessData, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID)
+	sessData, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions/"+sessionID)
 	if err != nil || sessData == nil {
 		sessData = map[string]interface{}{}
 	}
 
-	eventsResult, _ := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID+"/events?limit=50")
+	eventsResult, _ := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions/"+sessionID+"/events?limit=50")
 	var events []map[string]interface{}
 	if eventsResult != nil {
 		if e, ok := eventsResult["events"].([]interface{}); ok {
@@ -395,7 +409,7 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cpResult, _ := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID+"/checkpoints")
+	cpResult, _ := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions/"+sessionID+"/checkpoints")
 	var checkpoints []map[string]interface{}
 	if cpResult != nil {
 		if c, ok := cpResult["checkpoints"].([]interface{}); ok {
@@ -408,8 +422,8 @@ func handleSessionDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pageData := map[string]interface{}{
-		"session":    sessData,
-		"events":     events,
+		"session":     sessData,
+		"events":      events,
 		"checkpoints": checkpoints,
 	}
 
@@ -424,24 +438,21 @@ func handleSessionCheckpoints(w http.ResponseWriter, r *http.Request) {
 	Render(w, r, "session_checkpoints", nil)
 }
 
-// handleSessionDetailData returns session data fragment for HTMX.
 func handleSessionDetailData(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
-	data, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID)
+	data, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions/"+sessionID)
 	if err != nil || data == nil {
 		data = map[string]interface{}{}
 	}
 	data["session_id"] = sessionID
-	// Render fragment directly — no Render() wrapper
 	if err := templates.ExecuteTemplate(w, "session_detail_data", data); err != nil {
 		log.Printf("session_detail_data error: %v", err)
 	}
 }
 
-// handleSessionEventsData returns events list fragment for a session.
 func handleSessionEventsData(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
-	result, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID+"/events?limit=50")
+	result, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions/"+sessionID+"/events?limit=50")
 	var events []map[string]interface{}
 	if err == nil {
 		if e, ok := result["events"].([]interface{}); ok {
@@ -461,10 +472,9 @@ func handleSessionEventsData(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleSessionCheckpointsData returns checkpoints list fragment for a session.
 func handleSessionCheckpointsData(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
-	result, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID+"/checkpoints")
+	result, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions/"+sessionID+"/checkpoints")
 	var checkpoints []map[string]interface{}
 	if err == nil {
 		if c, ok := result["checkpoints"].([]interface{}); ok {
@@ -488,21 +498,20 @@ func handleFlags(w http.ResponseWriter, r *http.Request) {
 	Render(w, r, "flags", nil)
 }
 
-// handleSessionStatsData returns the stats fragment for a session.
 func handleSessionStatsData(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
-	result, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID)
+	result, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions/"+sessionID)
 	if err != nil || result == nil {
 		result = map[string]interface{}{}
 	}
-	eventsResult, _ := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID+"/events?limit=1")
+	eventsResult, _ := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions/"+sessionID+"/events?limit=1")
 	eventCount := 0
 	if eventsResult != nil {
 		if total, ok := eventsResult["total"].(float64); ok {
 			eventCount = int(total)
 		}
 	}
-	cpResult, _ := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions/"+sessionID+"/checkpoints")
+	cpResult, _ := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions/"+sessionID+"/checkpoints")
 	cpCount := 0
 	if cpResult != nil {
 		if cps, ok := cpResult["checkpoints"].([]interface{}); ok {
@@ -521,17 +530,43 @@ func handleSessionStatsData(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleLive(w http.ResponseWriter, r *http.Request) {
-	Render(w, r, "live", nil)
+	currentSessionKey := ""
+	activeSessions, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions?limit=20")
+	if err == nil {
+		if sessions, ok := activeSessions["sessions"].([]interface{}); ok {
+			var mostRecentKey string
+			var mostRecentStarted string
+			for _, s := range sessions {
+				if sm, ok := s.(map[string]interface{}); ok {
+					started, _ := sm["started_at"].(string)
+					state, _ := sm["state"].(string)
+					sk, _ := sm["session_key"].(string)
+					if state == "active" && currentSessionKey == "" {
+						currentSessionKey = sk
+					}
+					if started > mostRecentStarted {
+						mostRecentStarted = started
+						mostRecentKey = sk
+					}
+				}
+			}
+			if currentSessionKey == "" {
+				currentSessionKey = mostRecentKey
+			}
+		}
+	}
+	Render(w, r, "live", map[string]interface{}{
+		"currentSessionKey": currentSessionKey,
+	})
 }
 
-// handleSessionsData returns the sessions list fragment for HTMX.
 func handleSessionsData(w http.ResponseWriter, r *http.Request) {
 	limit := r.URL.Query().Get("limit")
 	if limit == "" {
 		limit = "5"
 	}
 	var sessions []map[string]interface{}
-	stats, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/sessions?limit="+limit)
+	stats, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions?limit="+limit)
 	if err == nil {
 		if s, ok := stats["sessions"].([]interface{}); ok {
 			for _, v := range s {
@@ -550,10 +585,9 @@ func handleSessionsData(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleFlagsData returns the flags list fragment for HTMX.
 func handleFlagsData(w http.ResponseWriter, r *http.Request) {
 	var flags []map[string]interface{}
-	result, err := httpGetJSON[map[string]interface{}](r.Context(), "http://127.0.0.1:8080/api/flags?limit=5")
+	result, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/flags?limit=5")
 	if err == nil {
 		if f, ok := result["flags"].([]interface{}); ok {
 			for _, v := range f {
@@ -569,6 +603,136 @@ func handleFlagsData(w http.ResponseWriter, r *http.Request) {
 	data := map[string]interface{}{"flags": flags}
 	if err := templates.ExecuteTemplate(w, "flags_list", data); err != nil {
 		log.Printf("flags_list error: %v", err)
+	}
+}
+
+func handleOpenThreadsData(w http.ResponseWriter, r *http.Request) {
+	sessionsRes, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions?limit=5")
+	if err != nil {
+		http.Error(w, "failed to fetch sessions", 500)
+		return
+	}
+
+	var activeKey string
+	if sessions, ok := sessionsRes["sessions"].([]interface{}); ok {
+		for _, s := range sessions {
+			if sm, ok := s.(map[string]interface{}); ok {
+				if state, _ := sm["state"].(string); state == "active" {
+					activeKey, _ = sm["session_key"].(string)
+					break
+				}
+			}
+		}
+	}
+
+	var threads []map[string]interface{}
+	if activeKey != "" {
+		threadsRes, _ := httpGetJSON[map[string]interface{}](r.Context(),
+			apiBase+"/api/sessions/"+url.PathEscape(activeKey)+"/threads?status=open")
+		if threadsRes != nil {
+			if t, ok := threadsRes["threads"].([]interface{}); ok {
+				for _, v := range t {
+					if tm, ok := v.(map[string]interface{}); ok {
+						threads = append(threads, tm)
+					}
+				}
+			}
+		}
+	}
+	if threads == nil {
+		threads = []map[string]interface{}{}
+	}
+
+	data := map[string]interface{}{"threads": threads, "sessionKey": activeKey}
+	if err := templates.ExecuteTemplate(w, "open_threads_list", data); err != nil {
+		log.Printf("open_threads_list error: %v", err)
+	}
+}
+
+func handleThreads(w http.ResponseWriter, r *http.Request) {
+	type threadWithSession struct {
+		Thread     map[string]interface{}
+		SessionKey string
+	}
+	var allThreads []threadWithSession
+
+	sessionsRes, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions?limit=20")
+	if err == nil {
+		if sessions, ok := sessionsRes["sessions"].([]interface{}); ok {
+			for _, s := range sessions {
+				if sm, ok := s.(map[string]interface{}); ok {
+					sk, _ := sm["session_key"].(string)
+					threadsRes, _ := httpGetJSON[map[string]interface{}](r.Context(),
+						apiBase+"/api/sessions/"+url.PathEscape(sk)+"/threads")
+					if threadsRes != nil {
+						if t, ok := threadsRes["threads"].([]interface{}); ok {
+							for _, v := range t {
+								if tm, ok := v.(map[string]interface{}); ok {
+									allThreads = append(allThreads, threadWithSession{Thread: tm, SessionKey: sk})
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if allThreads == nil {
+		allThreads = []threadWithSession{}
+	}
+
+	data := map[string]interface{}{"threads": allThreads}
+	Render(w, r, "threads", data)
+}
+
+func handleThreadDetail(w http.ResponseWriter, r *http.Request) {
+	threadID := chi.URLParam(r, "threadID")
+	threadRes, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/threads/"+threadID)
+	if err != nil || threadRes == nil {
+		http.NotFound(w, r)
+		return
+	}
+	thread, _ := threadRes["thread"].(map[string]interface{})
+
+	eventsRes, _ := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/threads/"+threadID+"/events")
+	var events []map[string]interface{}
+	if eventsRes != nil {
+		if e, ok := eventsRes["events"].([]interface{}); ok {
+			for _, v := range e {
+				if em, ok := v.(map[string]interface{}); ok {
+					events = append(events, em)
+				}
+			}
+		}
+	}
+	if events == nil {
+		events = []map[string]interface{}{}
+	}
+
+	data := map[string]interface{}{"thread": thread, "events": events}
+	Render(w, r, "thread_detail", data)
+}
+
+func handleThreadEventsData(w http.ResponseWriter, r *http.Request) {
+	threadID := chi.URLParam(r, "threadID")
+	eventsRes, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/threads/"+threadID+"/events")
+	var events []map[string]interface{}
+	if err == nil {
+		if e, ok := eventsRes["events"].([]interface{}); ok {
+			for _, v := range e {
+				if em, ok := v.(map[string]interface{}); ok {
+					events = append(events, em)
+				}
+			}
+		}
+	}
+	if events == nil {
+		events = []map[string]interface{}{}
+	}
+
+	data := map[string]interface{}{"events": events}
+	if err := templates.ExecuteTemplate(w, "events_list", data); err != nil {
+		log.Printf("events_list error: %v", err)
 	}
 }
 

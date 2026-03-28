@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/mentholmike/lethe/internal/db"
+	"github.com/openlethe/lethe/internal/db"
 )
 
 func newTestServer(t *testing.T) *Server {

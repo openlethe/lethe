@@ -111,6 +111,7 @@ type Event struct {
 	StatusChangedAt sql.NullTime `json:"-"`
 	HumanReviewedAt sql.NullTime `json:"-"`
 	ReviewerID     string      `json:"reviewer_id,omitempty"`
+	ThreadID       string      `json:"thread_id,omitempty"` // optional thread membership
 	CreatedAt       time.Time   `json:"created_at"`
 }
 
@@ -119,4 +120,25 @@ type SessionLink struct {
 	SessionID       string `json:"session_id"`
 	PriorSessionID  string `json:"prior_session_id"`
 	LinkType        string `json:"link_type"`
+}
+
+// ThreadState is the status of a thread.
+type ThreadState string
+
+const (
+	ThreadOpen     ThreadState = "open"
+	ThreadResolved ThreadState = "resolved"
+	ThreadBlocked  ThreadState = "blocked"
+)
+
+// Thread represents a named, persistent work item that groups related events.
+type Thread struct {
+	ThreadID   string      `json:"thread_id"`
+	SessionID  string      `json:"session_id"`
+	Name       string      `json:"name"`       // slug: "auth-design"
+	Title      string      `json:"title"`      // human readable: "Auth approach decision"
+	Status     ThreadState `json:"status"`
+	CreatedAt  time.Time   `json:"created_at"`
+	UpdatedAt  time.Time   `json:"updated_at"`
+	ResolvedAt sql.NullTime `json:"-"`
 }

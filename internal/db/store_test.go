@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mentholmike/lethe/internal/models"
+	"github.com/openlethe/lethe/internal/models"
 )
 
 func newTestStore(t *testing.T) (*Store, func()) {

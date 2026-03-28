@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/mentholmike/lethe/internal/db"
-	"github.com/mentholmike/lethe/internal/models"
-	"github.com/mentholmike/lethe/internal/session"
+	"github.com/openlethe/lethe/internal/db"
+	"github.com/openlethe/lethe/internal/models"
+	"github.com/openlethe/lethe/internal/session"
 )
 
 // APIServer provides JSON REST endpoints for the dashboard, plus HTMX-aware

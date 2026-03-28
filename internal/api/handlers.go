@@ -2,17 +2,15 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/mentholmike/lethe/internal/models"
+	"github.com/openlethe/lethe/internal/models"
 )
 
 // handleHealth returns server health status.
@@ -120,31 +118,13 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse optional token_budget from request body.
-	tokenBudget := 0
-	if r.Body != nil {
-		var body struct {
-			TokenBudget int `json:"token_budget"`
-		}
-		json.NewDecoder(r.Body).Decode(&body)
-		tokenBudget = body.TokenBudget
-	}
-
-	if err := s.sessMgr.Heartbeat(r.Context(), sess.SessionID, tokenBudget); err != nil {
+	// Token budget tracking removed — heartbeat only updates last_heartbeat_at.
+	if err := s.sessMgr.Heartbeat(r.Context(), sess.SessionID, 0); err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
 	}
 
-	// Broadcast token budget to SSE clients so the UI can update the meter.
-	if tokenBudget > 0 {
-		s.broadcaster.Broadcast("tick", map[string]interface{}{
-			"session_id":   sess.SessionID,
-			"session_key": sess.SessionKey,
-			"tokens":     tokenBudget,
-		})
-	}
-
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) handleInterruptSession(w http.ResponseWriter, r *http.Request) {
@@ -272,10 +252,29 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		Confidence:    req.Confidence,
 		Tags:          strings.Join(req.Tags, ","),
 		TaskTitle:     req.TaskTitle,
+		ThreadID:      req.ThreadID,
 	}
 	if req.TaskStatus != "" {
 		ts := models.TaskStatus(req.TaskStatus)
 		event.TaskStatus = &ts
+	}
+
+	// Auto-thread on flag: when flag() is called with no thread_id,
+	// automatically create a thread from the flag content.
+	var threadAutoCreated bool
+	if req.EventType == "flag" && req.ThreadID == "" {
+		slug := makeSlug(req.Content)
+		thread := &models.Thread{
+			ThreadID: generateID(),
+			SessionID: sess.SessionID,
+			Name: slug,
+			Title: req.Content,
+			Status: models.ThreadOpen,
+		}
+		if err := s.store.CreateThread(r.Context(), thread); err == nil {
+			event.ThreadID = thread.ThreadID
+			threadAutoCreated = true
+		}
 	}
 
 	if err := s.store.CreateEvent(r.Context(), event); err != nil {
@@ -290,14 +289,20 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 			"session_id": event.SessionID,
 			"event_type": event.EventType,
 			"content":    truncate(event.Content, 200),
+			"thread_id":  event.ThreadID,
 			"created_at": event.CreatedAt,
 		})
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]interface{}{
+	resp := map[string]interface{}{
 		"event_id":   event.EventID,
 		"created_at": event.CreatedAt,
-	})
+	}
+	if threadAutoCreated {
+		resp["thread_id"] = event.ThreadID
+		resp["thread_auto_created"] = true
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
@@ -609,6 +614,7 @@ type CreateEventRequest struct {
 	ParentEventID string   `json:"parent_event_id,omitempty"`
 	TaskTitle     string   `json:"task_title,omitempty"`
 	TaskStatus    string   `json:"task_status,omitempty"`
+	ThreadID      string   `json:"thread_id,omitempty"` // attach event to existing thread
 }
 
 func truncate(s string, max int) string {
@@ -616,6 +622,148 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return s[:max] + "…"
+}
+
+// --- Threads ---
+
+// handleCreateThread creates a new thread.
+func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		SessionKey string `json:"session_key"`
+		Name      string `json:"name"`
+		Title     string `json:"title"`
+	}
+	if err := readJSON(r, &req); err != nil || req.SessionKey == "" || req.Name == "" || req.Title == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "session_key, name, and title are required"})
+		return
+	}
+
+	sess, err := s.store.GetSessionByKey(r.Context(), req.SessionKey)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if sess == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "session not found"})
+		return
+	}
+
+	thread := &models.Thread{
+		ThreadID:  generateID(),
+		SessionID: sess.SessionID,
+		Name:      req.Name,
+		Title:     req.Title,
+		Status:    models.ThreadOpen,
+	}
+	if err := s.store.CreateThread(r.Context(), thread); err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"thread": thread})
+}
+
+// handleGetThread returns a thread by ID.
+func (s *Server) handleGetThread(w http.ResponseWriter, r *http.Request) {
+	threadID := chi.URLParam(r, "threadID")
+	thread, err := s.store.GetThread(r.Context(), threadID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if thread == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "thread not found"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"thread": thread})
+}
+
+// handleUpdateThread updates a thread's status.
+func (s *Server) handleUpdateThread(w http.ResponseWriter, r *http.Request) {
+	threadID := chi.URLParam(r, "threadID")
+	var req struct {
+		Status string `json:"status"`
+	}
+	if err := readJSON(r, &req); err != nil || req.Status == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "status is required"})
+		return
+	}
+	validStatuses := map[string]bool{"open": true, "resolved": true, "blocked": true}
+	if !validStatuses[req.Status] {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "status must be open, resolved, or blocked"})
+		return
+	}
+
+	thread, err := s.store.GetThread(r.Context(), threadID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if thread == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "thread not found"})
+		return
+	}
+
+	newState := models.ThreadState(req.Status)
+	if err := s.store.UpdateThreadStatus(r.Context(), threadID, newState); err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	// Fetch updated thread
+	thread, _ = s.store.GetThread(r.Context(), threadID)
+	writeJSON(w, http.StatusOK, map[string]interface{}{"thread": thread})
+}
+
+// handleGetThreads returns threads for a session.
+func (s *Server) handleGetThreads(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	sess, err := s.resolveSession(r.Context(), sessionID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if sess == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "session not found"})
+		return
+	}
+
+	status := r.URL.Query().Get("status")
+	var statusFilter *models.ThreadState
+	if status != "" {
+		s := models.ThreadState(status)
+		statusFilter = &s
+	}
+
+	threads, err := s.store.GetThreadsBySession(r.Context(), sess.SessionID, statusFilter)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"threads": threads})
+}
+
+// handleGetThreadEvents returns all events for a thread.
+func (s *Server) handleGetThreadEvents(w http.ResponseWriter, r *http.Request) {
+	threadID := chi.URLParam(r, "threadID")
+	thread, err := s.store.GetThread(r.Context(), threadID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if thread == nil {
+		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "thread not found"})
+		return
+	}
+
+	events, err := s.store.GetThreadEvents(r.Context(), threadID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"thread": thread, "events": events})
 }
 
 // handleListSessions returns all sessions ordered by last heartbeat.
@@ -700,15 +848,6 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse optional token_budget from request body.
-	tokenBudget := 0
-	if r.Body != nil {
-		var body struct {
-			TokenBudget int `json:"token_budget"`
-		}
-		json.NewDecoder(r.Body).Decode(&body)
-		tokenBudget = body.TokenBudget
-	}
 
 	cps, err := s.store.GetCheckpoints(ctx, sess.SessionID)
 	if err != nil {
@@ -781,22 +920,9 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 	summaryText := strings.Join(lines, "\n")
 	s.store.CompactSession(ctx, sess.SessionID, summaryText)
 
-	// Count tokens using Unicode codepoint-aware approximation.
-	// Words (whitespace-separated) tend to correlate with tokens at ~1.3x.
-	// This is more accurate than len()/4 which uses byte count and
-	// underestimates non-Latin scripts. Using rune count / 4 as a
-	// middle ground that's simple and handles all Unicode correctly.
-	tokenCount := utf8.RuneCountInString(summaryText) / 4
-
-	// Persist the token budget so the dashboard and SSE have the latest count.
-	// Also accumulate into the lifetime total across compactions.
-	if tokenBudget > 0 {
-		s.sessMgr.UpdateTokenBudget(ctx, sess.SessionID, tokenBudget)
-		s.sessMgr.AddTokensConsumed(ctx, sess.SessionID, tokenBudget)
-	}
-
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"summary":      summaryText,
-		"tokens_after": tokenCount,
+		"summary": summaryText,
 	})
 }
+
+

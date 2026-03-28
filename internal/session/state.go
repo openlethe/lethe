@@ -1,6 +1,6 @@
 package session
 
-import "github.com/mentholmike/lethe/internal/models"
+import "github.com/openlethe/lethe/internal/models"
 
 // ValidTransitions maps valid state transitions.
 var ValidTransitions = map[models.SessionState]map[models.SessionState]bool{

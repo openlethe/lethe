@@ -12,9 +12,9 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
-	"github.com/mentholmike/lethe/internal/db"
-	"github.com/mentholmike/lethe/internal/models"
-	"github.com/mentholmike/lethe/internal/session"
+	"github.com/openlethe/lethe/internal/db"
+	"github.com/openlethe/lethe/internal/models"
+	"github.com/openlethe/lethe/internal/session"
 )
 
 // Server is the HTTP API server.

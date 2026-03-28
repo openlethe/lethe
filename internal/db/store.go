@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mentholmike/lethe/internal/models"
+	"github.com/openlethe/lethe/internal/models"
 )
 
 // Store wraps a DB and provides all Lethe read/write operations.

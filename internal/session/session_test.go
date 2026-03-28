@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mentholmike/lethe/internal/db"
-	"github.com/mentholmike/lethe/internal/models"
+	"github.com/openlethe/lethe/internal/db"
+	"github.com/openlethe/lethe/internal/models"
 )
 
 func newTestManager(t *testing.T) (*Manager, func()) {

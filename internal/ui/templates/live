@@ -3,20 +3,27 @@
   <p style="font-size:13px;color:var(--muted);">Real-time event stream</p>
 </div>
 
+{{if .currentSessionKey}}
 <div class="card" style="margin-bottom:16px">
   <div class="card-header">
     <span class="card-title">Live Events</span>
+    <span style="font-size:11px;font-family:var(--mono);color:var(--muted);">{{.currentSessionKey}}</span>
     <button class="btn btn-ghost"
-      hx-post="/api/sessions/agent%3Amain%3Adiscord%3Achannel%3A1480670530565574749/heartbeat"
+      hx-post="/api/sessions/{{.currentSessionKey | urlenc}}/heartbeat"
       hx-swap="none"
       style="font-size:11px;padding:4px 10px;">
       Ping
     </button>
   </div>
   <div id="live-events"
-    hx-get="/ui/session/agent%3Amain%3Adiscord%3Achannel%3A1480670530565574749/events-data"
+    hx-get="/ui/session/{{.currentSessionKey | urlenc}}/events-data"
     hx-trigger="load, every 3s"
     hx-swap="innerHTML">
     <div class="empty-state">Connecting…</div>
   </div>
 </div>
+{{else}}
+<div class="card">
+  <div class="empty-state">No active sessions. Start a session to see live events.</div>
+</div>
+{{end}}

@@ -66,24 +66,9 @@
           <div class="compact-icon">⬡</div>
           <div>
             <div class="compact-label">Memory Compaction</div>
-            <div class="compact-sublabel">Token budget + reasoning chain</div>
+            <div class="compact-sublabel">Summarize events + checkpoints</div>
           </div>
         </div>
-      </div>
-
-      <!-- Token meter -->
-      <div class="token-meter">
-        <div class="token-meter-row">
-          <span class="token-label">Context tokens</span>
-          <span class="token-value">
-            <span class="current" id="token-current">—</span>
-            <span class="max"> / 200k</span>
-          </span>
-        </div>
-        <div class="meter-bar">
-          <div class="meter-fill ok" id="token-bar" style="width:0%"></div>
-        </div>
-        <div class="token-note" id="token-note">Connect to SSE for live token count</div>
       </div>
 
       <!-- Stored summary -->
@@ -136,10 +121,6 @@
         <div class="info-row">
           <span class="info-key">Last heartbeat</span>
           <span class="info-val" id="info-heartbeat">—</span>
-        </div>
-        <div class="info-row">
-          <span class="info-key">Total tokens</span>
-          <span class="info-val">{{index .session "total_tokens_consumed"}}</span>
         </div>
       </div>
     </div>
@@ -232,7 +213,7 @@
         summaryEl.textContent = data.summary;
         summaryEl.style.fontStyle = 'normal';
       }
-      if (note) note.textContent = 'Compacted · ' + (data.tokens_after ?? '?') + ' tokens in summary';
+      if (note) note.textContent = 'Compacted successfully';
     } catch (e) {
       if (note) note.textContent = 'Compact failed: ' + e.message;
     } finally {
@@ -240,26 +221,4 @@
       btn.textContent = '⬡ Compact Now';
     }
   }
-
-  // SSE for live token meter
-  const SESSION_KEY = '{{$sessionKey}}';
-  function connectSSE() {
-    const es = new EventSource('/live');
-    es.addEventListener('tick', e => {
-      const data = JSON.parse(e.data);
-      if (data.session_key !== SESSION_KEY && data.session_id !== SESSION_KEY) return;
-      const pct = Math.round((data.tokens / 200000) * 100);
-      const bar = document.getElementById('token-bar');
-      const current = document.getElementById('token-current');
-      const tokenNote = document.getElementById('token-note');
-      if (bar) {
-        bar.style.width = pct + '%';
-        bar.className = 'meter-fill ' + (pct > 85 ? 'critical' : pct > 70 ? 'warn' : 'ok');
-      }
-      if (current) current.textContent = data.tokens.toLocaleString();
-      if (tokenNote) tokenNote.textContent = pct + '% used · ' + (200000 - data.tokens).toLocaleString() + ' tokens remaining';
-    });
-    es.onerror = () => es.close();
-  }
-  connectSSE();
 </script>
