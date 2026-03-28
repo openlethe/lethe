@@ -1,17 +1,19 @@
 # Build stage
-FROM golang:1.23-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /build
 
+# Copy only go.mod and go.sum first — no local source to confuse module resolution.
+# go mod download downloads deps from the proxy; local packages don't exist yet so
+# they don't interfere. We use GOTOOLCHAIN=auto to let Go fetch a newer toolchain
+# if the go.mod says so (e.g. go 1.25.0 with deps requiring 1.25+).
 ENV GOTOOLCHAIN=auto
-
-# Copy everything first so module resolution works locally
-COPY . .
-
-# Download deps (source is already present, so this finds local packages)
+COPY go.mod go.sum ./
 RUN go mod download
 
-# Build static binary (pure Go, no CGO needed)
+# Now copy source and build
+COPY . .
+RUN go mod tidy
 RUN GOOS=linux go build -ldflags="-s -w" -o lethe ./cmd/lethe
 
 # Runtime stage — minimal alpine image
