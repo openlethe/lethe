@@ -25,21 +25,21 @@ Records carry confidence scores (0.0–1.0). Flags persist across sessions until
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Your AI Agent                                             │
+│  Your AI Agent                                              │
 │                                                             │
-│  ┌─────────────┐    context assembly     ┌──────────────┐ │
-│  │  Lethe      │◄──────────────────────────│   LLM prompt │ │
-│  │  Plugin     │                          │   (prepend)  │ │
-│  └──────┬──────┘                          └──────────────┘ │
-│         │                                                      │
-│         │ HTTP                                                 │
-│         ▼                                                      │
-│  ┌──────────────┐   ┌─────────────────────────────────────┐  │
-│  │  Lethe       │   │  Lethe Server (Go + SQLite)          │  │
-│  │  Plugin      │   │                                     │  │
-│  │  (Node.js)   │   │  Sessions · Events · Checkpoints   │  │
-│  └──────────────┘   │  Flags · Threads · Task chains     │  │
-│                      └─────────────────────────────────────┘  │
+│  ┌─────────────┐    context assembly      ┌──────────────┐  │
+│  │  Lethe      │◄────────────────────────   LLM prompt │ │
+│  │  Plugin     │                          │   (prepend)  │  │
+│  └──────┬──────┘                          └──────────────┘  │
+│         │                                                   │
+│         │ HTTP                                              │
+│         ▼                                                   │
+│  ┌──────────────┐   ┌─────────────────────────────────────┐ │
+│  │  Lethe       │   │  Lethe Server (Go + SQLite)         │ │
+│  │  Plugin      │   │                                     │ │
+│  │  (Node.js)   │   │  Sessions · Events · Checkpoints    │ │
+│  └──────────────┘   │  Flags · Threads · Task chains      │ │
+│                     └────────────────────────────────────┘
 └─────────────────────────────────────────────────────────────┘
 ```
 
