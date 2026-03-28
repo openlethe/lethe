@@ -1,0 +1,38 @@
+<div style="margin-bottom:24px">
+  <h1 style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px;">Threads</h1>
+  <p style="font-size:13px;color:var(--muted);">Named work items — open, blocked, and resolved</p>
+</div>
+
+{{if .threads}}
+{{range .threads}}
+{{$t := .Thread}}
+{{$sk := .SessionKey}}
+<div class="card" style="margin-bottom:12px;">
+  <div style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      {{if eq (index $t "status") "open"}}<span style="font-size:16px;">🔓</span>{{else if eq (index $t "status") "resolved"}}<span style="font-size:16px;">✅</span>{{else}}<span style="font-size:16px;">🔴</span>{{end}}
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--text);">{{index $t "title"}}</div>
+        <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:2px;">
+          {{index $t "name"}} · <a href="/ui/sessions" style="color:var(--accent);">{{$sk}}</a>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+      <span style="font-size:11px;font-family:var(--mono);padding:2px 8px;border-radius:12px;background:rgba(138,125,107,.12);color:var(--muted);border:1px solid rgba(138,125,107,.2);">
+        {{index $t "status"}}
+      </span>
+      <a href="/ui/threads/{{index $t "thread_id"}}" style="font-size:12px;color:var(--accent);">View →</a>
+    </div>
+  </div>
+</div>
+{{end}}
+{{else}}
+<div class="card">
+  <div class="empty-state">
+    <div style="font-size:24px;margin-bottom:8px;">🧵</div>
+    <div>No threads yet.</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:4px;">Threads are created automatically when you flag uncertainty. Start a conversation and flag something.</div>
+  </div>
+</div>
+{{end}}

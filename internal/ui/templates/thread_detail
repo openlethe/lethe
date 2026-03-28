@@ -1,0 +1,162 @@
+{{$t := .thread}}
+<div class="session-header">
+  <div>
+    <div class="session-label">Thread</div>
+    <div class="session-id">
+      {{index $t "name"}}
+      <span class="session-id-copy" onclick="copyToClipboard('{{index $t "thread_id"}}').then(() => showCopiedFeedback(this))">copy ID</span>
+    </div>
+    <div class="session-meta">
+      {{if eq (index $t "status") "open"}}<span class="badge badge-active">🔓 Open</span>
+      {{else if eq (index $t "status") "resolved"}}<span class="badge badge-completed">✅ Resolved</span>
+      {{else}}<span class="badge badge-interrupted">🔴 Blocked</span>{{end}}
+      <span class="meta-divider"></span>
+      <span class="meta-item">Session: <strong>{{index $t "session_id"}}</strong></span>
+      <span class="meta-divider"></span>
+      <span class="meta-item">Created <strong id="created-ago">—</strong></span>
+    </div>
+  </div>
+  <div class="header-actions">
+    {{if eq (index $t "status") "open"}}
+    <button class="btn btn-ghost" id="resolve-btn"
+      onclick="resolveThread('{{index $t "thread_id"}}')">✅ Resolve</button>
+    <button class="btn btn-ghost" id="block-btn"
+      onclick="blockThread('{{index $t "thread_id"}}')">🔴 Block</button>
+    {{else if eq (index $t "status") "blocked"}}
+    <button class="btn btn-ghost" id="reopen-btn"
+      onclick="reopenThread('{{index $t "thread_id"}}')">🔓 Reopen</button>
+    {{end}}
+  </div>
+</div>
+
+<div class="page-with-sidebar">
+  <div class="main-col">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Thread Timeline</span>
+        <span style="font-size:11px;color:var(--muted);font-family:var(--mono);">{{len .events}} events</span>
+      </div>
+      <div id="events-pane"
+        hx-get="/ui/threads/{{index $t "thread_id"}}/events-data"
+        hx-trigger="load"
+        hx-swap="innerHTML">
+        {{range .events}}
+        <div class="event-row">
+          <span class="event-type-pill pill-{{index . "event_type"}}">{{index . "event_type"}}</span>
+          <div class="event-content">
+            <div class="event-text">{{index . "content"}}</div>
+            <div class="event-footer">
+              <span class="event-time">{{index . "created_at" | since}} ago</span>
+              {{if (index . "confidence")}}<span class="conf-chip">conf {{printf "%.0f" (mul (index . "confidence") 100)}}%</span>{{end}}
+            </div>
+          </div>
+        </div>
+        {{end}}
+        {{if not .events}}
+        <div class="empty-state">No events yet.</div>
+        {{end}}
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="card">
+      <div class="card-header"><span class="card-title">Thread info</span></div>
+      <div style="padding:4px 18px 12px;">
+        <div class="info-row">
+          <span class="info-key">Thread ID</span>
+          <span class="info-val" style="font-size:10px;">{{index $t "thread_id"}}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Status</span>
+          <span class="info-val" style="color:var(--accent)">{{index $t "status"}}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Created</span>
+          <span class="info-val" id="info-created">—</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Last updated</span>
+          <span class="info-val" id="info-updated">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function formatAgo(isoString) {
+    if (!isoString) return '—';
+    const diff = Date.now() - new Date(isoString).getTime();
+    const s = Math.floor(diff / 1000);
+    if (s < 60) return s + 's';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + 'm';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + 'h';
+    return Math.floor(h / 24) + 'd';
+  }
+
+  function updateTimes() {
+    const createdRaw = '{{index $t "created_at"}}';
+    const updatedRaw = '{{index $t "updated_at"}}';
+    const createdAgo = document.getElementById('created-ago');
+    const infoCreated = document.getElementById('info-created');
+    const infoUpdated = document.getElementById('info-updated');
+    if (createdAgo) createdAgo.textContent = formatAgo(createdRaw);
+    if (infoCreated) infoCreated.textContent = formatAgo(createdRaw) + ' ago';
+    if (infoUpdated) infoUpdated.textContent = formatAgo(updatedRaw) + ' ago';
+  }
+  updateTimes();
+
+  async function resolveThread(id) {
+    const btn = document.getElementById('resolve-btn');
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch('/api/threads/' + id, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({status: 'resolved'})
+      });
+      if (res.ok) {
+        window.location.reload();
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function blockThread(id) {
+    const btn = document.getElementById('block-btn');
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch('/api/threads/' + id, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({status: 'blocked'})
+      });
+      if (res.ok) {
+        window.location.reload();
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function reopenThread(id) {
+    const btn = document.getElementById('reopen-btn');
+    if (btn) btn.disabled = true;
+    try {
+      const res = await fetch('/api/threads/' + id, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({status: 'open'})
+      });
+      if (res.ok) {
+        window.location.reload();
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+</script>
