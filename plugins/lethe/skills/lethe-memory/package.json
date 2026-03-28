@@ -1,0 +1,9 @@
+{
+  "name": "lethe-memory",
+  "version": "1.0.0",
+  "description": "Lethe — persistent memory layer for AI agents. Handles startup orientation, active memory queries, proactive recall, decision recording, and flag management.",
+  "openclaw": {
+    "skill": true
+  },
+  "keywords": ["memory", "agent", "persistence", "openclaw", "skill"]
+}

@@ -1,0 +1,116 @@
+#!/bin/bash
+# lethe-log — Low-friction event recording for Lethe memory layer
+# Usage: lethe-log <record|log|flag|task> <message> [options]
+#
+# Requires: LETHE_API (default: http://localhost:18483)
+# Optional: LETHE_SESSION_ID (auto-detected from current context)
+
+set -e
+
+API="${LETHE_API:-http://localhost:18483}"
+SESSION_ID="${LETHE_SESSION_ID:-}"
+
+# Auto-detect session from Lethe DB if not set
+if [ -z "$SESSION_ID" ] && [ -f "$HOME/lethe-data/lethe.db" ]; then
+  SESSION_ID=$(sqlite3 "$HOME/lethe-data/lethe.db" \
+    "SELECT session_id FROM sessions WHERE state='active' ORDER BY last_heartbeat_at DESC LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
+fi
+
+if [ -z "$SESSION_ID" ]; then
+  echo "Error: No active Lethe session. Set LETHE_SESSION_ID or start a session first." >&2
+  exit 1
+fi
+
+# Also export for child processes
+export LETHE_SESSION_ID
+
+CMD="${1:-}"
+MSG="${2:-}"
+
+if [ -z "$CMD" ] || [ -z "$MSG" ]; then
+  echo "Usage: lethe-log <record|log|flag|task> <message> [options]"
+  echo ""
+  echo "Commands:"
+  echo "  record <msg>   Record a decision or conclusion"
+  echo "  log <msg>      Log an observation or finding"
+  echo "  flag <msg>     Flag uncertainty for human review"
+  echo "  task <msg>     Create or update a task"
+  echo ""
+  echo "Options:"
+  echo "  --confidence 0.9   Confidence score (0.0-1.0)"
+  echo "  --tags tag1,tag2   Comma-separated tags"
+  echo "  --status todo      Task status (todo|in_progress|done|blocked)"
+  echo "  --task-id ID       Update existing task by event ID"
+  exit 1
+fi
+
+# Parse options
+CONFIDENCE="0.8"
+TAGS=""
+STATUS=""
+TASK_ID=""
+
+shift 2
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --confidence) CONFIDENCE="$2"; shift 2 ;;
+    --tags) TAGS="$2"; shift 2 ;;
+    --status) STATUS="$2"; shift 2 ;;
+    --task-id) TASK_ID="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+# Build JSON
+if [ "$CMD" = "task" ]; then
+  STATUS="${STATUS:-todo}"
+  TASK_TITLE="$MSG"
+  
+  if [ -n "$TASK_ID" ]; then
+    # Update existing task
+    PAYLOAD=$(jq -n \
+      --arg tid "$TASK_ID" \
+      --arg stat "$STATUS" \
+      '{task_status: $stat}')
+    RESULT=$(curl -s -X PUT "$API/api/sessions/$SESSION_ID/events/$TASK_ID" \
+      -H "Content-Type: application/json" \
+      -d "$PAYLOAD")
+    echo "Task updated: $RESULT"
+  else
+    # Create new task
+    PAYLOAD=$(jq -n \
+      --arg content "$TASK_TITLE" \
+      --arg stat "$STATUS" \
+      --arg conf "$CONFIDENCE" \
+      --arg tags "${TAGS:-[]}" \
+      '{event_type: "task", content: $content, confidence: ($conf | tonumber), tags: ($tags | split(",") | map(select(length > 0))), task_title: $content, task_status: $stat}')
+    RESULT=$(curl -s -X POST "$API/api/sessions/$SESSION_ID/events" \
+      -H "Content-Type: application/json" \
+      -d "$PAYLOAD")
+    echo "Task created: $(echo $RESULT | jq -r '.event_id // .event_id')"
+  fi
+else
+  # record, log, or flag
+  PAYLOAD=$(jq -n \
+    --arg type "$CMD" \
+    --arg content "$MSG" \
+    --arg conf "$CONFIDENCE" \
+    --arg tags "${TAGS:-[]}" \
+    '{event_type: $type, content: $content, confidence: ($conf | tonumber), tags: ($tags | split(",") | map(select(length > 0)))}')
+  
+  RESULT=$(curl -s -X POST "$API/api/sessions/$SESSION_ID/events" \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD")
+  
+  if [ "$CMD" = "flag" ]; then
+    echo "Flag raised: $(echo $RESULT | jq -r '.event_id')"
+  else
+    EVENT_ID=$(echo $RESULT | jq -r '.event_id' 2>/dev/null)
+    if [ -n "$EVENT_ID" ] && [ "$EVENT_ID" != "null" ]; then
+      echo "Recorded ($EVENT_ID): $MSG"
+    else
+      echo "Error: $RESULT"
+      exit 1
+    fi
+  fi
+fi
