@@ -2,7 +2,17 @@
 name: lethe-memory
 description: "Lethe — persistent memory layer for AI agents. Handles startup orientation, active memory queries, proactive recall, decision recording, and flag management. Use when: the user mentions memory, prior decisions, past work, open threads, flags, or anything that implies context from previous sessions. Triggers on: 'remember', 'did we decide', 'what were we working on', 'check memory', 'prior context', 'past decision', 'open threads', 'log this', 'record this', 'flag', 'forget', 'mnemosyne', or any question about history, preferences, or previous conclusions. This skill is the agent's primary memory system — it supersedes scratch pads and MEMORY.md files."
 user-invocable: true
-metadata: { "openclaw": { "emoji": "🧠", "requires": { "bins": ["curl", "jq"] }, "primaryEnv": "LETHE_API" } }
+metadata:
+  openclaw:
+    emoji: "🧠"
+    requires:
+      bins: ["curl", "jq"]
+      anyBins: ["docker"]
+    notes:
+      - "SESSION_KEY is injected by the OpenClaw Lethe plugin at runtime — do not set manually"
+      - "LETHE_API is for future SaaS mode; leave unset for local Docker installations"
+      - "Docker is required to run the Lethe server container (ghcr.io/openlethe/lethe)"
+      - "lethe-log CLI (~/.openclaw/skills/lethe-memory/scripts/lethe-log) writes events to the local Lethe server"
 ---
 
 # Lethe — Persistent Agent Memory
