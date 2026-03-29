@@ -2,12 +2,12 @@
 # lethe-log — Low-friction event recording for Lethe memory layer
 # Usage: lethe-log <record|log|flag|task> <message> [options]
 #
-# Requires: LETHE_API (default: http://localhost:18483)
+# Requires: LETHE_API (default: http://localhost:8080)
 # Optional: LETHE_SESSION_ID (auto-detected from current context)
 
 set -e
 
-API="${LETHE_API:-http://localhost:18483}"
+API="${LETHE_API:-http://localhost:8080}"
 SESSION_ID="${LETHE_SESSION_ID:-}"
 
 # Auto-detect session from Lethe DB if not set
