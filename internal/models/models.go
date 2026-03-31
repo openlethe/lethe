@@ -99,19 +99,20 @@ const (
 // Event represents a Lethe event.
 type Event struct {
 	EventID         string       `json:"event_id"`
-	SessionID       string      `json:"session_id"`
+	SessionID       *string     `json:"session_id"` // nullable: project-level events have no session
+	ProjectID       string      `json:"project_id"` // always set, defaults to 'default'
 	ParentEventID   string      `json:"parent_event_id,omitempty"`
 	EventType       EventType   `json:"event_type"`
 	Content         string      `json:"content"`
 	Confidence      *float64    `json:"confidence,omitempty"`
 	Tags            string      `json:"tags,omitempty"`
-	EmbeddingID    string      `json:"embedding_id,omitempty"`
+	EmbeddingID     string      `json:"embedding_id,omitempty"`
 	TaskTitle       string      `json:"task_title,omitempty"`
 	TaskStatus      *TaskStatus `json:"task_status,omitempty"`
 	StatusChangedAt sql.NullTime `json:"-"`
 	HumanReviewedAt sql.NullTime `json:"-"`
-	ReviewerID     string      `json:"reviewer_id,omitempty"`
-	ThreadID       string      `json:"thread_id,omitempty"` // optional thread membership
+	ReviewerID      string      `json:"reviewer_id,omitempty"`
+	ThreadID        string      `json:"thread_id,omitempty"`
 	CreatedAt       time.Time   `json:"created_at"`
 }
 

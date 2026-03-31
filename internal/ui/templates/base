@@ -401,6 +401,7 @@
     <span class="nav-logo">Lethe</span>
     <div class="nav-links">
       <a href="/ui/dashboard" {{if eq .CurrentRoute "dashboard"}}class="active"{{end}}>Dashboard</a>
+      <a href="/ui/events" {{if eq .CurrentRoute "events"}}class="active"{{end}}>Memories</a>
       <a href="/ui/sessions" {{if eq .CurrentRoute "sessions"}}class="active"{{end}}>Sessions</a>
       <a href="/ui/threads" {{if eq .CurrentRoute "threads"}}class="active"{{end}}>Threads</a>
       <a href="/ui/live" {{if eq .CurrentRoute "live"}}class="active"{{end}}>Live</a>

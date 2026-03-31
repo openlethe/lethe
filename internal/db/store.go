@@ -341,15 +341,16 @@ func (s *Store) GetCheckpoints(ctx context.Context, sessionID string) ([]*models
 // --- Events ---
 
 // CreateEvent inserts an event. event_id must be provided.
+// session_id may be nil for project-level events.
 func (s *Store) CreateEvent(ctx context.Context, e *models.Event) error {
 	q := `INSERT INTO events
-	      (event_id, session_id, parent_event_id, event_type, content,
+	      (event_id, session_id, project_id, parent_event_id, event_type, content,
 	       confidence, tags, embedding_id, task_title, task_status, status_changed_at,
 	       human_reviewed_at, reviewer_id, thread_id, created_at)
-	      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	now := time.Now().UTC()
 	_, err := s.ExecContext(ctx, q,
-		e.EventID, e.SessionID, nullString(e.ParentEventID), e.EventType, e.Content,
+		e.EventID, e.SessionID, e.ProjectID, nullString(e.ParentEventID), e.EventType, e.Content,
 		e.Confidence, nullString(e.Tags), nullString(e.EmbeddingID),
 		nullString(e.TaskTitle), e.TaskStatus,
 		e.StatusChangedAt, e.HumanReviewedAt, nullString(e.ReviewerID),
@@ -364,7 +365,7 @@ func (s *Store) CreateEvent(ctx context.Context, e *models.Event) error {
 
 // GetSessionEvents returns paginated events for a session.
 func (s *Store) GetSessionEvents(ctx context.Context, sessionID string, limit, offset int) ([]*models.Event, error) {
-	q := `SELECT event_id, session_id, parent_event_id, event_type, content,
+	q := `SELECT event_id, session_id, project_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
 	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events WHERE session_id=? ORDER BY created_at ASC LIMIT ? OFFSET ?`
@@ -380,7 +381,7 @@ func (s *Store) GetSessionEvents(ctx context.Context, sessionID string, limit, o
 // Use this for compact summaries and assemble() context injection — it avoids returning
 // stale events from early in the session when the caller only wants recent context.
 func (s *Store) GetRecentSessionEvents(ctx context.Context, sessionID string, limit int) ([]*models.Event, error) {
-	q := `SELECT event_id, session_id, parent_event_id, event_type, content,
+	q := `SELECT event_id, session_id, project_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
 	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events WHERE session_id=? ORDER BY created_at DESC LIMIT ?`
@@ -393,9 +394,9 @@ func (s *Store) GetRecentSessionEvents(ctx context.Context, sessionID string, li
 }
 
 // SearchEvents searches all events by content (case-insensitive LIKE) and optionally by tag.
-// Results ordered by created_at DESC (newest first).
-func (s *Store) SearchEvents(ctx context.Context, query string, tag string, limit int) ([]*models.Event, error) {
-	q := `SELECT event_id, session_id, parent_event_id, event_type, content,
+// If projectId is non-empty, filters to that project. Results ordered by created_at DESC.
+func (s *Store) SearchEvents(ctx context.Context, query string, tag string, projectId string, eventType string, limit int) ([]*models.Event, error) {
+	q := `SELECT event_id, session_id, project_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
 	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events
@@ -405,6 +406,14 @@ func (s *Store) SearchEvents(ctx context.Context, query string, tag string, limi
 	if tag != "" {
 		q += ` AND tags LIKE ?`
 		args = append(args, "%"+tag+"%")
+	}
+	if projectId != "" {
+		q += ` AND project_id = ?`
+		args = append(args, projectId)
+	}
+	if eventType != "" {
+		q += ` AND event_type = ?`
+		args = append(args, eventType)
 	}
 
 	q += ` ORDER BY created_at DESC LIMIT ?`
@@ -426,7 +435,7 @@ func (s *Store) GetTaskChain(ctx context.Context, eventID string) ([]*models.Eve
 	var chain []*models.Event
 	currentID := eventID
 	for {
-		q := `SELECT event_id, session_id, parent_event_id, event_type, content,
+		q := `SELECT event_id, session_id, project_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
 	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events WHERE event_id = ?`
@@ -453,7 +462,7 @@ func (s *Store) GetTaskChain(ctx context.Context, eventID string) ([]*models.Eve
 
 // GetFlaggedEvents returns all un-reviewed flag events.
 func (s *Store) GetFlaggedEvents(ctx context.Context, limit, offset int) ([]*models.Event, error) {
-	q := `SELECT event_id, session_id, parent_event_id, event_type, content,
+	q := `SELECT event_id, session_id, project_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
 	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events WHERE event_type='flag' AND human_reviewed_at IS NULL
@@ -570,7 +579,7 @@ func (s *Store) UpdateThreadStatus(ctx context.Context, threadID string, status 
 
 // GetThreadEvents returns all events for a thread, ordered oldest-first.
 func (s *Store) GetThreadEvents(ctx context.Context, threadID string) ([]*models.Event, error) {
-	q := `SELECT event_id, session_id, parent_event_id, event_type, content,
+	q := `SELECT event_id, session_id, project_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
 	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events WHERE thread_id=? ORDER BY created_at ASC`
@@ -719,13 +728,21 @@ func scanEvents(rows *sql.Rows) ([]*models.Event, error) {
 		var parent, tags, embID, taskTitle, reviewerID, threadID sql.NullString
 		var conf sql.NullFloat64
 		var statusChanged, reviewedAt sql.NullTime
+		var sessionID sql.NullString
+		var projectID sql.NullString
 		err := rows.Scan(
-			&e.EventID, &e.SessionID, &parent, &e.EventType, &e.Content,
+			&e.EventID, &sessionID, &projectID, &parent, &e.EventType, &e.Content,
 			&conf, &tags, &embID, &taskTitle, &e.TaskStatus,
 			&statusChanged, &reviewedAt, &reviewerID, &threadID, &e.CreatedAt,
 		)
 		if err != nil {
 			return nil, err
+		}
+		if sessionID.Valid {
+			e.SessionID = &sessionID.String
+		}
+		if projectID.Valid {
+			e.ProjectID = projectID.String
 		}
 		if parent.Valid {
 			e.ParentEventID = parent.String

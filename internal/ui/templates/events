@@ -1,0 +1,65 @@
+{{define "events"}}
+<div style="margin-bottom:24px">
+  <h1 style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px;">All Memories</h1>
+  <p style="font-size:13px;color:var(--muted);">{{index .stats "events"}} total events across all sessions</p>
+</div>
+
+<div class="card" style="margin-bottom:16px">
+  <div class="card-header">
+    <span class="card-title">Events</span>
+    <div style="display:flex;gap:6px;align-items:center;">
+      <button class="filter-btn {{if not .eventType}}active{{end}}"
+        hx-get="/ui/events-data?q={{urlenc .q}}&eventType="
+        hx-target="#events-list"
+        hx-swap="innerHTML">All</button>
+      <button class="filter-btn {{if eq .eventType "record"}}active{{end}}"
+        hx-get="/ui/events-data?q={{urlenc .q}}&eventType=record"
+        hx-target="#events-list"
+        hx-swap="innerHTML">Records</button>
+      <button class="filter-btn {{if eq .eventType "flag"}}active{{end}}"
+        hx-get="/ui/events-data?q={{urlenc .q}}&eventType=flag"
+        hx-target="#events-list"
+        hx-swap="innerHTML">Flags</button>
+      <button class="filter-btn {{if eq .eventType "task"}}active{{end}}"
+        hx-get="/ui/events-data?q={{urlenc .q}}&eventType=task"
+        hx-target="#events-list"
+        hx-swap="innerHTML">Tasks</button>
+      <button class="filter-btn {{if eq .eventType "log"}}active{{end}}"
+        hx-get="/ui/events-data?q={{urlenc .q}}&eventType=log"
+        hx-target="#events-list"
+        hx-swap="innerHTML">Logs</button>
+    </div>
+  </div>
+
+  {{/* Server-rendered inline — no HTMX flash on load */}}
+  <div id="events-list">
+    {{range .events}}
+    <div class="event-row">
+      <span class="event-type-pill pill-{{index . "event_type"}}">{{index . "event_type"}}</span>
+      <div class="event-content">
+        <div class="event-text">{{index . "content"}}</div>
+        <div class="event-footer">
+          <span class="event-time">{{index . "created_at" | since}} ago</span>
+          {{if (index . "confidence")}}<span class="conf-chip">conf {{printf "%.0f" (mul (index . "confidence") 100)}}%</span>{{end}}
+          {{if (index . "task_status")}}<span class="task-status-chip chip-{{index . "task_status"}}">{{index . "task_status"}}</span>{{end}}
+          {{if (index . "human_reviewed_at")}}<span class="event-flag-reviewed">✓ reviewed</span>{{end}}
+        </div>
+      </div>
+    </div>
+    {{end}}
+    {{if not .events}}
+    <div class="empty-state">No events yet.</div>
+    {{end}}
+  </div>
+</div>
+
+<style>
+.filter-btn {
+  font-size:11px;padding:3px 8px;border-radius:4px;
+  border:1px solid var(--border);background:transparent;color:var(--muted);
+  cursor:pointer;transition:all .15s;font-family:var(--sans);
+}
+.filter-btn:hover { border-color:var(--accent);color:var(--accent); }
+.filter-btn.active { background:var(--accent);border-color:var(--accent);color:#fff; }
+</style>
+{{end}}

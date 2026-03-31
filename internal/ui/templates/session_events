@@ -1,13 +1,16 @@
 {{template "layout" .}}
 
-<div class="mb-6 flex items-center gap-3">
-  <a href="/ui/sessions" class="text-[#6b7280] hover:text-[#e2e8f0]">← Sessions</a>
-  <span class="text-[#6b7280]">|</span>
-  <h1 class="text-2xl font-bold">Session Events</h1>
+<div style="margin-bottom:20px;display:flex;align-items:center;gap:10px;">
+  <a href="/ui/sessions" style="font-size:13px;color:var(--muted);text-decoration:none;transition:color 150ms;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">← Sessions</a>
+  <span style="color:var(--border2);">|</span>
+  <h1 style="font-size:20px;font-weight:700;color:var(--text);">Session Events</h1>
 </div>
 
 <div class="card">
-  <div id="events-list" hx-get="/api/sessions/{{.SessionID}}/events?limit=100" hx-trigger="load" hx-swap="innerHTML">
-    <div class="p-8 text-center text-[#6b7280] htmx-indicator">Loading…</div>
+  <div id="events-list"
+    hx-get="/api/sessions/{{.SessionID}}/events?limit=100"
+    hx-trigger="load"
+    hx-swap="innerHTML">
+    <div class="empty-state htmx-indicator">Loading…</div>
   </div>
 </div>

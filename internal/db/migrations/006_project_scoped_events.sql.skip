@@ -1,0 +1,57 @@
+-- Migration 006: Project-scoped events
+-- Makes session_id nullable on events so events can be written at project level
+-- without being tied to any specific conversation session.
+-- Also adds project_id column for direct project filtering on events.
+--
+-- Before: all events required a session_id (foreign key, NOT NULL)
+-- After:  events can have session_id = NULL (project-level events)
+--         Events with NULL session_id are excluded from session-scoped queries
+--         but included in project-scoped searches.
+--         project_id column on events allows direct project filtering.
+
+BEGIN;
+
+-- Remove the NOT NULL constraint and the foreign key.
+-- SQLite doesn't support DROP COLUMN directly in older versions,
+-- so we recreate the table with the correct schema.
+-- Steps: rename → create new → copy data → drop old → rename new
+
+ALTER TABLE events RENAME TO events_old;
+
+CREATE TABLE events (
+    event_id         TEXT PRIMARY KEY,
+    session_id       TEXT REFERENCES sessions(session_id) ON DELETE SET NULL,
+    project_id       TEXT NOT NULL DEFAULT 'default',     -- project namespace for cross-session queries
+    parent_event_id  TEXT REFERENCES events(event_id),
+    event_type       TEXT NOT NULL CHECK (event_type IN ('record','log','flag','task','summary','system')),
+    content          TEXT NOT NULL,
+    confidence       REAL CHECK (confidence IS NULL OR (confidence >= 0 AND confidence <= 1)),
+    tags             TEXT,                        -- comma-separated
+    embedding_id     TEXT,
+    task_title       TEXT,
+    task_status      TEXT CHECK (task_status IS NULL OR task_status IN ('todo','in_progress','done','blocked')),
+    status_changed_at DATETIME,
+    human_reviewed_at DATETIME,
+    reviewer_id      TEXT,
+    thread_id        TEXT,                        -- optional thread membership
+    created_at       DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Copy all existing data. session_id was NOT NULL before so all rows have a value.
+-- project_id gets the default 'default' for all existing events.
+INSERT INTO events SELECT event_id, session_id, 'default', parent_event_id, event_type, content, confidence, tags, embedding_id, task_title, task_status, status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at FROM events_old;
+
+-- Drop old table (now unlinked from FK constraint)
+DROP TABLE events_old;
+
+-- Re-create indexes
+CREATE INDEX IF NOT EXISTS idx_events_session    ON events(session_id);
+CREATE INDEX IF NOT EXISTS idx_events_project   ON events(project_id);
+CREATE INDEX IF NOT EXISTS idx_events_type       ON events(event_type);
+CREATE INDEX IF NOT EXISTS idx_events_parent     ON events(parent_event_id);
+CREATE INDEX IF NOT EXISTS idx_events_conf       ON events(confidence) WHERE confidence IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_events_task       ON events(task_status) WHERE task_status IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_events_created    ON events(created_at DESC);
+
+-- Record this migration.
+INSERT INTO schema_versions (name, applied) VALUES ('006_project_scoped_events', datetime('now'));

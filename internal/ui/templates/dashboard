@@ -3,42 +3,6 @@
   <p style="font-size:13px;color:var(--muted);">Lethe — persistent memory for AI agents</p>
 </div>
 
-<!-- LIVE SESSION CARD — shows session stats instead of token meter -->
-<div class="card" style="margin-bottom:24px;" id="live-session-card">
-  <div class="card-header">
-    <span class="card-title">Live Session</span>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <div id="session-status" style="font-size:11px;color:var(--muted);font-family:var(--mono);">Loading…</div>
-    </div>
-  </div>
-  <div style="padding:16px 18px;" id="session-stats-body">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-      <div>
-        <div style="font-size:12px;font-family:var(--mono);color:var(--muted);margin-bottom:2px;" id="live-session-key">—</div>
-        <div style="font-size:11px;color:var(--muted);" id="live-session-age">—</div>
-      </div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;text-align:center;">
-        <div>
-          <div style="font-size:20px;font-weight:700;font-family:var(--mono);color:var(--accent);" id="live-event-count">—</div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Events</div>
-        </div>
-        <div>
-          <div style="font-size:20px;font-weight:700;font-family:var(--mono);color:var(--green);" id="live-checkpoint-count">—</div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Checkpoints</div>
-        </div>
-        <div>
-          <div style="font-size:20px;font-weight:700;font-family:var(--mono);color:var(--amber);" id="live-thread-count">—</div>
-          <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">Open Threads</div>
-        </div>
-      </div>
-    </div>
-    <div style="display:flex;gap:8px;">
-      <button class="btn btn-ghost" id="compact-btn" onclick="compactNow()" style="font-size:12px;">⬡ Compact Now</button>
-      <a href="#" id="view-session-link" class="btn btn-ghost" style="font-size:12px;text-decoration:none;color:var(--muted);">View session →</a>
-    </div>
-  </div>
-</div>
-
 <!-- STATS ROW -->
 <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;">
   <div class="card" style="text-align:center;padding:20px;">
@@ -55,7 +19,7 @@
   </div>
   <div class="card" style="text-align:center;padding:20px;">
     <div style="font-size:32px;font-weight:700;font-family:var(--mono);color:var(--amber);">{{index .stats "threads"}}</div>
-    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:6px;">Threads</div>
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:6px;">Open Threads</div>
   </div>
 </div>
 
@@ -80,99 +44,3 @@
     </div>
   </div>
 </div>
-
-
-
-<script>
-  const CURRENT_SESSION = '{{.currentSessionKey}}';
-
-  function formatAge(isoString) {
-    if (!isoString) return '—';
-    const diff = Date.now() - new Date(isoString).getTime();
-    const s = Math.floor(diff / 1000);
-    if (s < 60) return s + 's ago';
-    const m = Math.floor(s / 60);
-    if (m < 60) return m + 'm ago';
-    const h = Math.floor(m / 60);
-    if (h < 24) return h + 'h ago';
-    return Math.floor(h / 24) + 'd ago';
-  }
-
-  async function loadSessionStats() {
-    const sk = CURRENT_SESSION;
-    if (!sk) {
-      document.getElementById('session-status').textContent = 'No active session';
-      return;
-    }
-    try {
-      // Fetch session data
-      const sessRes = await fetch('/api/sessions/' + encodeURIComponent(sk));
-      if (!sessRes.ok) throw new Error('session fetch failed');
-      const sess = await sessRes.json();
-
-      const statusEl = document.getElementById('session-status');
-      const keyEl = document.getElementById('live-session-key');
-      const ageEl = document.getElementById('live-session-age');
-      const eventEl = document.getElementById('live-event-count');
-      const cpEl = document.getElementById('live-checkpoint-count');
-      const threadEl = document.getElementById('live-thread-count');
-      const linkEl = document.getElementById('view-session-link');
-
-      if (statusEl) statusEl.textContent = sess.state === 'active' ? 'Active' : 'Inactive';
-      if (keyEl) keyEl.textContent = sk;
-      if (ageEl) ageEl.textContent = 'Started ' + formatAge(sess.started_at);
-      if (linkEl) linkEl.href = '/ui/sessions/' + sess.session_id;
-
-      // Fetch events count
-      const evtsRes = await fetch('/api/sessions/' + encodeURIComponent(sk) + '/events?limit=1');
-      if (evtsRes.ok) {
-        const evtsData = await evtsRes.json();
-        if (eventEl) eventEl.textContent = evtsData.total ?? '—';
-      }
-
-      // Fetch checkpoints count
-      const cpRes = await fetch('/api/sessions/' + encodeURIComponent(sk) + '/checkpoints');
-      if (cpRes.ok) {
-        const cpData = await cpRes.json();
-        if (cpEl) cpEl.textContent = cpData.total ?? '—';
-      }
-
-      // Fetch open threads count
-      const threadRes = await fetch('/api/sessions/' + encodeURIComponent(sk) + '/threads?status=open');
-      if (threadRes.ok) {
-        const threadData = await threadRes.json();
-        if (threadEl) threadEl.textContent = (threadData.threads || []).length;
-      }
-    } catch (e) {
-      console.error('session stats error', e);
-    }
-  }
-
-  async function compactNow() {
-    const sk = CURRENT_SESSION;
-    if (!sk) return;
-    const btn = document.getElementById('compact-btn');
-    if (btn) { btn.disabled = true; btn.textContent = 'Compacting…'; }
-    try {
-      // Get session_id first
-      const sessRes = await fetch('/api/sessions/' + encodeURIComponent(sk));
-      if (!sessRes.ok) throw new Error();
-      const sess = await sessRes.json();
-      const res = await fetch('/api/sessions/' + sess.session_id + '/compact', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: '{}'
-      });
-      if (res.ok) {
-        if (btn) btn.textContent = 'Compacted ✓';
-        setTimeout(() => { if (btn) { btn.disabled = false; btn.textContent = '⬡ Compact Now'; } }, 2000);
-        loadSessionStats();
-      }
-    } catch {
-      if (btn) { btn.disabled = false; btn.textContent = '⬡ Compact Now'; }
-    }
-  }
-
-  loadSessionStats();
-  setInterval(loadSessionStats, 10000); // Refresh every 10s
-</script>

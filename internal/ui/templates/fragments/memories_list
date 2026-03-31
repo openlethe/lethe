@@ -1,0 +1,21 @@
+{{define "memories_list"}}
+<div class="space-y-3">
+  {{range .events}}
+  <div class="event-row">
+    <span class="event-type-pill pill-{{index . "event_type"}}">{{index . "event_type"}}</span>
+    <div class="event-content">
+      <div class="event-text">{{index . "content"}}</div>
+      <div class="event-footer">
+        <span class="event-time">{{index . "created_at" | since}} ago</span>
+        {{if (index . "confidence")}}<span class="conf-chip">conf {{printf "%.0f" (mul (index . "confidence") 100)}}%</span>{{end}}
+        {{if (index . "task_status")}}<span class="task-status-chip chip-{{index . "task_status"}}">{{index . "task_status"}}</span>{{end}}
+      </div>
+    </div>
+    <div class="event-actions">
+      <button class="icon-btn" title="View chain">⬡</button>
+    </div>
+  </div>
+  {{end}}
+  {{if not .events}}<div class="empty-state">No events yet.</div>{{end}}
+</div>
+{{end}}

@@ -1,27 +1,25 @@
-<div class="space-y-3">
-  {{range .items}}
-  <div class="event-row">
-    <span class="event-type-pill pill-{{index . "event_type"}}">{{index . "event_type"}}</span>
-    <div class="event-content">
-      <div class="event-text">{{index . "content"}}</div>
-      <div class="event-footer">
-        <span class="event-time">{{index . "created_at" | since}} ago</span>
-        {{if (index . "confidence")}}<span class="conf-chip">conf {{printf "%.0f" (mul (index . "confidence") 100)}}%</span>{{end}}
-        {{if (index . "task_status")}}<span class="task-status-chip chip-{{index . "task_status"}}">{{index . "task_status"}}</span>{{end}}
-        {{if (index . "human_reviewed_at")}}<span class="event-flag-reviewed">✓ reviewed</span>{{end}}
-      </div>
-    </div>
-    <div class="event-actions">
-      <button class="icon-btn" title="View chain">⬡</button>
+{{range .items}}
+<div class="event-row">
+  <span class="event-type-pill pill-{{index . "event_type"}}">{{index . "event_type"}}</span>
+  <div class="event-content">
+    <div class="event-text">{{index . "content"}}</div>
+    <div class="event-footer">
+      <span class="event-time">{{index . "created_at" | since}} ago</span>
+      {{if (index . "confidence")}}<span class="conf-chip">conf {{printf "%.0f" (mul (index . "confidence") 100)}}%</span>{{end}}
+      {{if (index . "task_status")}}<span class="task-status-chip chip-{{index . "task_status"}}">{{index . "task_status"}}</span>{{end}}
+      {{if (index . "human_reviewed_at")}}<span class="event-flag-reviewed">✓ reviewed</span>{{end}}
     </div>
   </div>
-  {{end}}
+  <div class="event-actions">
+    <button class="icon-btn" title="View chain">⬡</button>
+  </div>
 </div>
+{{end}}
 {{if not .items}}<div class="empty-state">No events yet.</div>{{end}}
 <div class="load-more" style="display:none">
   <button class="btn btn-ghost"
     hx-get="/ui/session/{{.session_id}}/events-data?offset=20"
-    hx-target="closest .space-y-3"
+    hx-target="#events-pane"
     hx-swap="beforeend">
     Load more <span class="htmx-indicator spinner"></span>
   </button>

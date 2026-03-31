@@ -170,6 +170,9 @@ func (s *Server) registerRoutes() {
 		// Event search.
 		api.Get("/events/search", s.handleSearchEvents)
 
+		// Project-level event write (no session required).
+		api.Post("/events", s.handleCreateProjectEvent)
+
 		// Task chain.
 		api.Get("/events/{eventID}/chain", s.handleGetTaskChain)
 	})
@@ -244,6 +247,6 @@ type StoreInterface interface {
 	CreateCheckpoint(ctx context.Context, c *models.Checkpoint) error
 	GetCheckpoints(ctx context.Context, sessionID string) ([]*models.Checkpoint, error)
 	CreateEvent(ctx context.Context, e *models.Event) error
-	SearchEvents(ctx context.Context, query string, tag string, limit int) ([]*models.Event, error)
+	SearchEvents(ctx context.Context, query string, tag string, projectId string, eventType string, limit int) ([]*models.Event, error)
 	GetTaskChain(ctx context.Context, eventID string) ([]*models.Event, error)
 }

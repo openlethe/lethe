@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
 	"text/template"
 	"time"
 
@@ -111,6 +112,20 @@ func init() {
 		"urlenc": func(s string) string {
 			return url.PathEscape(s)
 		},
+		"hasPrefix": strings.HasPrefix,
+		"split":     strings.Split,
+		"contains":  strings.Contains,
+		"truncate":  func(s string, length int, suffix string) string {
+			if s == "" {
+				return ""
+			}
+			runes := []rune(s)
+			if len(runes) <= length {
+				return s
+			}
+			return string(runes[:length]) + suffix
+		},
+		"add": func(a, b int) int { return a + b },
 	}
 
 	// Parse base first so named templates are registered, then page templates.
@@ -130,6 +145,7 @@ func init() {
 	// alphabetical order so the Render call can execute the specific template.
 	_, err = templates.ParseFS(templatesFS,
 		"templates/dashboard",
+		"templates/events",
 		"templates/flags",
 		"templates/live",
 		"templates/session_checkpoints",
@@ -201,6 +217,8 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 		title = "Session Events"
 	case "session_checkpoints":
 		title = "Session Checkpoints"
+	case "events":
+		title = "Memories"
 	case "flags":
 		title = "Flags"
 	case "live":
@@ -267,6 +285,8 @@ func SetupRoutes(r *chi.Mux, baseURL string) {
 	ui.Get("/session/{sessionID}/stats-data", handleSessionStatsData)
 	ui.Get("/flags", handleFlags)
 	ui.Get("/live", handleLive)
+	ui.Get("/events", handleProjectEvents)
+	ui.Get("/events-data", handleProjectEventsData)
 	ui.Get("/threads", handleThreads)
 	ui.Get("/threads/{threadID}", handleThreadDetail)
 	ui.Get("/threads/{threadID}/events-data", handleThreadEventsData)
@@ -333,55 +353,22 @@ func handleDashboard(w http.ResponseWriter, r *http.Request) {
 		stats = map[string]interface{}{"sessions": 0, "events": 0, "checkpoints": 0, "flags": 0}
 	}
 
-	var mostRecentKey string
-	var mostRecentStarted string
-	var activeKey string
-	activeSessions, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions?limit=20")
-	if err == nil {
-		if sessions, ok := activeSessions["sessions"].([]interface{}); ok {
-			for _, s := range sessions {
-				if sm, ok := s.(map[string]interface{}); ok {
-					started, _ := sm["started_at"].(string)
-					state, _ := sm["state"].(string)
-					sk, _ := sm["session_key"].(string)
-					if state == "active" && activeKey == "" {
-						activeKey = sk
-					}
-					if started > mostRecentStarted {
-						mostRecentStarted = started
-						mostRecentKey = sk
-					}
-				}
-			}
-		}
-	}
-
-	currentSessionKey := activeKey
-	hasActiveSession := activeKey != ""
-	if !hasActiveSession && mostRecentKey != "" {
-		currentSessionKey = mostRecentKey
-	}
-
+	// Project-wide open threads — not session-scoped
 	var openThreads []map[string]interface{}
-	if currentSessionKey != "" {
-		threadsRes, _ := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions/"+
-			url.PathEscape(currentSessionKey)+"/threads?status=open")
-		if threadsRes != nil {
-			if t, ok := threadsRes["threads"].([]interface{}); ok {
-				for _, v := range t {
-					if tm, ok := v.(map[string]interface{}); ok {
-						openThreads = append(openThreads, tm)
-					}
+	threadsRes, _ := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/threads?status=open&limit=20")
+	if threadsRes != nil {
+		if t, ok := threadsRes["threads"].([]interface{}); ok {
+			for _, v := range t {
+				if tm, ok := v.(map[string]interface{}); ok {
+					openThreads = append(openThreads, tm)
 				}
 			}
 		}
 	}
 
 	Render(w, r, "dashboard", map[string]interface{}{
-		"stats":              stats,
-		"currentSessionKey":  currentSessionKey,
-		"hasActiveSession":   hasActiveSession,
-		"openThreads":        openThreads,
+		"stats":       stats,
+		"openThreads": openThreads,
 	})
 }
 
@@ -733,6 +720,58 @@ func handleThreadEventsData(w http.ResponseWriter, r *http.Request) {
 	data := map[string]interface{}{"events": events}
 	if err := templates.ExecuteTemplate(w, "events_list", data); err != nil {
 		log.Printf("events_list error: %v", err)
+	}
+}
+
+// handleProjectEvents serves the "All Memories" page — all events across all sessions.
+// Embeds the first 20 events server-side to avoid HTMX double-request on first load.
+func handleProjectEvents(w http.ResponseWriter, r *http.Request) {
+	stats, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/stats")
+	if err != nil || stats == nil {
+		stats = map[string]interface{}{"events": 0}
+	}
+	// Pre-fetch first batch server-side so page renders immediately
+	var events []map[string]interface{}
+	eventsRes, err := httpGetJSON[map[string]interface{}](r.Context(),
+		apiBase+"/api/events/search?q=%25&limit=20")
+	if err == nil {
+		if e, ok := eventsRes["events"].([]interface{}); ok {
+			for _, v := range e {
+				if em, ok := v.(map[string]interface{}); ok {
+					events = append(events, em)
+				}
+			}
+		}
+	}
+	data := map[string]interface{}{
+		"stats":     stats,
+		"events":    events,
+		"q":         "",
+		"eventType": "",
+	}
+	Render(w, r, "events", data)
+}
+
+// handleProjectEventsData returns the event feed as an HTML fragment for HTMX.
+func handleProjectEventsData(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	eventType := r.URL.Query().Get("eventType")
+	limit := r.URL.Query().Get("limit")
+	if limit == "" {
+		limit = "20"
+	}
+	apiURL := apiBase + "/api/events/search?q=" + url.QueryEscape(q) + "&limit=" + limit
+	if eventType != "" {
+		apiURL += "&eventType=" + url.QueryEscape(eventType)
+	}
+	var searchResult map[string]interface{}
+	if data, err := httpGetJSON[map[string]interface{}](r.Context(), apiURL); err == nil {
+		searchResult = map[string]interface{}{"events": data["events"], "q": q, "eventType": eventType}
+	} else {
+		searchResult = map[string]interface{}{"events": []interface{}{}, "q": q, "eventType": eventType}
+	}
+	if err := templates.ExecuteTemplate(w, "memories_list", searchResult); err != nil {
+		log.Printf("memories_list error: %v", err)
 	}
 }
 

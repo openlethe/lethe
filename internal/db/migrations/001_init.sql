@@ -2,7 +2,6 @@
 -- Migration 001: Initial Schema v0.2.0
 -- Task events: memory.task(title, status) with todo/in_progress/done/blocked
 
-PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS agents (

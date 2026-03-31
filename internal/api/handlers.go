@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -224,18 +225,14 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// DEBUG: log what we received
-	log.Printf("[DEBUG] handleCreateEvent: event_type=%q content=%q", req.EventType, req.Content)
-	// Default event_type to "log" if empty
+	log.Printf("[DEBUG] handleCreateEvent: event_type=%q content=%q tags=%v", req.EventType, req.Content, []string(req.Tags))
+	// Default event_type to "log" if empty.
 	if req.EventType == "" {
 		req.EventType = "log"
 	}
-	// Skip creating event if content is empty/whitespace (treat as no-op)
+	// Skip creating event if content is empty/whitespace (treat as no-op).
 	if strings.TrimSpace(req.Content) == "" {
 		writeJSON(w, http.StatusCreated, map[string]interface{}{"event_id": "", "skipped": "empty content"})
-		return
-	}
-	if req.EventType == "task" && req.TaskTitle == "" {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "task_title is required for task events"})
 		return
 	}
 	if req.EventType == "task" && req.TaskTitle == "" {
@@ -245,14 +242,15 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 
 	event := &models.Event{
 		EventID:       generateID(),
-		SessionID:     sess.SessionID,
+		SessionID:     &sess.SessionID,
+		ProjectID:     sess.ProjectID,
 		ParentEventID: req.ParentEventID,
-		EventType:     models.EventType(req.EventType),
-		Content:       req.Content,
-		Confidence:    req.Confidence,
-		Tags:          strings.Join(req.Tags, ","),
-		TaskTitle:     req.TaskTitle,
-		ThreadID:      req.ThreadID,
+		EventType:    models.EventType(req.EventType),
+		Content:      req.Content,
+		Confidence:   req.Confidence,
+		Tags:         strings.Join(req.Tags, ","),
+		TaskTitle:    req.TaskTitle,
+		ThreadID:     req.ThreadID,
 	}
 	if req.TaskStatus != "" {
 		ts := models.TaskStatus(req.TaskStatus)
@@ -466,12 +464,118 @@ func (s *Server) handleGetCheckpoints(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleCreateProjectEvent creates an event without requiring a session.
+// POST /api/events
+// project_id is required; session_id is optional (nullable in DB).
+// This enables project-level event writes from agents that don't have a session context.
+func (s *Server) handleCreateProjectEvent(w http.ResponseWriter, r *http.Request) {
+	var req CreateEventRequest
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
+		return
+	}
+	if req.ProjectID == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "project_id is required"})
+		return
+	}
+	if strings.TrimSpace(req.Content) == "" {
+		writeJSON(w, http.StatusCreated, map[string]interface{}{"event_id": "", "skipped": "empty content"})
+		return
+	}
+	if req.EventType == "" {
+		req.EventType = "log"
+	}
+	if req.EventType == "task" && req.TaskTitle == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "task_title is required for task events"})
+		return
+	}
+
+	// sessionID is optional — if provided, validate it exists.
+	var sessionID *string
+	if req.SessionID != "" {
+		sess, err := s.resolveSession(r.Context(), req.SessionID)
+		if err != nil || sess == nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "session not found"})
+			return
+		}
+		sessionID = &sess.SessionID
+	}
+
+	event := &models.Event{
+		EventID:       generateID(),
+		SessionID:     sessionID,  // nil for project-level events
+		ProjectID:     req.ProjectID,
+		ParentEventID: req.ParentEventID,
+		EventType:     models.EventType(req.EventType),
+		Content:       req.Content,
+		Confidence:    req.Confidence,
+		Tags:          strings.Join(req.Tags, ","),
+		TaskTitle:     req.TaskTitle,
+		ThreadID:      req.ThreadID,
+	}
+	if req.TaskStatus != "" {
+		ts := models.TaskStatus(req.TaskStatus)
+		event.TaskStatus = &ts
+	}
+
+	// Auto-thread on flag without a thread_id.
+	var threadAutoCreated bool
+	if req.EventType == "flag" && req.ThreadID == "" {
+		slug := makeSlug(req.Content)
+		// Create a session-scoped thread only if we have a session.
+		// If no session, skip auto-threading (flag is still recorded).
+		if sessionID != nil {
+			thread := &models.Thread{
+				ThreadID:  generateID(),
+				SessionID: *sessionID,
+				Name:      slug,
+				Title:     req.Content,
+				Status:    models.ThreadOpen,
+			}
+			if err := s.store.CreateThread(r.Context(), thread); err == nil {
+				event.ThreadID = thread.ThreadID
+				threadAutoCreated = true
+			}
+		}
+	}
+
+	if err := s.store.CreateEvent(r.Context(), event); err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	if s.broadcaster != nil {
+		s.broadcaster.Broadcast("event", map[string]interface{}{
+			"event_id":   event.EventID,
+			"session_id": event.SessionID,
+			"event_type": event.EventType,
+			"content":    truncate(event.Content, 200),
+			"thread_id":  event.ThreadID,
+			"created_at": event.CreatedAt,
+		})
+	}
+
+	resp := map[string]interface{}{
+		"event_id":   event.EventID,
+		"created_at": event.CreatedAt,
+	}
+	if threadAutoCreated {
+		resp["thread_auto_created"] = true
+		resp["thread_id"] = event.ThreadID
+	}
+	writeJSON(w, http.StatusCreated, resp)
+}
+
 // handleSearchEvents searches all events by content and optionally by tag.
-// GET /api/events/search?q=query&tag=tag&limit=20
+// GET /api/events/search?q=query&tag=tag&limit=20&projectId=default&eventType=
 func (s *Server) handleSearchEvents(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query().Get("q")
-	if query == "" {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "q parameter is required"})
+	// Allow empty query (matches all) but require either projectId or eventType
+	// so a bare /events/search doesn't return everything with no filter.
+	projectId := r.URL.Query().Get("projectId")
+	eventType := r.URL.Query().Get("eventType")
+	if query == "" && projectId == "" && eventType == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "at least one filter required: q, projectId, or eventType"})
 		return
 	}
 	tag := r.URL.Query().Get("tag")
@@ -482,7 +586,7 @@ func (s *Server) handleSearchEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	events, err := s.store.SearchEvents(r.Context(), query, tag, limit)
+	events, err := s.store.SearchEvents(r.Context(), query, tag, projectId, eventType, limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
@@ -491,16 +595,17 @@ func (s *Server) handleSearchEvents(w http.ResponseWriter, r *http.Request) {
 	eventsOut := make([]map[string]interface{}, len(events))
 	for i, e := range events {
 		eventsOut[i] = map[string]interface{}{
-			"event_id":          e.EventID,
-			"session_id":       e.SessionID,
-			"parent_event_id":  e.ParentEventID,
-			"event_type":       e.EventType,
-			"content":           e.Content,
-			"confidence":       e.Confidence,
-			"tags":             e.Tags,
-			"task_title":       e.TaskTitle,
-			"task_status":      e.TaskStatus,
-			"created_at":       e.CreatedAt,
+			"event_id":   e.EventID,
+			"session_id": e.SessionID,
+			"project_id": e.ProjectID,
+			"parent_event_id": e.ParentEventID,
+			"event_type": e.EventType,
+			"content":    e.Content,
+			"confidence": e.Confidence,
+			"tags":       e.Tags,
+			"task_title": e.TaskTitle,
+			"task_status": e.TaskStatus,
+			"created_at": e.CreatedAt,
 		}
 	}
 
@@ -606,11 +711,37 @@ func (s *Server) handleReviewFlag(w http.ResponseWriter, r *http.Request) {
 
 // --- Request/Response types ---
 
+// StringOrStringArray accepts both a single string and a JSON array of strings.
+// This handles clients that send "tags":"a,b" instead of "tags":["a","b"].
+type StringOrStringArray []string
+
+func (s *StringOrStringArray) UnmarshalJSON(data []byte) error {
+	// Try as array first.
+	var arr []string
+	if err := json.Unmarshal(data, &arr); err == nil {
+		*s = arr
+		return nil
+	}
+	// Fall back to plain string.
+	var str string
+	if err := json.Unmarshal(data, &str); err != nil {
+		return fmt.Errorf("tags must be a string or array, got %s", data)
+	}
+	if str == "" {
+		*s = nil
+	} else {
+		*s = []string{str}
+	}
+	return nil
+}
+
 type CreateEventRequest struct {
 	EventType     string   `json:"event_type"`
 	Content       string   `json:"content"`
+	SessionID     string   `json:"session_id,omitempty"`      // optional; if set, links event to a session
+	ProjectID     string   `json:"project_id,omitempty"`     // required for project-level writes; optional for session writes
 	Confidence    *float64 `json:"confidence,omitempty"`
-	Tags          []string `json:"tags,omitempty"`
+	Tags          StringOrStringArray `json:"tags,omitempty"`
 	ParentEventID string   `json:"parent_event_id,omitempty"`
 	TaskTitle     string   `json:"task_title,omitempty"`
 	TaskStatus    string   `json:"task_status,omitempty"`
