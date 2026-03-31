@@ -6,28 +6,49 @@
 
 <div class="card" style="margin-bottom:16px">
   <div class="card-header">
-    <span class="card-title">Events</span>
-    <div style="display:flex;gap:6px;align-items:center;">
-      <button class="filter-btn {{if not .eventType}}active{{end}}"
-        hx-get="/ui/events-data?q={{urlenc .q}}&eventType="
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <input
+        type="text"
+        name="q"
+        id="event-search"
+        class="search-input"
+        placeholder="Search memories..."
+        value="{{.q}}"
+        hx-get="/ui/events-data"
+        hx-trigger="keyup changed delay:300ms"
+        hx-vals="js:{q: document.getElementById('event-search').value, eventType: document.querySelector('.filter-btn.active') ? document.querySelector('.filter-btn.active').dataset.type : ''}"
         hx-target="#events-list"
-        hx-swap="innerHTML">All</button>
-      <button class="filter-btn {{if eq .eventType "record"}}active{{end}}"
-        hx-get="/ui/events-data?q={{urlenc .q}}&eventType=record"
-        hx-target="#events-list"
-        hx-swap="innerHTML">Records</button>
-      <button class="filter-btn {{if eq .eventType "flag"}}active{{end}}"
-        hx-get="/ui/events-data?q={{urlenc .q}}&eventType=flag"
-        hx-target="#events-list"
-        hx-swap="innerHTML">Flags</button>
-      <button class="filter-btn {{if eq .eventType "task"}}active{{end}}"
-        hx-get="/ui/events-data?q={{urlenc .q}}&eventType=task"
-        hx-target="#events-list"
-        hx-swap="innerHTML">Tasks</button>
-      <button class="filter-btn {{if eq .eventType "log"}}active{{end}}"
-        hx-get="/ui/events-data?q={{urlenc .q}}&eventType=log"
-        hx-target="#events-list"
-        hx-swap="innerHTML">Logs</button>
+        hx-swap="innerHTML"
+        hx-include="[name='eventType']"
+        autocomplete="off"
+      />
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button class="filter-btn {{if not .eventType}}active{{end}}"
+          data-type=""
+          hx-get="/ui/events-data?q={{urlenc .q}}&eventType="
+          hx-target="#events-list"
+          hx-swap="innerHTML">All</button>
+        <button class="filter-btn {{if eq .eventType "record"}}active{{end}}"
+          data-type="record"
+          hx-get="/ui/events-data?q={{urlenc .q}}&eventType=record"
+          hx-target="#events-list"
+          hx-swap="innerHTML">Records</button>
+        <button class="filter-btn {{if eq .eventType "flag"}}active{{end}}"
+          data-type="flag"
+          hx-get="/ui/events-data?q={{urlenc .q}}&eventType=flag"
+          hx-target="#events-list"
+          hx-swap="innerHTML">Flags</button>
+        <button class="filter-btn {{if eq .eventType "task"}}active{{end}}"
+          data-type="task"
+          hx-get="/ui/events-data?q={{urlenc .q}}&eventType=task"
+          hx-target="#events-list"
+          hx-swap="innerHTML">Tasks</button>
+        <button class="filter-btn {{if eq .eventType "log"}}active{{end}}"
+          data-type="log"
+          hx-get="/ui/events-data?q={{urlenc .q}}&eventType=log"
+          hx-target="#events-list"
+          hx-swap="innerHTML">Logs</button>
+      </div>
     </div>
   </div>
 
@@ -54,6 +75,14 @@
 </div>
 
 <style>
+.search-input {
+  font-size:13px;padding:5px 10px;border-radius:6px;
+  border:1px solid var(--border);background:var(--bg);color:var(--text);
+  font-family:var(--mono);min-width:220px;outline:none;
+  transition:border-color .15s;
+}
+.search-input:focus { border-color:var(--accent); }
+.search-input::placeholder { color:var(--muted); }
 .filter-btn {
   font-size:11px;padding:3px 8px;border-radius:4px;
   border:1px solid var(--border);background:transparent;color:var(--muted);
