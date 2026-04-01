@@ -6,7 +6,7 @@ services:
     ports:
       - "18483:18483"
     volumes:
-      - /home/ubuntu/lethe-data:/data
+      - ./lethe-data:/data
 
 volumes:
   lethe-data:
