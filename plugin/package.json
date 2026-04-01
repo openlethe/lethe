@@ -7,7 +7,7 @@
   "types": "dist/index.d.ts",
   "openclaw": {
     "compat": {
-      "pluginApi": "1"
+      "pluginApi": "2026.3.31"
     },
     "build": {
       "openclawVersion": "2026.3.31"
