@@ -6,6 +6,12 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "openclaw": {
+    "compat": {
+      "pluginApi": "1"
+    },
+    "build": {
+      "openclawVersion": "2026.3.31"
+    },
     "extensions": ["./dist/index.js"]
   },
   "scripts": {
