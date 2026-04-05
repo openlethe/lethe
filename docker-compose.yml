@@ -3,10 +3,11 @@ services:
     image: ghcr.io/openlethe/lethe:latest
     container_name: lethe-server
     restart: unless-stopped
+    user: root  # required — non-root users can't write to bind mounts
     ports:
       - "18483:18483"
     volumes:
-      - lethe-data:/data
+      - /home/ubuntu/lethe-data:/data  # bind mount — survives docker-compose down, never use named volumes for persistent data
 
-volumes:
-  lethe-data:
+# NOTE: Do NOT use named volumes for Lethe data. They get wiped on docker-compose down -v.
+# Always use bind mounts pointing to a host directory.
