@@ -89,9 +89,9 @@ function estimateTokens(text: string): number {
 
 export class LetheContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
-    id: "lethe",
+    id: "mentholmike-lethe",
     name: "Lethe",
-    version: "0.1.0",
+    version: "0.1.5",
     ownsCompaction: true,
   };
 
