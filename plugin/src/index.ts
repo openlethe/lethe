@@ -4,7 +4,7 @@ import { LetheContextEngine } from "./context-engine.js";
 import { LetheTools } from "./tools.js";
 
 export default definePluginEntry({
-  id: "lethe",
+  id: "mentholmike-lethe",
   name: "Lethe",
   description:
     "Persistent memory layer for AI agents — the antidote to the river Lethe.",
@@ -16,8 +16,8 @@ export default definePluginEntry({
         endpoint: {
           type: "string",
           description:
-            "Lethe server endpoint (e.g. http://localhost:8080)",
-          default: "http://localhost:8080",
+            "Lethe server endpoint (e.g. http://localhost:18483)",
+          default: "http://localhost:18483",
         },
         apiKey: {
           type: "string",
