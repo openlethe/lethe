@@ -46,7 +46,7 @@ export default definePluginEntry({
       projectId?: string;
     };
 
-    const endpoint = cfg.endpoint ?? "http://localhost:8080";
+    const endpoint = cfg.endpoint ?? "http://localhost:18483";
     const apiKey = cfg.apiKey ?? "";
     const agentId = cfg.agentId ?? "default";
     const projectId = cfg.projectId ?? "default";
