@@ -53,7 +53,7 @@ export default definePluginEntry({
 
     // Register the context engine (owns session context: bootstrap, assemble,
     // afterTurn, compact). Lethe owns compaction so ownsCompaction = true.
-    api.registerContextEngine("lethe", () =>
+    api.registerContextEngine("mentholmike-lethe", () =>
       new LetheContextEngine({ endpoint, apiKey, agentId, projectId })
     );
 
