@@ -107,6 +107,35 @@ const TaskParams = Type.Object({
   ),
 });
 
+// memory_search — search Lethe events across sessions
+const SearchParams = Type.Object({
+  query: Type.String({
+    description: "Search terms — keywords, phrases, or topic to find in stored memory events.",
+  }),
+  limit: Type.Optional(
+    Type.Number({
+      description: "Maximum number of results to return (default 10).",
+      default: 10,
+      minimum: 1,
+      maximum: 50,
+    })
+  ),
+  sessionKey: Type.Optional(
+    Type.String({ description: "Override the current session key for session-scoped search." })
+  ),
+  eventType: Type.Optional(
+    Type.Union(
+      [
+        Type.Literal("record"),
+        Type.Literal("log"),
+        Type.Literal("flag"),
+        Type.Literal("task"),
+      ],
+      { description: "Filter by event type (record, log, flag, task)." }
+    )
+  ),
+});
+
 // ---------------------------------------------------------------------------
 // LetheTools
 // ---------------------------------------------------------------------------
@@ -279,6 +308,94 @@ export class LetheTools {
   }
 
   // ---------------------------------------------------------------------------
+  // memory_search — search Lethe events across sessions
+  // ---------------------------------------------------------------------------
+
+  getSearchTool(): AgentTool<typeof SearchParams> {
+    return this.makeTool({
+      name: "memory_search",
+      description:
+        "Search Lethe memory for past decisions, observations, flags, and tasks. " +
+        "Use this before re-reasoning about prior work, past decisions, or context " +
+        "from previous sessions. Returns matching events sorted by recency.",
+      params: SearchParams,
+      label: "Search Memory",
+      execute: async (toolCallId, params) => {
+        const { query, limit, sessionKey, eventType } = params as Static<typeof SearchParams>;
+        const { endpoint, apiKey, agentId } = this.cfg;
+
+        // Build search URL with query params
+        const searchParams = new URLSearchParams({ q: query });
+        if (limit) searchParams.set("limit", String(limit));
+        if (eventType) searchParams.set("event_type", eventType);
+
+        try {
+          // Search across all sessions first (broader recall)
+          const res = await fetch(
+            `${endpoint}/events/search?${searchParams.toString()}`,
+            { method: "GET", headers: letheHeaders(apiKey) }
+          );
+
+          if (!res.ok) {
+            const err = await res.text();
+            return {
+              content: [{ type: "text", text: `Lethe search error: ${err}` }],
+              details: { ok: false, error: err },
+            };
+          }
+
+          const data = await res.json();
+          const events = data.events ?? [];
+          const count = data.count ?? events.length;
+
+          if (events.length === 0) {
+            // If no cross-session results, try session-scoped search
+            const sk = sessionKey ?? agentId;
+            const sessionRes = await fetch(
+              `${endpoint}/sessions/${encodeURIComponent(sk)}/events/search?${searchParams.toString()}`,
+              { method: "GET", headers: letheHeaders(apiKey) }
+            );
+            if (sessionRes.ok) {
+              const sessionData = await sessionRes.json();
+              const sessionEvents = sessionData.events ?? [];
+              if (sessionEvents.length > 0) {
+                const formatted = sessionEvents
+                  .map(formatEvent)
+                  .join("\n---\n");
+                return {
+                  content: [{
+                    type: "text",
+                    text: `Found ${sessionData.count ?? sessionEvents.length} result(s) in session:\n${formatted}`,
+                  }],
+                  details: { ok: true, count: sessionData.count ?? sessionEvents.length, scope: "session" },
+                };
+              }
+            }
+            return {
+              content: [{ type: "text", text: "No matching events found in Lethe memory." }],
+              details: { ok: true, count: 0 },
+            };
+          }
+
+          const formatted = events.map(formatEvent).join("\n---\n");
+          return {
+            content: [{
+              type: "text",
+              text: `Found ${count} result(s) across sessions:\n${formatted}`,
+            }],
+            details: { ok: true, count, scope: "global" },
+          };
+        } catch (err: any) {
+          return {
+            content: [{ type: "text", text: `Lethe search failed: ${err.message ?? err}` }],
+            details: { ok: false, error: err.message },
+          };
+        }
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Tool builder
   // ---------------------------------------------------------------------------
 
@@ -314,3 +431,28 @@ export class LetheTools {
 type AgentToolUpdateCallback = (
   partialResult: AgentToolResult<unknown>
 ) => void;
+
+// Format a Lethe event for display in tool results
+function formatEvent(event: any): string {
+  const type = event.event_type ?? "log";
+  const date = event.created_at
+    ? new Date(event.created_at).toISOString().split("T")[0]
+    : "unknown";
+  const tags = event.tags
+    ? (Array.isArray(event.tags) ? event.tags : event.tags.split(",")).filter((t: string) => t)
+    : [];
+  const tagStr = tags.length ? ` [${tags.join(", ")}]` : "";
+  const confidence = event.confidence != null ? ` (confidence: ${event.confidence})` : "";
+  const content = (event.content ?? "").substring(0, 500);
+  const truncated = event.content && event.content.length > 500 ? "..." : "";
+
+  let prefix = `[${type}]`;
+  if (type === "task" && event.task_status) {
+    prefix = `[task:${event.task_status}]`;
+  }
+  if (type === "flag") {
+    prefix = `[flag]`;
+  }
+
+  return `${date} ${prefix}${tagStr}${confidence}: ${content}${truncated}`;
+}
