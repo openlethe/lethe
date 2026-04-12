@@ -57,11 +57,12 @@ export default definePluginEntry({
       new LetheContextEngine({ endpoint, apiKey, agentId, projectId })
     );
 
-    // Register memory tools: memory.record, memory.log, memory.flag, memory.task
+    // Register memory tools: memory.record, memory.log, memory.flag, memory.task, memory_search
     const tools = new LetheTools({ endpoint, apiKey, agentId, projectId });
     api.registerTool(() => tools.getRecordTool());
     api.registerTool(() => tools.getLogTool());
     api.registerTool(() => tools.getFlagTool());
     api.registerTool(() => tools.getTaskTool());
+    api.registerTool(() => tools.getSearchTool());
   },
 });
