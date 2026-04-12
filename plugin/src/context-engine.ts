@@ -91,7 +91,7 @@ export class LetheContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
     id: "mentholmike-lethe",
     name: "Lethe",
-    version: "0.1.5",
+    version: "0.1.7",
     ownsCompaction: true,
   };
 
