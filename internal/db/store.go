@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/openlethe/lethe/internal/models"
@@ -135,30 +136,33 @@ func (s *Store) InterruptAllActive(ctx context.Context) error {
 	return err
 }
 
-// GetSession returns a session by ID.
-func (s *Store) GetSession(ctx context.Context, sessionID string) (*models.Session, error) {
-	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget, total_tokens_consumed
-	      FROM sessions WHERE session_id=?`
+// scanSession scans a single session row from a sql.Row or sql.Rows scanner.
+// This deduplicates the scan logic shared by GetSession, GetInterruptedSession,
+// GetSessionByKey, and GetInterruptedSessionByKey.
+func scanSession(scanner interface {
+	Scan(...interface{}) error
+}) (*models.Session, error) {
 	var sess models.Session
 	var sessionKey sql.NullString
 	var lastHb, ended sql.NullTime
 	var summary sql.NullString
 	var tokenBudget sql.NullInt64
-	err := s.QueryRowContext(ctx, q, sessionID).Scan(
+	err := scanner.Scan(
 		&sess.SessionID, &sessionKey, &sess.AgentID, &sess.ProjectID, &sess.State,
 		&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget, &sess.TotalTokensConsumed,
 	)
-	if tokenBudget.Valid {
-		sess.TokenBudget = int(tokenBudget.Int64)
-	}
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
 	if err != nil {
 		return nil, err
 	}
-	sess.LastHeartbeatAt = lastHb
-	sess.EndedAt = ended
+	if tokenBudget.Valid {
+		sess.TokenBudget = int(tokenBudget.Int64)
+	}
+	if lastHb.Valid {
+		sess.LastHeartbeatAt = &lastHb.Time
+	}
+	if ended.Valid {
+		sess.EndedAt = &ended.Time
+	}
 	if sessionKey.Valid {
 		sess.SessionKey = sessionKey.String
 	}
@@ -166,6 +170,21 @@ func (s *Store) GetSession(ctx context.Context, sessionID string) (*models.Sessi
 		sess.Summary = summary.String
 	}
 	return &sess, nil
+}
+
+// GetSession returns a session by ID.
+func (s *Store) GetSession(ctx context.Context, sessionID string) (*models.Session, error) {
+	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget, total_tokens_consumed
+	      FROM sessions WHERE session_id=?`
+	row := s.QueryRowContext(ctx, q, sessionID)
+	sess, err := scanSession(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return sess, nil
 }
 
 // GetInterruptedSession returns the most recent interrupted session for an agent+project.
@@ -174,66 +193,30 @@ func (s *Store) GetInterruptedSession(ctx context.Context, agentID, projectID st
 	      FROM sessions
 	      WHERE agent_id=? AND project_id=? AND state='interrupted'
 	      ORDER BY last_heartbeat_at DESC LIMIT 1`
-	var sess models.Session
-	var sessionKey sql.NullString
-	var lastHb, ended sql.NullTime
-	var summary sql.NullString
-	var tokenBudget sql.NullInt64
-	err := s.QueryRowContext(ctx, q, agentID, projectID).Scan(
-		&sess.SessionID, &sessionKey, &sess.AgentID, &sess.ProjectID, &sess.State,
-		&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget, &sess.TotalTokensConsumed,
-	)
-	if tokenBudget.Valid {
-		sess.TokenBudget = int(tokenBudget.Int64)
-	}
+	row := s.QueryRowContext(ctx, q, agentID, projectID)
+	sess, err := scanSession(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	sess.LastHeartbeatAt = lastHb
-	sess.EndedAt = ended
-	if sessionKey.Valid {
-		sess.SessionKey = sessionKey.String
-	}
-	if summary.Valid {
-		sess.Summary = summary.String
-	}
-	return &sess, nil
+	return sess, nil
 }
 
 // GetSessionByKey returns a session by its session_key.
 func (s *Store) GetSessionByKey(ctx context.Context, sessionKey string) (*models.Session, error) {
 	q := `SELECT session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at, ended_at, summary, token_budget, total_tokens_consumed
 	      FROM sessions WHERE session_key=?`
-	var sess models.Session
-	var sessionKeyVal sql.NullString
-	var lastHb, ended sql.NullTime
-	var summary sql.NullString
-	var tokenBudget sql.NullInt64
-	err := s.QueryRowContext(ctx, q, sessionKey).Scan(
-		&sess.SessionID, &sessionKeyVal, &sess.AgentID, &sess.ProjectID, &sess.State,
-		&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget, &sess.TotalTokensConsumed,
-	)
-	if tokenBudget.Valid {
-		sess.TokenBudget = int(tokenBudget.Int64)
-	}
+	row := s.QueryRowContext(ctx, q, sessionKey)
+	sess, err := scanSession(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	sess.LastHeartbeatAt = lastHb
-	sess.EndedAt = ended
-	if sessionKeyVal.Valid {
-		sess.SessionKey = sessionKeyVal.String
-	}
-	if summary.Valid {
-		sess.Summary = summary.String
-	}
-	return &sess, nil
+	return sess, nil
 }
 
 // GetInterruptedSessionByKey returns the most recent interrupted session for a sessionKey.
@@ -242,41 +225,29 @@ func (s *Store) GetInterruptedSessionByKey(ctx context.Context, sessionKey strin
 	      FROM sessions
 	      WHERE session_key=? AND state='interrupted'
 	      ORDER BY last_heartbeat_at DESC LIMIT 1`
-	var sess models.Session
-	var sessionKeyVal sql.NullString
-	var lastHb, ended sql.NullTime
-	var summary sql.NullString
-	var tokenBudget sql.NullInt64
-	err := s.QueryRowContext(ctx, q, sessionKey).Scan(
-		&sess.SessionID, &sessionKeyVal, &sess.AgentID, &sess.ProjectID, &sess.State,
-		&sess.StartedAt, &lastHb, &ended, &summary, &tokenBudget, &sess.TotalTokensConsumed,
-	)
-	if tokenBudget.Valid {
-		sess.TokenBudget = int(tokenBudget.Int64)
-	}
+	row := s.QueryRowContext(ctx, q, sessionKey)
+	sess, err := scanSession(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
-	sess.LastHeartbeatAt = lastHb
-	sess.EndedAt = ended
-	if sessionKeyVal.Valid {
-		sess.SessionKey = sessionKeyVal.String
-	}
-	if summary.Valid {
-		sess.Summary = summary.String
-	}
-	return &sess, nil
+	return sess, nil
 }
 
 // --- Checkpoints ---
 
 // CreateCheckpoint inserts a checkpoint with the next seq number.
 func (s *Store) CreateCheckpoint(ctx context.Context, c *models.Checkpoint) error {
+	tx, err := s.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
 	var maxSeq sql.NullInt64
-	err := s.QueryRowContext(ctx,
+	err = tx.QueryRowContext(ctx,
 		`SELECT MAX(seq) FROM checkpoints WHERE session_id=?`, c.SessionID,
 	).Scan(&maxSeq)
 	if err != nil {
@@ -290,9 +261,13 @@ func (s *Store) CreateCheckpoint(ctx context.Context, c *models.Checkpoint) erro
 	q := `INSERT INTO checkpoints (checkpoint_id, session_id, seq, snapshot, created_at)
 	      VALUES (?, ?, ?, ?, ?)`
 	now := time.Now().UTC()
-	_, err = s.ExecContext(ctx, q, c.CheckpointID, c.SessionID, c.Seq, models.MarshalSnapshot(c.Snapshot), now)
+	_, err = tx.ExecContext(ctx, q, c.CheckpointID, c.SessionID, c.Seq, models.MarshalSnapshot(c.Snapshot), now)
 	if err != nil {
 		return err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
 	}
 	c.CreatedAt = now
 	return nil
@@ -395,17 +370,26 @@ func (s *Store) GetRecentSessionEvents(ctx context.Context, sessionID string, li
 
 // SearchEvents searches all events by content (case-insensitive LIKE) and optionally by tag.
 // If projectId is non-empty, filters to that project. Results ordered by created_at DESC.
+// escapeLike escapes LIKE metacharacters (%, _) and the escape character itself
+// so that user input is treated as a literal string in LIKE patterns.
+func escapeLike(s string) string {
+	s = strings.ReplaceAll(s, "|", "||")
+	s = strings.ReplaceAll(s, "%", "|%")
+	s = strings.ReplaceAll(s, "_", "|_")
+	return s
+}
+
 func (s *Store) SearchEvents(ctx context.Context, query string, tag string, projectId string, eventType string, limit int) ([]*models.Event, error) {
 	q := `SELECT event_id, session_id, project_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
 	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events
-	      WHERE content LIKE ?`
-	args := []interface{}{"%" + query + "%"}
+	      WHERE content LIKE ? ESCAPE '|'`
+	args := []interface{}{"%" + escapeLike(query) + "%"}
 
 	if tag != "" {
-		q += ` AND tags LIKE ?`
-		args = append(args, "%"+tag+"%")
+		q += ` AND tags LIKE ? ESCAPE '|'`
+		args = append(args, "%"+escapeLike(tag)+"%")
 	}
 	if projectId != "" {
 		q += ` AND project_id = ?`
@@ -434,7 +418,8 @@ func (s *Store) GetTaskChain(ctx context.Context, eventID string) ([]*models.Eve
 	// Build the chain by walking parent links iteratively.
 	var chain []*models.Event
 	currentID := eventID
-	for {
+	maxDepth := 100
+	for i := 0; i < maxDepth; i++ {
 		q := `SELECT event_id, session_id, project_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
 	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
@@ -524,7 +509,9 @@ func (s *Store) GetThread(ctx context.Context, threadID string) (*models.Thread,
 	if err != nil {
 		return nil, err
 	}
-	t.ResolvedAt = resolvedAt
+	if resolvedAt.Valid {
+		t.ResolvedAt = &resolvedAt.Time
+	}
 	return &t, nil
 }
 
@@ -555,7 +542,9 @@ func (s *Store) GetThreadsBySession(ctx context.Context, sessionID string, statu
 			&t.CreatedAt, &t.UpdatedAt, &resolvedAt); err != nil {
 			return nil, err
 		}
-		t.ResolvedAt = resolvedAt
+		if resolvedAt.Valid {
+			t.ResolvedAt = &resolvedAt.Time
+		}
 		threads = append(threads, &t)
 	}
 	return threads, rows.Err()
@@ -652,8 +641,12 @@ func (s *Store) GetAllSessions(ctx context.Context, limit int) ([]*models.Sessio
 		); err != nil {
 			return nil, err
 		}
-		sess.LastHeartbeatAt = lastHb
-		sess.EndedAt = ended
+		if lastHb.Valid {
+			sess.LastHeartbeatAt = &lastHb.Time
+		}
+		if ended.Valid {
+			sess.EndedAt = &ended.Time
+		}
 		if sessionKey.Valid {
 			sess.SessionKey = sessionKey.String
 		}
@@ -765,8 +758,12 @@ func scanEvents(rows *sql.Rows) ([]*models.Event, error) {
 		if threadID.Valid {
 			e.ThreadID = threadID.String
 		}
-		e.StatusChangedAt = statusChanged
-		e.HumanReviewedAt = reviewedAt
+		if statusChanged.Valid {
+			e.StatusChangedAt = &statusChanged.Time
+		}
+		if reviewedAt.Valid {
+			e.HumanReviewedAt = &reviewedAt.Time
+		}
 		events = append(events, &e)
 	}
 	return events, rows.Err()

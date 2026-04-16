@@ -6,6 +6,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -797,6 +798,6 @@ func APIProxy(target string) http.HandlerFunc {
 			w.Header()[k] = v
 		}
 		w.WriteHeader(resp.StatusCode)
-		fmt.Fprint(w, resp.Body)
+		io.Copy(w, resp.Body)
 	}
 }

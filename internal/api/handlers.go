@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -60,7 +59,7 @@ func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		AgentName   string `json:"agent_name"`
 		ProjectName string `json:"project_name"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
 		return
 	}
@@ -153,7 +152,7 @@ func (s *Server) handleInterruptSession(w http.ResponseWriter, r *http.Request) 
 		} `json:"snapshot"`
 	}
 	var snapshot *models.Snapshot
-	if err := readJSON(r, &req); err == nil && req.Snapshot.CurrentTask != "" {
+	if err := readJSON(w, r, &req); err == nil && req.Snapshot.CurrentTask != "" {
 		snapshot = &models.Snapshot{
 			OpenThreads:    req.Snapshot.OpenThreads,
 			RecentEventIDs: req.Snapshot.RecentEventIDs,
@@ -190,7 +189,7 @@ func (s *Server) handleCompleteSession(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Summary string `json:"summary"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
 		return
 	}
@@ -220,17 +219,14 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req CreateEventRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
 		return
 	}
-	// DEBUG: log what we received
-	log.Printf("[DEBUG] handleCreateEvent: event_type=%q content=%q tags=%v", req.EventType, req.Content, []string(req.Tags))
-	// Default event_type to "log" if empty.
+	// EventType defaults to "log" if empty — set explicitly for API clarity.
 	if req.EventType == "" {
-		req.EventType = "log"
+		req.EventType = string(models.EventLog)
 	}
-	// Skip creating event if content is empty/whitespace (treat as no-op).
 	if strings.TrimSpace(req.Content) == "" {
 		writeJSON(w, http.StatusCreated, map[string]interface{}{"event_id": "", "skipped": "empty content"})
 		return
@@ -405,7 +401,7 @@ func (s *Server) handleCreateCheckpoint(w http.ResponseWriter, r *http.Request) 
 			LastTool      string   `json:"last_tool"`
 		} `json:"snapshot"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
 		return
 	}
@@ -470,7 +466,7 @@ func (s *Server) handleGetCheckpoints(w http.ResponseWriter, r *http.Request) {
 // This enables project-level event writes from agents that don't have a session context.
 func (s *Server) handleCreateProjectEvent(w http.ResponseWriter, r *http.Request) {
 	var req CreateEventRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
 		return
 	}
@@ -482,8 +478,9 @@ func (s *Server) handleCreateProjectEvent(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusCreated, map[string]interface{}{"event_id": "", "skipped": "empty content"})
 		return
 	}
+	// EventType defaults to "log" if empty.
 	if req.EventType == "" {
-		req.EventType = "log"
+		req.EventType = string(models.EventLog)
 	}
 	if req.EventType == "task" && req.TaskTitle == "" {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "task_title is required for task events"})
@@ -694,7 +691,7 @@ func (s *Server) handleReviewFlag(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ReviewerID string `json:"reviewer_id"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
 		return
 	}
@@ -764,7 +761,7 @@ func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 		Name      string `json:"name"`
 		Title     string `json:"title"`
 	}
-	if err := readJSON(r, &req); err != nil || req.SessionKey == "" || req.Name == "" || req.Title == "" {
+	if err := readJSON(w, r, &req); err != nil || req.SessionKey == "" || req.Name == "" || req.Title == "" {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "session_key, name, and title are required"})
 		return
 	}
@@ -815,7 +812,7 @@ func (s *Server) handleUpdateThread(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Status string `json:"status"`
 	}
-	if err := readJSON(r, &req); err != nil || req.Status == "" {
+	if err := readJSON(w, r, &req); err != nil || req.Status == "" {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "status is required"})
 		return
 	}
@@ -1033,7 +1030,7 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 			for _, ev := range evts {
 				prefix := fmt.Sprintf("  [%s]", ev.EventType)
 				if ev.EventType == "task" && ev.TaskStatus != nil && *ev.TaskStatus != "" {
-					prefix += fmt.Sprintf(" [%s]", ev.TaskStatus)
+					prefix += fmt.Sprintf(" [%s]", *ev.TaskStatus)
 				}
 				if ev.EventType == "flag" && ev.Confidence != nil {
 					prefix += fmt.Sprintf(" confidence=%.0f%%", *ev.Confidence*100)

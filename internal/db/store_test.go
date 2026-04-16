@@ -8,6 +8,9 @@ import (
 	"github.com/openlethe/lethe/internal/models"
 )
 
+// strPtr returns a pointer to the given string.
+func strPtr(s string) *string { return &s }
+
 func newTestStore(t *testing.T) (*Store, func()) {
 	tmp := t.TempDir() + "/test.db"
 	s, err := NewStore(tmp)
@@ -109,7 +112,7 @@ func TestTouchSessionHeartbeat(t *testing.T) {
 	s1 := &models.Session{SessionID: "sess-1", AgentID: "agent-1", ProjectID: "proj-1", State: models.SessionActive}
 	s.CreateSession(context.Background(), s1)
 
-	if err := s.TouchSessionHeartbeat(context.Background(), "sess-1"); err != nil {
+	if err := s.TouchSessionHeartbeat(context.Background(), "sess-1", 0); err != nil {
 		t.Fatalf("TouchSessionHeartbeat: %v", err)
 	}
 }
@@ -193,7 +196,7 @@ func TestCreateAndGetEvent(t *testing.T) {
 
 	e := &models.Event{
 		EventID:   "evt-1",
-		SessionID: "sess-1",
+		SessionID: strPtr("sess-1"),
 		EventType: models.EventRecord,
 		Content:   "Decided to use Docker Compose v2",
 	}
@@ -224,7 +227,7 @@ func TestTaskEvent(t *testing.T) {
 	ts := models.TaskInProgress
 	e := &models.Event{
 		EventID:    "evt-task-1",
-		SessionID:  "sess-1",
+		SessionID:  strPtr("sess-1"),
 		EventType:  models.EventTask,
 		Content:    "Working on Docker setup",
 		TaskTitle:  "implement Docker compose setup",
@@ -254,7 +257,7 @@ func TestFlagEventWithConfidence(t *testing.T) {
 	conf := 0.3
 	e := &models.Event{
 		EventID:    "evt-flag-1",
-		SessionID:  "sess-1",
+		SessionID:  strPtr("sess-1"),
 		EventType:  models.EventFlag,
 		Content:    "Not sure if volume mounts are correct",
 		Confidence: &conf,
@@ -286,7 +289,7 @@ func TestMarkFlagReviewed(t *testing.T) {
 	conf := 0.3
 	e := &models.Event{
 		EventID:    "evt-flag-1",
-		SessionID:  "sess-1",
+		SessionID:  strPtr("sess-1"),
 		EventType:  models.EventFlag,
 		Content:    "Uncertain about X",
 		Confidence: &conf,
@@ -312,15 +315,15 @@ func TestTaskChain(t *testing.T) {
 	s.CreateSession(context.Background(), s1)
 
 	ts1 := models.TaskTodo
-	e1 := &models.Event{EventID: "evt-1", SessionID: "sess-1", EventType: models.EventTask, Content: "task created", TaskTitle: "setup", TaskStatus: &ts1}
+	e1 := &models.Event{EventID: "evt-1", SessionID: strPtr("sess-1"), EventType: models.EventTask, Content: "task created", TaskTitle: "setup", TaskStatus: &ts1}
 	s.CreateEvent(context.Background(), e1)
 
 	ts2 := models.TaskInProgress
-	e2 := &models.Event{EventID: "evt-2", SessionID: "sess-1", ParentEventID: "evt-1", EventType: models.EventTask, Content: "started", TaskTitle: "setup", TaskStatus: &ts2}
+	e2 := &models.Event{EventID: "evt-2", SessionID: strPtr("sess-1"), ParentEventID: "evt-1", EventType: models.EventTask, Content: "started", TaskTitle: "setup", TaskStatus: &ts2}
 	s.CreateEvent(context.Background(), e2)
 
 	ts3 := models.TaskDone
-	e3 := &models.Event{EventID: "evt-3", SessionID: "sess-1", ParentEventID: "evt-2", EventType: models.EventTask, Content: "done", TaskTitle: "setup", TaskStatus: &ts3}
+	e3 := &models.Event{EventID: "evt-3", SessionID: strPtr("sess-1"), ParentEventID: "evt-2", EventType: models.EventTask, Content: "done", TaskTitle: "setup", TaskStatus: &ts3}
 	s.CreateEvent(context.Background(), e3)
 
 	chain, err := s.GetTaskChain(context.Background(), "evt-3")
@@ -365,7 +368,7 @@ func TestCreateEventSetsCreatedAt(t *testing.T) {
 	s.CreateSession(context.Background(), s1)
 
 	before := time.Now().UTC().Add(-time.Second)
-	e := &models.Event{EventID: "evt-1", SessionID: "sess-1", EventType: models.EventLog, Content: "test"}
+	e := &models.Event{EventID: "evt-1", SessionID: strPtr("sess-1"), EventType: models.EventLog, Content: "test"}
 	s.CreateEvent(context.Background(), e)
 	after := time.Now().UTC().Add(time.Second)
 

@@ -21,6 +21,7 @@ import (
 var (
 	httpAddr = flag.String("http", "localhost:3421", "HTTP listen address")
 	apiPort  = flag.String("api-port", "", "Port the UI handlers should use to reach the API (defaults to the port in --http)")
+	apiURL   = flag.String("api-url", "", "Full base URL for the API (e.g. http://192.168.1.10:3421). Overrides --api-port")
 	dbPath   = flag.String("db", "./lethe.db", "path to SQLite database")
 )
 
@@ -35,16 +36,28 @@ func main() {
 
 	sessMgr := session.NewManager(database)
 
-	// Resolve apiPort: use explicit flag if set, otherwise extract port from --http.
-	port := *apiPort
-	if port == "" {
-		_, p, err := net.SplitHostPort(*httpAddr)
-		if err != nil {
-			log.Fatalf("invalid --http address: %v", err)
+	// Resolve API base URL: use --api-url if set, otherwise derive from --http and --api-port.
+	var apiBase string
+	if *apiURL != "" {
+		apiBase = *apiURL
+	} else {
+		port := *apiPort
+		if port == "" {
+			_, p, err := net.SplitHostPort(*httpAddr)
+			if err != nil {
+				log.Fatalf("invalid --http address: %v", err)
+			}
+			port = p
 		}
-		port = p
+		host, _, err := net.SplitHostPort(*httpAddr)
+		if err != nil {
+			host = "127.0.0.1"
+		}
+		if host == "" {
+			host = "127.0.0.1"
+		}
+		apiBase = "http://" + host + ":" + port
 	}
-	apiBase := "http://127.0.0.1:" + port
 	r := chi.NewRouter()
 	apiServer := api.NewServer(database, sessMgr)
 	r.Mount("/api", apiServer.Router())
@@ -75,6 +88,8 @@ func main() {
 		} else {
 			log.Println("lethe: all sessions checkpointed")
 		}
+		// Stop the SSE broadcaster goroutine.
+		apiServer.StopBroadcaster()
 		if err := srv.Shutdown(ctx); err != nil {
 			log.Printf("lethe: HTTP shutdown error: %v", err)
 		}

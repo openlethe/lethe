@@ -154,7 +154,7 @@ func TestHeartbeat(t *testing.T) {
 
 	sess, _ := m.StartSession(context.Background(), "agent-1", "proj-1", "Archimedes", "WAGMIOS")
 
-	if err := m.Heartbeat(context.Background(), sess.SessionID); err != nil {
+	if err := m.Heartbeat(context.Background(), sess.SessionID, 0); err != nil {
 		t.Fatalf("Heartbeat: %v", err)
 	}
 }
