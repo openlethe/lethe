@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -60,7 +61,8 @@ func (b *broadcaster) run() {
 				select {
 				case ch <- msg:
 				default:
-					// slow client — skip
+					// slow client — skip and log
+				log.Printf("[SSE] slow client dropped message")
 				}
 			}
 		case <-b.stopCh:
@@ -74,10 +76,12 @@ func (b *broadcaster) run() {
 
 // Broadcast sends an event to all SSE clients.
 func (b *broadcaster) Broadcast(eventType string, data interface{}) {
+	dataBytes, err := json.Marshal(data)
+	if err != nil {
+		return
+	}
 	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.Encode(data)
-	fmt.Fprintf(&buf, "event: %s\ndata: %s\n\n", eventType, buf.String())
+	fmt.Fprintf(&buf, "event: %s\ndata: %s\n\n", eventType, dataBytes)
 	b.broadcastCh <- buf.Bytes()
 }
 
@@ -193,6 +197,11 @@ func (s *Server) Listen(addr string) error {
 	return s.httpServer.ListenAndServe()
 }
 
+// StopBroadcaster stops the SSE broadcaster goroutine.
+func (s *Server) StopBroadcaster() {
+	s.broadcaster.Stop()
+}
+
 // Shutdown gracefully shuts down the server.
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.httpServer == nil {
@@ -210,7 +219,11 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 }
 
 // readJSON reads a JSON request body into v.
-func readJSON(r *http.Request, v interface{}) error {
+// MaxJSONBodySize is the maximum allowed request body size for JSON payloads (1MB).
+const MaxJSONBodySize = 1 << 20
+
+func readJSON(w http.ResponseWriter, r *http.Request, v interface{}) error {
+	r.Body = http.MaxBytesReader(w, r.Body, MaxJSONBodySize)
 	return json.NewDecoder(r.Body).Decode(v)
 }
 

@@ -1,7 +1,6 @@
 package models
 
 import (
-	"database/sql"
 	"encoding/json"
 	"time"
 )
@@ -11,7 +10,7 @@ type Agent struct {
 	AgentID    string       `json:"agent_id"`
 	Name      string       `json:"name"`
 	CreatedAt  time.Time   `json:"created_at"`
-	LastSeenAt sql.NullTime `json:"-"`
+	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 }
 
 // Project represents a project namespace.
@@ -39,8 +38,8 @@ type Session struct {
 	ProjectID        string       `json:"project_id"`
 	State            SessionState `json:"state"`
 	StartedAt        time.Time    `json:"started_at"`
-	LastHeartbeatAt  sql.NullTime `json:"-"`
-	EndedAt          sql.NullTime `json:"-"`
+	LastHeartbeatAt  *time.Time    `json:"last_heartbeat_at,omitempty"`
+	EndedAt          *time.Time    `json:"ended_at,omitempty"`
 	Summary               string       `json:"summary,omitempty"`
 	TokenBudget           int          `json:"token_budget"`            // latest token count from heartbeat
 	TotalTokensConsumed   int          `json:"total_tokens_consumed"`   // lifetime accumulator across compacts
@@ -109,8 +108,8 @@ type Event struct {
 	EmbeddingID     string      `json:"embedding_id,omitempty"`
 	TaskTitle       string      `json:"task_title,omitempty"`
 	TaskStatus      *TaskStatus `json:"task_status,omitempty"`
-	StatusChangedAt sql.NullTime `json:"-"`
-	HumanReviewedAt sql.NullTime `json:"-"`
+	StatusChangedAt *time.Time `json:"status_changed_at,omitempty"`
+	HumanReviewedAt *time.Time `json:"human_reviewed_at,omitempty"`
 	ReviewerID      string      `json:"reviewer_id,omitempty"`
 	ThreadID        string      `json:"thread_id,omitempty"`
 	CreatedAt       time.Time   `json:"created_at"`
@@ -141,5 +140,5 @@ type Thread struct {
 	Status     ThreadState `json:"status"`
 	CreatedAt  time.Time   `json:"created_at"`
 	UpdatedAt  time.Time   `json:"updated_at"`
-	ResolvedAt sql.NullTime `json:"-"`
+	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
 }

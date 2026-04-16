@@ -134,7 +134,7 @@ func (s *APIServer) handleGetSessionSummary(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	cps, _ := s.store.GetCheckpoints(r.Context(), sess.SessionID)
-	evts, _ := s.store.GetSessionEvents(r.Context(), sess.SessionID, 20, 0)
+	evts, _ := s.store.GetRecentSessionEvents(r.Context(), sess.SessionID, 20)
 	if isHTMX(r) {
 		s.frag(w, r, "session_summary", map[string]interface{}{
 			"session":          sess,
@@ -212,7 +212,7 @@ func (s *APIServer) handleCompact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cps, _ := s.store.GetCheckpoints(r.Context(), sess.SessionID)
-	evts, _ := s.store.GetSessionEvents(r.Context(), sess.SessionID, 10, 0)
+	evts, _ := s.store.GetRecentSessionEvents(r.Context(), sess.SessionID, 10)
 
 	summaryText := buildSummary(cps, evts)
 	s.store.CompactSession(r.Context(), sess.SessionID, summaryText)
@@ -240,6 +240,7 @@ func (s *APIServer) handleReviewFlag(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		ReviewerID string `json:"reviewer_id"`
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB limit
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ReviewerID == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "reviewer_id required"})
 		return
@@ -255,7 +256,7 @@ func (s *APIServer) handleReviewFlag(w http.ResponseWriter, r *http.Request) {
 
 // handleLive streams session events via Server-Sent Events.
 func (s *APIServer) handleLive(w http.ResponseWriter, r *http.Request) {
-	f, ok := w.(http.ResponseWriter).(http.Flusher)
+	f, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
