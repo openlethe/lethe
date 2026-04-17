@@ -1,6 +1,6 @@
 {
   "name": "lethe",
-  "version": "0.1.3",
+  "version": "0.1.9",
   "description": "Persistent memory layer for AI agents — the antidote to the river Lethe.",
   "type": "module",
   "main": "index.js",
@@ -8,10 +8,10 @@
     "extensions": ["./index.js"],
     "pluginJson": "./openclaw.plugin.json",
     "compat": {
-      "pluginApi": "2026.4.9"
+      "pluginApi": "2026.4.15"
     },
     "build": {
-      "openclawVersion": "2026.4.9"
+      "openclawVersion": "2026.4.15"
     },
     "hostTargets": ["openclaw"]
   },

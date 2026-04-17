@@ -2,7 +2,7 @@
   "id": "lethe",
   "name": "Lethe",
   "description": "Persistent memory layer for AI agents — the antidote to the river Lethe.",
-  "version": "0.1.0",
+  "version": "0.1.9",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

@@ -26,9 +26,9 @@ function estimateTokens(text) {
 export class LetheContextEngine {
     cfg;
     info = {
-        id: "lethe",
+        id: "mentholmike-lethe",
         name: "Lethe",
-        version: "0.1.0",
+        version: "0.1.9",
         ownsCompaction: true,
     };
     constructor(cfg) {
@@ -46,27 +46,9 @@ export class LetheContextEngine {
         if (!sessionKey) {
             return { bootstrapped: false, reason: "no sessionKey" };
         }
-        // Retry loop: Lethe may still be binding port 18483 when OpenClaw's first
-        // request fires after a /new session. Wait ~1s between attempts, up to 3 tries.
-        const MAX_RETRIES = 3;
-        const RETRY_DELAY_MS = 1000;
-        let lastRes;
-        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-            if (attempt > 0) {
-                await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-            }
-            try {
-                lastRes = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}`);
-                if (lastRes.ok || lastRes.status !== 404) break;
-            }
-            catch {
-                lastRes = { ok: false, status: 0 };
-                continue;
-            }
-        }
         try {
             // Try to get existing session by sessionKey.
-            const res = lastRes;
+            const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}`);
             if (res.ok) {
                 const session = await res.json();
                 if (session.state === "interrupted") {
@@ -207,33 +189,13 @@ export class LetheContextEngine {
         // A /new after heavy work will have: messages.length<=3 AND events from minutes/hours ago.
         // minutesSinceLastEvent is computed after the summary fetch (which includes recent_events).
         let minutesSinceLastEvent = Infinity;
-        // Retry loop: same race condition as bootstrap — Lethe may still be binding.
-        const MAX_RETRIES = 3;
-        const RETRY_DELAY_MS = 1000;
-        async function fetchWithRetry(path, body) {
-            let lastRes;
-            for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-                if (attempt > 0) {
-                    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
-                }
-                try {
-                    lastRes = await letheFetch(endpoint, apiKey, path, body);
-                    if (lastRes.ok || lastRes.status !== 404) break;
-                }
-                catch {
-                    lastRes = { ok: false, status: 0 };
-                    continue;
-                }
-            }
-            return lastRes;
-        }
         // Stage 1: session summary (the "story so far") — always fetched.
         let summaryText = "";
         let summaryTokens = 0;
         let sessionEventCount = 0;
         let summaryData = null;
         try {
-            const res = await fetchWithRetry(`/sessions/${encodeURIComponent(sessionKey)}/summary`);
+            const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/summary`);
             if (res.ok) {
                 summaryData = await res.json();
                 const rawSummary = summaryData.summary ?? summaryData.session?.summary ?? null;
@@ -268,7 +230,8 @@ export class LetheContextEngine {
             const effectiveLimit = budgetForRecent && budgetForRecent < 200 ? 3 : HARD_LIMIT;
             if (!budgetForRecent || budgetForRecent > 50) {
                 try {
-                    const res = await fetchWithRetry(`/sessions/${encodeURIComponent(sessionKey)}/events?limit=${effectiveLimit}`);
+                    const eventsUrl = `${endpoint}/sessions/${encodeURIComponent(sessionKey)}/events?limit=${effectiveLimit}`;
+                    const res = await fetch(eventsUrl, { method: "GET", headers: letheHeaders(apiKey) });
                     if (res.ok) {
                         const data = await res.json();
                         // GetSessionEvents returns ASC (oldest-first) for pagination.
@@ -283,21 +246,7 @@ export class LetheContextEngine {
                 }
             }
         }
-
-        // Stage 3: open threads — fetch for session resume surfacing.
-        let openThreads = [];
-        try {
-            const threadsRes = await fetchWithRetry(`/sessions/${encodeURIComponent(sessionKey)}/threads?status=open`);
-            if (threadsRes.ok) {
-                const threadsData = await threadsRes.json();
-                openThreads = threadsData.threads ?? [];
-            }
-        }
-        catch {
-            // Proceed without threads.
-        }
-
-        const systemPromptAddition = buildSystemPromptAddition(summaryText, recentTokens, openThreads);
+        const systemPromptAddition = buildSystemPromptAddition(summaryText, recentTokens);
         const assembledMessages = [
             ...(summaryText ? [makeSummaryMessage(summaryText)] : []),
             ...recentEvents,
@@ -349,16 +298,10 @@ function summaryPrompt(summary) {
         `${text}\n` +
         `[/Lethe Memory]\n`);
 }
-function buildSystemPromptAddition(summaryText, recentTokens, openThreads) {
-    if (!summaryText && recentTokens === 0 && (!openThreads || openThreads.length === 0))
+function buildSystemPromptAddition(summaryText, recentTokens) {
+    if (!summaryText && recentTokens === 0)
         return "";
     const parts = [];
-    if (openThreads && openThreads.length > 0) {
-        const threadLines = openThreads.map(t =>
-            `  ${t.status === 'blocked' ? '🔴' : '🔓'} ${t.name} — "${t.title}" (updated ${formatAge(t.updated_at)})`
-        ).join('\n');
-        parts.push(`OPEN THREADS (requires attention):\n${threadLines}`);
-    }
     if (summaryText) {
         parts.push(`Previous session summary (${estimateTokens(summaryText)} tokens):\n${summaryText}`);
     }
@@ -366,18 +309,6 @@ function buildSystemPromptAddition(summaryText, recentTokens, openThreads) {
         parts.push(`Recent memory events (~${recentTokens} tokens). Full history available in context.`);
     }
     return parts.join("\n\n");
-}
-
-function formatAge(isoString) {
-    if (!isoString) return 'unknown';
-    const diff = Date.now() - new Date(isoString).getTime();
-    const s = Math.floor(diff / 1000);
-    if (s < 60) return s + 's ago';
-    const m = Math.floor(s / 60);
-    if (m < 60) return m + 'm ago';
-    const h = Math.floor(m / 60);
-    if (h < 24) return h + 'h ago';
-    return Math.floor(h / 24) + 'd ago';
 }
 function messageToLogContent(msg) {
     const content = msg.content;
