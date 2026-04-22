@@ -9,12 +9,15 @@ metadata:
       bins: ["curl", "jq"]
       anyBins: ["docker"]
     notes:
+      - "Lethe server runs LOCALLY ONLY — default http://localhost:18483. Do NOT expose externally."
       - "Docker is required to run the Lethe server container (ghcr.io/openlethe/lethe)"
+      - "lethe-log CLI is in the skill directory, NOT a scripts/ subdirectory"
+      - "LETHE_API is reserved for a future optional SaaS mode — leave unset for local installations. If set, data leaves your machine."
 ---
 
 # Lethe — Persistent Agent Memory
 
-Lethe is your long-term memory. Every decision, observation, bug, discovery, and flag persists across sessions and survives container restarts. The plugin handles context assembly and auto-logging automatically. This skill handles orientation, proactive recall, recording discipline, and error recovery.
+Lethe is your long-term memory. Every decision, observation, bug, discovery, and flag persists across sessions and survives container restarts. The plugin handles context assembly automatically. This skill handles orientation, queries, recording, and error recovery.
 
 **Lethe is the single source of truth.** The Library (markdown files in `workspace/Library/`) is deprecated — derived snapshots are fine, but all knowledge lives in Lethe events first.
 
@@ -23,28 +26,6 @@ Lethe is your long-term memory. Every decision, observation, bug, discovery, and
 - Compaction synthesizes events into a narrative summary — it does not delete history.
 - Memory search retrieves facts. Recording captures decisions. Flags surface uncertainty.
 - Threads are persistent work items. Events attach to threads.
-
----
-
-## What the Plugin Handles Automatically
-
-You do **not** need to manually do these — the Lethe plugin handles them every turn:
-
-| Hook | What it does |
-|------|-------------|
-| **`bootstrap()`** | On session start: fetches session summary, injects as system context |
-| **`assemble()`** | Before every reply: fetches summary + up to 5 recent events, prepends to LLM context |
-| **`ingest()`** | Passively logs user/assistant messages as Lethe events |
-| **`afterTurn()`** | Auto-logs tool calls and open threads; handles heartbeat pings |
-| **`compact()`** | Lethe-owned compaction (synthesizes events into summary) |
-
-**What you still need to do manually:**
-- Search memory when you need to recall something specific
-- Record deliberate decisions with reasoning
-- Log observations, bugs, discoveries, direction changes
-- Flag uncertainties
-- Track task status transitions
-- Surface unresolved flags to the user
 
 ---
 
@@ -59,8 +40,13 @@ On every new session, orient yourself before answering the user.
 curl -s "http://localhost:18483/api/sessions/${SESSION_KEY}/summary"
 ```
 
-> **SESSION_KEY fallback:** If `SESSION_KEY` is empty or the API returns "session not found", use the Discord channel session ID directly:
-> `SESSION_KEY="86e09dc7-7ed9-4776-9b0e-d8c7678a0357"` (Archimedes Discord channel session)
+> **SESSION_KEY handling:** The Lethe plugin injects `SESSION_KEY` automatically. If the variable is empty or the API returns "session not found", create a new session:
+> ```bash
+> curl -s -X POST "http://localhost:18483/api/sessions" \
+>   -H "Content-Type: application/json" \
+>   -d '{"agent_id": "archimedes", "project_id": "default"}'
+> ```
+> Use the returned `session_id` as your `SESSION_KEY`. Do not hardcode session IDs — they are session-specific and mixing them conflates unrelated conversations.
 
 **Step 2 — Check flags:**
 ```bash
@@ -73,38 +59,38 @@ curl -s "http://localhost:18483/api/flags"
 - What is open?
 - What does the human need?
 
-**Then greet the human and ask what they need.**
+**Then ask the human what they need.**
 
 ---
 
-## Proactive Recall — Use memory_search First
+## Proactive Recall — Check Before Re-reasoning
 
-> Before answering questions about past decisions or prior context — **always use the `memory_search` tool**. Never invent. Never re-reason when the answer already exists.
-
-**The `memory_search` tool** searches Lethe directly via its API — no embedding provider needed. It searches across all sessions by default, falls back to session-scoped search if needed.
-
-**Parameters:**
-- `query` (required) — search terms
-- `limit` (optional, default 10) — max results
-- `sessionKey` (optional) — override session for scoped search
-- `eventType` (optional) — filter by type: `record`, `log`, `flag`, `task`
+> Before answering questions about past decisions or prior context — always check Lethe first. Never invent. Never re-reason when the answer already exists.
 
 **Activation triggers:**
 - User asks about past decisions, prior work, or previous conversations
 - User says "remember", "did we", "were we", "what was"
 - User references something from a previous session
 - You are about to re-reason something you might already know
-- You need context from a different session
+
+**The decision tree:**
+
+```
+User asks about prior context
+    │
+    ├─ "remember" / "did we" / "were we" / "what was"
+    │   └─ Search: GET /api/events/search?q=<relevant terms>
+    │
+    ├─ "status of X" / "open threads"
+    │   └─ Search: GET /api/events/search?q=X status
+    │
+    └─ General prior context question
+        └─ GET /api/sessions/${KEY}/events?limit=10
+```
 
 **Search → Found:** Cite the specific event. "On March 24 I recorded: [content]."
 
 **Search → Not found:** "I don't have that in memory yet." Do not invent.
-
-**Fallback (if tool unavailable):**
-```bash
-curl -s "http://localhost:18483/api/events/search?q=<terms>&limit=10"
-curl -s "http://localhost:18483/api/sessions/${SESSION_KEY}/events?limit=20"
-```
 
 ---
 
@@ -116,25 +102,26 @@ curl -s "http://localhost:18483/api/sessions/${SESSION_KEY}/events?limit=20"
 
 **The 30-second rule:** If the answer to "what were we working on?" takes more than 30 seconds to figure out, something should have been logged.
 
-**Primary method — use the Lethe tools (preferred):**
-- `memory.record` — deliberate decisions with reasoning
-- `memory.log` — observations, events, notes
-- `memory.flag` — uncertainties with confidence scores
-- `memory.task` — task status transitions
-
-**Fallback — use the CLI:**
-```bash
-~/.openclaw/workspace/skills/lethe-memory/lethe-log record "Decision: use X because Y"
-~/.openclaw/workspace/skills/lethe-memory/lethe-log log "Fixed: docker build failed"
-~/.openclaw/workspace/skills/lethe-memory/lethe-log flag "This may not scale"
-~/.openclaw/workspace/skills/lethe-memory/lethe-log task "Deploy v2" --status done
-```
-
 **Anti-patterns — these mean you failed to log:**
 - ❌ "I think we were working on..." — should have been logged
 - ❌ "Let me check what happened last session..." — startup should have already done this
 - ❌ "I'm not sure what approach we decided on..." — the decision was not logged
 - ❌ Re-doing something already decided — the decision was not logged
+
+**Fastest path — use `lethe-log`:**
+```bash
+~/.openclaw/workspace/skills/lethe-memory/lethe-log record "Decision: use X because Y"
+~/.openclaw/workspace/skills/lethe-memory/lethe-log log "Fixed: docker build failed because strings import was missing"
+~/.openclaw/workspace/skills/lethe-memory/lethe-log flag "This approach may not scale if user count grows"
+~/.openclaw/workspace/skills/lethe-memory/lethe-log task "Deploy v2" --status done
+```
+
+Or via direct API:
+```bash
+curl -s -X POST "http://localhost:18483/api/events" \
+  -H "Content-Type: application/json" \
+  -d "{\"session_id\": \"$SESSION_KEY\", \"project_id\": \"default\", \"event_type\": \"log\", \"content\": \"...\", \"tags\": [\"tag1\"], \"confidence\": 0.95}"
+```
 
 **Mandatory logging triggers:**
 
@@ -155,6 +142,7 @@ curl -s "http://localhost:18483/api/sessions/${SESSION_KEY}/events?limit=20"
 ```
 record: "Decision: use compose-goDownstream instead of kpt because Go template support is better for our use case. Mike approved."
 log: "Bug fixed: docker build failed because strings import was missing. Added to ui.go imports."
+log: "Discovery: modernc.org/sqlite v1.47 requires Go 1.25+, can't build locally. Must use Docker."
 flag: "Incomplete: server-14 UI changes tested but not verified in browser — Mike should confirm."
 ```
 
@@ -163,6 +151,7 @@ flag: "Incomplete: server-14 UI changes tested but not verified in browser — M
 log: "Did some stuff."
 record: "X approach is probably fine."
 flag: "Not sure."
+task: "done"
 ```
 
 **The test:** If Mike asked "what did we just do?", could you answer from a Lethe query? If not, you should have logged it.
@@ -189,7 +178,8 @@ flag: "Not sure."
 - A decision has been made and recorded
 - A one-time discovery happened
 
-**Create a thread manually:**
+**The auto-thread rule:** When you raise a flag and no thread_id is provided, the server should auto-create a thread. If it doesn't, create one manually:
+
 ```bash
 curl -s -X POST "http://localhost:18483/api/threads" \
   -H "Content-Type: application/json" \
@@ -215,9 +205,9 @@ curl -s -X POST "http://localhost:18483/api/sessions/${SESSION_KEY}/compact"
 1. Reads all events since last compaction
 2. Synthesizes them into a prose summary
 3. Stores the summary linked to the session
-4. Prunes very old raw events (compaction is lossy — the summary is kept)
+4. Prunes very old raw events ( compaction is lossy — the summary is kept)
 
-**After compaction:** The session summary endpoint returns the new summary. `assemble()` will prepend it to the LLM prompt on next resume.
+**After compaction:** The session summary endpoint returns the new summary. assemble() will prepend it to the LLM prompt on next resume.
 
 ---
 
@@ -236,7 +226,7 @@ curl -s "http://localhost:18483/api/flags"
 ```
 
 **When a flag is resolved:**
-1. Log the resolution: `memory.log: "Flag resolved: chose X over Y because Z"`
+1. Log the resolution: `log: "Flag resolved: chose X over Y because Z"`
 2. The flag remains in history but marked reviewed
 
 ---
@@ -247,7 +237,8 @@ curl -s "http://localhost:18483/api/flags"
 ```
 Connection refused on port 18483
   → Try once more with 3-second timeout
-  → Still fails: continue without memory access
+  → Still fails: log "Lethe unreachable — continuing without memory"
+  → Continue without memory access
   → Raise a flag: "Lethe server unreachable — memory operations suspended"
 ```
 
@@ -263,8 +254,9 @@ Search returned no events
 ### Session not found
 ```
 GET /api/sessions/${KEY} returns 404
-  → Use the fallback SESSION_KEY (86e09dc7-7ed9-4776-9b0e-d8c7678a0357)
-  → Or create new session: POST /api/sessions
+  → Session was completed or never existed
+  → Create a new session: POST /api/sessions with agent_id and project_id
+  → Use the returned session_id as SESSION_KEY going forward
 ```
 
 ### Flag surfaces from prior session
@@ -280,12 +272,32 @@ Flag from prior session still unresolved
 
 | Component | Responsibility |
 |-----------|----------------|
-| **Plugin** (`mentholmike-lethe` extension) | Bootstrap, assemble, compact, ingest, afterTurn, auto-logging + native tools (memory.record, memory.log, memory.flag, memory.task, memory_search) |
-| **Skill** (this file) | Agent guidance: orientation, recall, recording discipline, error recovery |
+| **Plugin** (`lethe` extension) | Bootstrap, assemble, compact, event auto-logging |
+| **Skill** (this file) | Agent guidance: orientation, queries, recording, error recovery |
 | **Server** (`lethe` binary) | SQLite-backed HTTP API on port 18483 |
 | **UI** (`/ui/*`) | Dashboard, session detail, flags review board |
 
 **Lethe is append-only.** Events are never overwritten — only compacted into summaries.
+
+---
+
+## Deployment & Trust Model
+
+- **Server runs locally only.** The Lethe server binds to `localhost:18483` — it does not expose an external port. Data never leaves the host machine.
+- **Container image:** `ghcr.io/openlethe/lethe` — open-source, auditable. Source at `github.com/openlethe/lethe`.
+- **No telemetry.** The server has no outbound network calls. It accepts inbound API requests and reads/writes a local SQLite file.
+- **LETHE_API (SaaS):** Reserved for a future optional cloud mode. If set, event data is sent to an external endpoint. **Do not set this variable unless you explicitly opt in and trust the external service's data policies.**
+
+---
+
+## Data Retention & Privacy
+
+- **Storage:** All data lives in a single SQLite file on the host filesystem. Default: `~/docker/lethe/lethe-data/lethe.db`.
+- **Retention:** Events persist indefinitely until manually deleted or compacted. Compaction synthesizes old events into summaries and prunes raw events older than the compaction window.
+- **Encryption:** The SQLite file is not encrypted at rest. Protect the host filesystem. If encryption is required, use filesystem-level encryption (FileVault, LUKS, etc.).
+- **Access control:** The API has no built-in authentication for local mode. It relies on localhost binding for security. Do not expose port 18483 beyond localhost.
+- **Sensitive data:** The agent logs actions, decisions, and observations. It does NOT log API keys, credentials, or secrets. If sensitive data is inadvertently logged, delete the event via the API or compact the session.
+- **Backups:** Daily hot-backups via `sqlite3 .backup`, gzip compressed, 7-day retention. Backup directory is local only.
 
 ---
 
@@ -295,18 +307,24 @@ Flag from prior session still unresolved
 # Orient — get full session state
 curl -s "http://localhost:18483/api/sessions/${SESSION_KEY}/summary"
 
+# Orient (if SESSION_KEY missing, create new session)
+# curl -s -X POST "http://localhost:18483/api/sessions" \
+#   -H "Content-Type: application/json" \
+#   -d '{"agent_id": "archimedes", "project_id": "default"}'
+curl -s "http://localhost:18483/api/sessions/${SESSION_KEY}/summary"
+
 # Check flags
 curl -s "http://localhost:18483/api/flags"
 
-# Search memory (curl fallback)
+# Search memory
 curl -s "http://localhost:18483/api/events/search?q=<terms>&limit=10"
 
 # Recent events
 curl -s "http://localhost:18483/api/sessions/${SESSION_KEY}/events?limit=20"
 
-# CLI logging (fallback)
+# Record / log / flag (fastest)
 ~/.openclaw/workspace/skills/lethe-memory/lethe-log record "Decision: X because Y"
-~/.openclaw/workspace/skills/lethe-memory/lethe-log flag "This might not work"
+~/.openclaw/workspace/skills/lethe-memory/lethe-log flag "This might not work because Z"
 
 # Compact session
 curl -s -X POST "http://localhost:18483/api/sessions/${SESSION_KEY}/compact"
@@ -314,10 +332,3 @@ curl -s -X POST "http://localhost:18483/api/sessions/${SESSION_KEY}/compact"
 # UI dashboard
 open http://localhost:18483/ui/
 ```
-
-**Native tools (preferred over curl/CLI):**
-- `memory.record` — Record a deliberate decision
-- `memory.log` — Log an observation or event
-- `memory.flag` — Flag uncertainty with confidence
-- `memory.task` — Track task status transitions
-- `memory_search` — Search Lethe events across sessions
