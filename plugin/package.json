@@ -1,16 +1,16 @@
 {
   "name": "@mentholmike/lethe",
-  "version": "0.1.9",
+  "version": "0.2.0",
   "description": "Lethe \u2014 persistent memory layer for AI agents. OpenClaw plugin.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "openclaw": {
     "compat": {
-      "pluginApi": "2026.4.15"
+      "pluginApi": "2026.4.21"
     },
     "build": {
-      "openclawVersion": "2026.4.15"
+      "openclawVersion": "2026.4.21"
     },
     "extensions": [
       "./dist/index.js"
