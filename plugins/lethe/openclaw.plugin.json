@@ -1,15 +1,16 @@
 {
-  "id": "lethe",
+  "id": "mentholmike-lethe",
   "name": "Lethe",
   "description": "Persistent memory layer for AI agents — the antidote to the river Lethe.",
-  "version": "0.2.2",
+  "version": "0.2.3",
+  "kind": "context-engine",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
       "endpoint": {
         "type": "string",
-        "description": "Lethe server endpoint (e.g. http://localhost:18483)"
+        "description": "Lethe server endpoint (e.g. http://localhost:8080)"
       },
       "apiKey": {
         "type": "string",

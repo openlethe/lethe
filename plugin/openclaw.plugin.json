@@ -2,7 +2,7 @@
   "id": "mentholmike-lethe",
   "name": "Lethe",
   "description": "Persistent memory layer for AI agents — the antidote to the river Lethe.",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "kind": "context-engine",
   "configSchema": {
     "type": "object",
