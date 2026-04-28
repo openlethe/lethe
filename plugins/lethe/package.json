@@ -1,6 +1,6 @@
 {
   "name": "@mentholmike/lethe",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Lethe \u2014 persistent memory layer for AI agents. OpenClaw plugin.",
   "type": "module",
   "main": "index.js",
