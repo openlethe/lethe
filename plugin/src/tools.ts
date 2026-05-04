@@ -159,7 +159,7 @@ export class LetheTools {
         const { endpoint, apiKey, agentId, projectId } = this.cfg;
         const sk = sessionKey ?? agentId;
 
-        const res = await lethePost(endpoint, apiKey, `/sessions/${sk}/events`, {
+        const res = await lethePost(endpoint, apiKey, `/api/sessions/${sk}/events`, {
           event_type: "record",
           content,
           tags: tags ?? [],
@@ -199,7 +199,7 @@ export class LetheTools {
         const { endpoint, apiKey, agentId, projectId } = this.cfg;
         const sk = sessionKey ?? agentId;
 
-        const res = await lethePost(endpoint, apiKey, `/sessions/${sk}/events`, {
+        const res = await lethePost(endpoint, apiKey, `/api/sessions/${sk}/events`, {
           event_type: "log",
           content,
           tags: tags ?? [],
@@ -236,7 +236,7 @@ export class LetheTools {
         const { endpoint, apiKey, agentId, projectId } = this.cfg;
         const sk = sessionKey ?? agentId;
 
-        const res = await lethePost(endpoint, apiKey, `/sessions/${sk}/events`, {
+        const res = await lethePost(endpoint, apiKey, `/api/sessions/${sk}/events`, {
           event_type: "flag",
           content,
           confidence,
@@ -278,7 +278,7 @@ export class LetheTools {
         const { endpoint, apiKey, agentId, projectId } = this.cfg;
         const sk = sessionKey ?? agentId;
 
-        const res = await lethePost(endpoint, apiKey, `/sessions/${sk}/events`, {
+        const res = await lethePost(endpoint, apiKey, `/api/sessions/${sk}/events`, {
           event_type: "task",
           content: title,
           task_status: status,
@@ -332,7 +332,7 @@ export class LetheTools {
         try {
           // Search across all sessions first (broader recall)
           const res = await fetch(
-            `${endpoint}/events/search?${searchParams.toString()}`,
+            `${endpoint}/api/events/search?${searchParams.toString()}`,
             { method: "GET", headers: letheHeaders(apiKey) }
           );
 
@@ -352,7 +352,7 @@ export class LetheTools {
             // If no cross-session results, try session-scoped search
             const sk = sessionKey ?? agentId;
             const sessionRes = await fetch(
-              `${endpoint}/sessions/${encodeURIComponent(sk)}/events/search?${searchParams.toString()}`,
+              `${endpoint}/api/sessions/${encodeURIComponent(sk)}/events/search?${searchParams.toString()}`,
               { method: "GET", headers: letheHeaders(apiKey) }
             );
             if (sessionRes.ok) {

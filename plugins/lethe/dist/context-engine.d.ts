@@ -1,0 +1,57 @@
+import { type ContextEngine, type ContextEngineInfo } from "openclaw/plugin-sdk";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { BootstrapResult, AssembleResult, CompactResult, IngestResult, ContextEngineRuntimeContext } from "./context-engine-types.js";
+export interface LetheContextEngineConfig {
+    endpoint: string;
+    apiKey: string;
+    agentId: string;
+    projectId: string;
+}
+interface AssembleParams {
+    sessionId: string;
+    sessionKey?: string;
+    messages: AgentMessage[];
+    tokenBudget?: number;
+    prompt?: string;
+    /** Hard cap on recent events fetched from Lethe (default 20). */
+    hardLimit?: number;
+}
+interface AfterTurnParams {
+    sessionId: string;
+    sessionKey?: string;
+    sessionFile: string;
+    messages: AgentMessage[];
+    prePromptMessageCount: number;
+    isHeartbeat?: boolean;
+    tokenBudget?: number;
+    runtimeContext?: ContextEngineRuntimeContext;
+}
+interface CompactParams {
+    sessionId: string;
+    sessionKey?: string;
+    sessionFile: string;
+    tokenBudget?: number;
+    force?: boolean;
+    currentTokenCount?: number;
+    runtimeContext?: ContextEngineRuntimeContext;
+}
+export declare class LetheContextEngine implements ContextEngine {
+    private cfg;
+    readonly info: ContextEngineInfo;
+    constructor(cfg: LetheContextEngineConfig);
+    bootstrap({ sessionId, sessionKey, }: {
+        sessionId: string;
+        sessionKey?: string;
+    }): Promise<BootstrapResult>;
+    ingest({ sessionId, sessionKey, message, isHeartbeat, }: {
+        sessionId: string;
+        sessionKey?: string;
+        message: AgentMessage;
+        isHeartbeat?: boolean;
+    }): Promise<IngestResult>;
+    afterTurn(params: AfterTurnParams): Promise<void>;
+    assemble(params: AssembleParams): Promise<AssembleResult>;
+    compact(params: CompactParams): Promise<CompactResult>;
+    dispose(): Promise<void>;
+}
+export {};

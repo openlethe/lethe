@@ -120,7 +120,7 @@ export class LetheContextEngine implements ContextEngine {
 
     try {
       // Try to get existing session by sessionKey.
-      const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}`);
+      const res = await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}`);
 
       if (res.ok) {
         const session = await res.json();
@@ -128,7 +128,7 @@ export class LetheContextEngine implements ContextEngine {
           const summaryRes = await letheFetch(
             endpoint,
             apiKey,
-            `/sessions/${encodeURIComponent(sessionKey)}/summary`
+            `/api/sessions/${encodeURIComponent(sessionKey)}/summary`
           );
           if (summaryRes.ok) {
             const summary = await summaryRes.json();
@@ -146,7 +146,7 @@ export class LetheContextEngine implements ContextEngine {
           const summaryRes = await letheFetch(
             endpoint,
             apiKey,
-            `/sessions/${encodeURIComponent(sessionKey)}/summary`
+            `/api/sessions/${encodeURIComponent(sessionKey)}/summary`
           );
           if (summaryRes.ok) {
             const summary = await summaryRes.json();
@@ -200,7 +200,7 @@ export class LetheContextEngine implements ContextEngine {
       if (!logContent || !logContent.trim()) {
         return { ingested: true };
       }
-      const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/events`, {
+      const res = await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/events`, {
         event_type: "log",
         content: logContent,
         tags: [],
@@ -223,7 +223,7 @@ export class LetheContextEngine implements ContextEngine {
     const { endpoint, apiKey } = this.cfg;
 
     if (isHeartbeat) {
-      await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/heartbeat`, {
+      await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/heartbeat`, {
         token_budget: tokenBudget,
       }).catch(() => {});
       return;
@@ -236,7 +236,7 @@ export class LetheContextEngine implements ContextEngine {
     const allTools = lastMsg ? extractAllToolCallNames(lastMsg) : [];
 
     // Write checkpoint.
-    await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/checkpoints`, {
+    await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/checkpoints`, {
       snapshot: {
         open_threads: openThreads,
         recent_event_ids: [],
@@ -247,7 +247,7 @@ export class LetheContextEngine implements ContextEngine {
 
     // Auto-log: tools used (only if there were actual tool calls, not just text).
     if (allTools.length > 0) {
-      await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/events`, {
+      await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/events`, {
         event_type: "log",
         content: `tools: ${allTools.join(" → ")}`,
         tags: ["auto", "tool-call"],
@@ -256,7 +256,7 @@ export class LetheContextEngine implements ContextEngine {
 
     // Auto-log: open threads detected in the conversation.
     if (openThreads.length > 0) {
-      await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/events`, {
+      await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/events`, {
         event_type: "log",
         content: `threads: ${openThreads.join(" | ")}`,
         tags: ["auto", "thread"],
@@ -301,7 +301,7 @@ export class LetheContextEngine implements ContextEngine {
     let sessionEventCount = 0;
     let summaryData: any = null;
     try {
-      const res = await letheFetch(endpoint, apiKey, `/sessions/${encodeURIComponent(sessionKey)}/summary`);
+      const res = await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/summary`);
       if (res.ok) {
         summaryData = await res.json();
         const rawSummary = summaryData.summary ?? summaryData.session?.summary ?? null;
@@ -340,7 +340,7 @@ export class LetheContextEngine implements ContextEngine {
 
       if (!budgetForRecent || budgetForRecent > 50) {
         try {
-          const eventsUrl = `${endpoint}/sessions/${encodeURIComponent(sessionKey)}/events?limit=${effectiveLimit}`;
+          const eventsUrl = `${endpoint}/api/sessions/${encodeURIComponent(sessionKey)}/events?limit=${effectiveLimit}`;
           const res = await fetch(eventsUrl, { method: "GET", headers: letheHeaders(apiKey) });
           if (res.ok) {
             const data = await res.json();
@@ -386,7 +386,7 @@ export class LetheContextEngine implements ContextEngine {
       const res = await letheFetch(
         endpoint,
         apiKey,
-        `/sessions/${encodeURIComponent(sessionKey)}/compact`,
+        `/api/sessions/${encodeURIComponent(sessionKey)}/compact`,
         { token_budget: tokenBudget, force }
       );
 
