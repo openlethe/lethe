@@ -149,7 +149,7 @@ export class LetheTools {
 
   getRecordTool(): AgentTool<typeof RecordParams> {
     return this.makeTool({
-      name: "memory.record",
+      name: "lethe.record",
       description:
         "Record a deliberate decision the agent has made, including the reasoning behind it. Use this for architecture choices, trade-off resolutions, and any conclusions reached during the session.",
       params: RecordParams,
@@ -189,7 +189,7 @@ export class LetheTools {
 
   getLogTool(): AgentTool<typeof LogParams> {
     return this.makeTool({
-      name: "memory.log",
+      name: "lethe.log",
       description:
         "Log an ambient observation, event, or note. Lower stakes than record — use this to track what's happening without requiring structured reasoning.",
       params: LogParams,
@@ -224,7 +224,7 @@ export class LetheTools {
 
   getFlagTool(): AgentTool<typeof FlagParams> {
     return this.makeTool({
-      name: "memory.flag",
+      name: "lethe.flag",
       description:
         "Flag a knowledge gap, uncertainty, or educated guess. The confidence score surfaces this for human review. Use when you know you're working with incomplete information.",
       params: FlagParams,
@@ -266,7 +266,7 @@ export class LetheTools {
 
   getTaskTool(): AgentTool<typeof TaskParams> {
     return this.makeTool({
-      name: "memory.task",
+      name: "lethe.task",
       description:
         "Track a task through status transitions (todo → in_progress → done | blocked). Each transition is recorded as a separate event with a parent link, building a full audit trail.",
       params: TaskParams,
@@ -313,7 +313,7 @@ export class LetheTools {
 
   getSearchTool(): AgentTool<typeof SearchParams> {
     return this.makeTool({
-      name: "memory_search",
+      name: "lethe_search",
       description:
         "Search Lethe memory for past decisions, observations, flags, and tasks. " +
         "Use this before re-reasoning about prior work, past decisions, or context " +
