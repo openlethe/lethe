@@ -20,6 +20,6 @@ Thumbs.db
 lethe.db
 
 # Plugin
-plugin/dist/
-plugin/node_modules/
+plugins/lethe/dist/
+plugins/lethe/node_modules/
 
