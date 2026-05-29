@@ -21,6 +21,11 @@ export interface LetheContextEngineConfig {
   apiKey: string;
   agentId: string;
   projectId: string;
+  /**
+   * Optional noisy diagnostic logging. When disabled (default), Lethe keeps
+   * checkpoints but does not turn every tool call/thread marker into events.
+   */
+  autoLog?: boolean;
 }
 
 interface AssembleParams {
@@ -101,7 +106,7 @@ export class LetheContextEngine implements ContextEngine {
   // bootstrap
   // ------------------------------------------------------------------
   // Uses sessionKey as the stable Lethe session_id. On first boot creates
-  // the session via POST /sessions. On subsequent boots checks for an
+  // the session via POST /api/sessions. On subsequent boots checks for an
   // interrupted session and resumes it with a summary injection.
   // ------------------------------------------------------------------
 
@@ -160,7 +165,7 @@ export class LetheContextEngine implements ContextEngine {
 
       // Session doesn't exist yet — create it.
       // Use sessionKey as the Lethe session_id so we can look it up later.
-      const createRes = await letheFetch(endpoint, apiKey, "/sessions", {
+      const createRes = await letheFetch(endpoint, apiKey, "/api/sessions", {
         session_key: sessionKey,
         agent_id: agentId,
         project_id: projectId,
@@ -192,6 +197,7 @@ export class LetheContextEngine implements ContextEngine {
     isHeartbeat?: boolean;
   }): Promise<IngestResult> {
     if (isHeartbeat || !sessionKey) return { ingested: false };
+    if (!this.cfg.autoLog) return { ingested: true };
 
     const { endpoint, apiKey } = this.cfg;
     try {
@@ -229,11 +235,12 @@ export class LetheContextEngine implements ContextEngine {
       return;
     }
 
-    // Real turn: write a checkpoint and auto-log tool calls and thread state.
+    // Real turn: write a checkpoint. Optional diagnostic auto event logging is
+    // off by default so normal tool use does not become permanent memory.
     const lastMsg = messages[messages.length - 1];
     const openThreads = extractOpenThreads(lastMsg);
     const lastTool = lastMsg ? extractLastTool(lastMsg) : null;
-    const allTools = lastMsg ? extractAllToolCallNames(lastMsg) : [];
+    const allTools = this.cfg.autoLog && lastMsg ? extractAllToolCallNames(lastMsg) : [];
 
     // Write checkpoint.
     await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/checkpoints`, {
@@ -245,8 +252,8 @@ export class LetheContextEngine implements ContextEngine {
       },
     }).catch(() => {});
 
-    // Auto-log: tools used (only if there were actual tool calls, not just text).
-    if (allTools.length > 0) {
+    // Optional auto-log: tools used (only if there were actual tool calls, not just text).
+    if (this.cfg.autoLog && allTools.length > 0) {
       await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/events`, {
         event_type: "log",
         content: `tools: ${allTools.join(" → ")}`,
@@ -254,8 +261,8 @@ export class LetheContextEngine implements ContextEngine {
       }).catch(() => {});
     }
 
-    // Auto-log: open threads detected in the conversation.
-    if (openThreads.length > 0) {
+    // Optional auto-log: open threads detected in the conversation.
+    if (this.cfg.autoLog && openThreads.length > 0) {
       await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/events`, {
         event_type: "log",
         content: `threads: ${openThreads.join(" | ")}`,

@@ -6,6 +6,11 @@ export interface LetheContextEngineConfig {
     apiKey: string;
     agentId: string;
     projectId: string;
+    /**
+     * Optional noisy diagnostic logging. When disabled (default), Lethe keeps
+     * checkpoints but does not turn every tool call/thread marker into events.
+     */
+    autoLog?: boolean;
 }
 interface AssembleParams {
     sessionId: string;

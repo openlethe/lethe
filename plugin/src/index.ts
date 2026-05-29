@@ -34,6 +34,12 @@ export default definePluginEntry({
           description: "Project identifier for grouping sessions",
           default: "default",
         },
+        autoLog: {
+          type: "boolean",
+          description:
+            "Enable diagnostic automatic event logs for tool calls/thread markers. Checkpoints are always written. Default: false.",
+          default: false,
+        },
       },
       required: [],
     },
@@ -44,17 +50,19 @@ export default definePluginEntry({
       apiKey?: string;
       agentId?: string;
       projectId?: string;
+      autoLog?: boolean;
     };
 
     const endpoint = cfg.endpoint ?? "http://localhost:18483";
     const apiKey = cfg.apiKey ?? "";
     const agentId = cfg.agentId ?? "default";
     const projectId = cfg.projectId ?? "default";
+    const autoLog = cfg.autoLog ?? false;
 
     // Register the context engine (owns session context: bootstrap, assemble,
     // afterTurn, compact). Lethe owns compaction so ownsCompaction = true.
     api.registerContextEngine("mentholmike-lethe", () =>
-      new LetheContextEngine({ endpoint, apiKey, agentId, projectId })
+      new LetheContextEngine({ endpoint, apiKey, agentId, projectId, autoLog })
     );
 
     // Register memory tools: memory.record, memory.log, memory.flag, memory.task, memory_search

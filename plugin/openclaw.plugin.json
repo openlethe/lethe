@@ -23,6 +23,11 @@
       "projectId": {
         "type": "string",
         "description": "Project identifier for grouping sessions"
+      },
+      "autoLog": {
+        "type": "boolean",
+        "description": "Enable diagnostic automatic event logs for tool calls/thread markers. Checkpoints are always written. Default: false.",
+        "default": false
       }
     }
   }

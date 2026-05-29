@@ -23,3 +23,5 @@ lethe.db
 plugins/lethe/dist/
 plugins/lethe/node_modules/
 
+plugin/dist/
+plugin/node_modules/
