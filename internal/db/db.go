@@ -26,7 +26,7 @@ func Open(dbPath string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		return nil, fmt.Errorf("mkdir: %w", err)
 	}
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_foreign_keys=1")
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
 	}
@@ -73,13 +73,13 @@ func (db *DB) Migrate() error {
 	// will not run (the schema_versions table is updated only on success).
 
 	for _, name := range names {
-		// Skip if already applied.
-		var exists int
-		if err := db.QueryRow("SELECT 1 FROM schema_versions WHERE name=?", name).Scan(&exists); err == nil {
-			continue // already applied
-		}
-		if err != nil && err != sql.ErrNoRows {
+		// Skip if already applied or already satisfied by an older migration name.
+		applied, err := db.migrationAppliedOrSatisfied(name)
+		if err != nil {
 			return fmt.Errorf("check schema_versions for %s: %w", name, err)
+		}
+		if applied {
+			continue // already applied
 		}
 		if err := db.runMigration(name); err != nil {
 			return fmt.Errorf("migration %s: %w", name, err)
@@ -90,6 +90,74 @@ func (db *DB) Migrate() error {
 		log.Printf("migrations: applied %s", name)
 	}
 	return nil
+}
+
+func (db *DB) migrationAppliedOrSatisfied(name string) (bool, error) {
+	var exists int
+	if err := db.QueryRow("SELECT 1 FROM schema_versions WHERE name=?", name).Scan(&exists); err == nil {
+		return true, nil
+	} else if err != sql.ErrNoRows {
+		return false, err
+	}
+
+	// Early development builds of migration 006 recorded this version name
+	// manually from inside the SQL file, before Migrate appended the .sql suffix.
+	// Treat that legacy marker as applied and backfill the canonical name so
+	// upgraded installations do not try to rebuild an already-migrated events table.
+	if name == "006_project_scoped_events.sql" {
+		if err := db.QueryRow("SELECT 1 FROM schema_versions WHERE name=?", "006_project_scoped_events").Scan(&exists); err == nil {
+			if _, err := db.Exec("INSERT OR IGNORE INTO schema_versions (name) VALUES (?)", name); err != nil {
+				return false, err
+			}
+			return true, nil
+		} else if err != sql.ErrNoRows {
+			return false, err
+		}
+
+		projectIDExists, sessionIDNullable, err := db.projectScopedEventsSchemaPresent()
+		if err != nil {
+			return false, err
+		}
+		if projectIDExists && sessionIDNullable {
+			if _, err := db.Exec("INSERT OR IGNORE INTO schema_versions (name) VALUES (?)", name); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+	}
+
+	return false, nil
+}
+
+func (db *DB) projectScopedEventsSchemaPresent() (bool, bool, error) {
+	rows, err := db.Query("PRAGMA table_info(events)")
+	if err != nil {
+		return false, false, err
+	}
+	defer rows.Close()
+
+	projectIDExists := false
+	sessionIDNullable := false
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var defaultValue interface{}
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &defaultValue, &pk); err != nil {
+			return false, false, err
+		}
+		if name == "project_id" {
+			projectIDExists = true
+		}
+		if name == "session_id" {
+			sessionIDNullable = notNull == 0
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, false, err
+	}
+	return projectIDExists, sessionIDNullable, nil
 }
 
 func (db *DB) runMigration(name string) error {

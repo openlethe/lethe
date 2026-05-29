@@ -9,8 +9,6 @@
 --         but included in project-scoped searches.
 --         project_id column on events allows direct project filtering.
 
-BEGIN;
-
 -- Remove the NOT NULL constraint and the foreign key.
 -- SQLite doesn't support DROP COLUMN directly in older versions,
 -- so we recreate the table with the correct schema.
@@ -53,5 +51,3 @@ CREATE INDEX IF NOT EXISTS idx_events_conf       ON events(confidence) WHERE con
 CREATE INDEX IF NOT EXISTS idx_events_task       ON events(task_status) WHERE task_status IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_events_created    ON events(created_at DESC);
 
--- Record this migration.
-INSERT INTO schema_versions (name, applied) VALUES ('006_project_scoped_events', datetime('now'));

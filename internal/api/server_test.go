@@ -1,11 +1,15 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/openlethe/lethe/internal/db"
+	"github.com/openlethe/lethe/internal/models"
+	"github.com/openlethe/lethe/internal/session"
 )
 
 func newTestServer(t *testing.T) *Server {
@@ -14,7 +18,23 @@ func newTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
-	return NewServer(store, nil)
+	ctx := context.Background()
+	if err := store.UpsertAgent(ctx, &models.Agent{AgentID: "agent-test", Name: "Test Agent"}); err != nil {
+		t.Fatalf("UpsertAgent: %v", err)
+	}
+	if err := store.UpsertProject(ctx, &models.Project{ProjectID: "project-test", Name: "Test Project"}); err != nil {
+		t.Fatalf("UpsertProject: %v", err)
+	}
+	if err := store.CreateSession(ctx, &models.Session{
+		SessionID: "sess-1",
+		AgentID:   "agent-test",
+		ProjectID: "project-test",
+		State:     models.SessionActive,
+		StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	return NewServer(store, session.NewManager(store))
 }
 
 func TestHealth(t *testing.T) {
@@ -87,18 +107,18 @@ func TestAllRoutesReturnExpected(t *testing.T) {
 	}
 
 	routes := []route{
-		{"POST", "/sessions", http.StatusBadRequest},                            // empty body
-		{"GET", "/sessions/sess-1", http.StatusServiceUnavailable},        // nil sessMgr
-		{"GET", "/sessions/sess-1/events", http.StatusOK},                // implemented
-		{"POST", "/sessions/sess-1/heartbeat", http.StatusServiceUnavailable}, // nil sessMgr
-		{"POST", "/sessions/sess-1/interrupt", http.StatusServiceUnavailable}, // nil sessMgr
-		{"POST", "/sessions/sess-1/complete", http.StatusServiceUnavailable}, // nil sessMgr
-		{"POST", "/sessions/sess-1/events", http.StatusBadRequest},             // empty body
-		{"POST", "/sessions/sess-1/checkpoints", http.StatusServiceUnavailable}, // nil sessMgr
-		{"GET", "/sessions/sess-1/checkpoints", http.StatusOK},              // implemented
-		{"GET", "/flags", http.StatusOK},                                    // implemented
-		{"PUT", "/flags/evt-1/review", http.StatusBadRequest},             // missing reviewer_id
-		{"GET", "/events/evt-1/chain", http.StatusNotFound},                // no event
+		{"POST", "/sessions", http.StatusBadRequest}, // empty body
+		{"GET", "/sessions/sess-1", http.StatusOK},
+		{"GET", "/sessions/sess-1/events", http.StatusOK},
+		{"POST", "/sessions/sess-1/heartbeat", http.StatusOK},
+		{"POST", "/sessions/sess-1/interrupt", http.StatusOK},
+		{"POST", "/sessions/sess-1/complete", http.StatusBadRequest}, // empty body
+		{"POST", "/sessions/sess-1/events", http.StatusBadRequest},
+		{"POST", "/sessions/sess-1/checkpoints", http.StatusBadRequest}, // empty body
+		{"GET", "/sessions/sess-1/checkpoints", http.StatusOK},
+		{"GET", "/flags", http.StatusOK},                      // implemented
+		{"PUT", "/flags/evt-1/review", http.StatusBadRequest}, // missing reviewer_id
+		{"GET", "/events/evt-1/chain", http.StatusNotFound},   // no event
 	}
 
 	for _, r := range routes {

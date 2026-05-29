@@ -37,6 +37,14 @@ func (s *Server) resolveSession(ctx context.Context, id string) (*models.Session
 	if err != nil {
 		return nil, err
 	}
+	if s.sessMgr == nil || s.sessMgr.Store() == nil {
+		// Tests and store-only server modes may omit the lifecycle manager. Fall
+		// back to direct session_id lookup rather than panicking.
+		if s.store == nil {
+			return nil, nil
+		}
+		return s.store.GetSession(ctx, decodedID)
+	}
 	// Try sessionKey first.
 	sess, err := s.sessMgr.Store().GetSessionByKey(ctx, decodedID)
 	if err != nil {
