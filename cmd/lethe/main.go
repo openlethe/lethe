@@ -23,6 +23,7 @@ var (
 	apiPort  = flag.String("api-port", "", "Port the UI handlers should use to reach the API (defaults to the port in --http)")
 	apiURL   = flag.String("api-url", "", "Full base URL for the API (e.g. http://192.168.1.10:3421). Overrides --api-port")
 	dbPath   = flag.String("db", "./lethe.db", "path to SQLite database")
+	apiKey   = flag.String("api-key", "", "Bearer token required for API/UI/SSE access. Defaults to LETHE_API_KEY if unset; no key keeps trusted localhost mode.")
 )
 
 func main() {
@@ -35,6 +36,9 @@ func main() {
 	defer database.Close()
 
 	sessMgr := session.NewManager(database)
+	if *apiKey == "" {
+		*apiKey = os.Getenv("LETHE_API_KEY")
+	}
 
 	// Resolve API base URL: use --api-url if set, otherwise derive from --http and --api-port.
 	var apiBase string
@@ -59,16 +63,21 @@ func main() {
 		apiBase = "http://" + host + ":" + port
 	}
 	r := chi.NewRouter()
-	apiServer := api.NewServer(database, sessMgr)
+	apiServer := api.NewServer(database, sessMgr, api.WithAuthToken(*apiKey))
+	if *apiKey == "" {
+		log.Println("lethe: WARNING: no --api-key/LETHE_API_KEY configured; API/UI/SSE are restricted to localhost clients only")
+	} else {
+		log.Println("lethe: bearer authentication enabled for API/UI/SSE")
+	}
 	r.Mount("/api", apiServer.Router())
-	ui.SetupRoutes(r, apiBase)
+	ui.SetupRoutes(r, apiBase, apiServer.AuthMiddleware())
 
 	// SSE endpoint — mounted at root so both /live and /ui/live work.
-	r.Get("/live", apiServer.HandleSSE())
+	r.With(apiServer.AuthMiddleware()).Get("/live", apiServer.HandleSSE())
 
 	srv := &http.Server{
 		Addr:         *httpAddr,
-		Handler:     r,
+		Handler:      r,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,

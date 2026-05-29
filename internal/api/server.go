@@ -20,29 +20,30 @@ import (
 
 // Server is the HTTP API server.
 type Server struct {
-	router     *chi.Mux
-	store      *db.Store
-	sessMgr    *session.Manager
-	httpServer *http.Server
+	router      *chi.Mux
+	store       *db.Store
+	sessMgr     *session.Manager
+	httpServer  *http.Server
 	broadcaster *broadcaster
+	authToken   string
 }
 
 // broadcaster manages SSE client connections.
 type broadcaster struct {
-	clients    map[chan []byte]struct{}
-	addCh      chan chan []byte
-	removeCh   chan chan []byte
+	clients     map[chan []byte]struct{}
+	addCh       chan chan []byte
+	removeCh    chan chan []byte
 	broadcastCh chan []byte
-	stopCh     chan struct{}
+	stopCh      chan struct{}
 }
 
 func newBroadcaster() *broadcaster {
 	b := &broadcaster{
-		clients:    make(map[chan []byte]struct{}),
-		addCh:      make(chan chan []byte),
-		removeCh:   make(chan chan []byte),
+		clients:     make(map[chan []byte]struct{}),
+		addCh:       make(chan chan []byte),
+		removeCh:    make(chan chan []byte),
 		broadcastCh: make(chan []byte),
-		stopCh:     make(chan struct{}),
+		stopCh:      make(chan struct{}),
 	}
 	go b.run()
 	return b
@@ -62,7 +63,7 @@ func (b *broadcaster) run() {
 				case ch <- msg:
 				default:
 					// slow client — skip and log
-				log.Printf("[SSE] slow client dropped message")
+					log.Printf("[SSE] slow client dropped message")
 				}
 			}
 		case <-b.stopCh:
@@ -97,7 +98,7 @@ func (b *broadcaster) Stop() {
 }
 
 // NewServer creates a new API server.
-func NewServer(store *db.Store, sessMgr *session.Manager) *Server {
+func NewServer(store *db.Store, sessMgr *session.Manager, opts ...Option) *Server {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -107,10 +108,13 @@ func NewServer(store *db.Store, sessMgr *session.Manager) *Server {
 	r.Use(middleware.Timeout(30 * time.Second))
 
 	s := &Server{
-		router:     r,
-		store:      store,
-		sessMgr:    sessMgr,
+		router:      r,
+		store:       store,
+		sessMgr:     sessMgr,
 		broadcaster: newBroadcaster(),
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 
 	s.registerRoutes()
@@ -123,6 +127,7 @@ func (s *Server) registerRoutes() {
 
 	// Mount all routes under /api prefix.
 	r.Group(func(api chi.Router) {
+		api.Use(s.AuthMiddleware())
 		api.Get("/health", s.handleHealth)
 		api.Get("/stats", s.handleStats)
 
@@ -189,7 +194,7 @@ func (s *Server) Router() *chi.Mux { return s.router }
 func (s *Server) Listen(addr string) error {
 	s.httpServer = &http.Server{
 		Addr:         addr,
-		Handler:     s.router,
+		Handler:      s.router,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  60 * time.Second,

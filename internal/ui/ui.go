@@ -116,7 +116,7 @@ func init() {
 		"hasPrefix": strings.HasPrefix,
 		"split":     strings.Split,
 		"contains":  strings.Contains,
-		"truncate":  func(s string, length int, suffix string) string {
+		"truncate": func(s string, length int, suffix string) string {
 			if s == "" {
 				return ""
 			}
@@ -271,9 +271,12 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 // which are mounted at /api on the same root mux.
 // baseURL is the base URL the UI handlers should use to reach the API
 // (e.g. "http://127.0.0.1:18483").
-func SetupRoutes(r *chi.Mux, baseURL string) {
+func SetupRoutes(r *chi.Mux, baseURL string, middleware ...func(http.Handler) http.Handler) {
 	apiBase = baseURL
 	ui := chi.NewRouter()
+	for _, mw := range middleware {
+		ui.Use(mw)
+	}
 	ui.Get("/", redirectTo("/ui/dashboard"))
 	ui.Get("/dashboard", handleDashboard)
 	ui.Get("/sessions", handleSessions)

@@ -34,13 +34,19 @@ func newTestServer(t *testing.T) *Server {
 	}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	return NewServer(store, session.NewManager(store))
+	return NewServer(store, session.NewManager(store), WithAuthToken("test-token"))
+}
+
+func authenticatedRequest(method, path string, body interface{}) *http.Request {
+	req := httptest.NewRequest(method, path, nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	return req
 }
 
 func TestHealth(t *testing.T) {
 	srv := newTestServer(t)
 
-	req := httptest.NewRequest("GET", "/health", nil)
+	req := authenticatedRequest("GET", "/health", nil)
 	rec := httptest.NewRecorder()
 	srv.router.ServeHTTP(rec, req)
 
@@ -56,7 +62,7 @@ func TestCreateEventValidation(t *testing.T) {
 	srv := newTestServer(t)
 
 	// Missing event_type → 400.
-	req := httptest.NewRequest("POST", "/sessions/sess-1/events", nil)
+	req := authenticatedRequest("POST", "/sessions/sess-1/events", nil)
 	rec := httptest.NewRecorder()
 	srv.router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusBadRequest {
@@ -67,7 +73,7 @@ func TestCreateEventValidation(t *testing.T) {
 func TestGetCheckpointsEmpty(t *testing.T) {
 	srv := newTestServer(t)
 
-	req := httptest.NewRequest("GET", "/sessions/sess-1/checkpoints", nil)
+	req := authenticatedRequest("GET", "/sessions/sess-1/checkpoints", nil)
 	rec := httptest.NewRecorder()
 	srv.router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -78,7 +84,7 @@ func TestGetCheckpointsEmpty(t *testing.T) {
 func TestGetFlagsEmpty(t *testing.T) {
 	srv := newTestServer(t)
 
-	req := httptest.NewRequest("GET", "/flags", nil)
+	req := authenticatedRequest("GET", "/flags", nil)
 	rec := httptest.NewRecorder()
 	srv.router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -89,7 +95,7 @@ func TestGetFlagsEmpty(t *testing.T) {
 func TestGetTaskChainNotFound(t *testing.T) {
 	srv := newTestServer(t)
 
-	req := httptest.NewRequest("GET", "/events/nonexistent/chain", nil)
+	req := authenticatedRequest("GET", "/events/nonexistent/chain", nil)
 	rec := httptest.NewRecorder()
 	srv.router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNotFound {
@@ -122,7 +128,7 @@ func TestAllRoutesReturnExpected(t *testing.T) {
 	}
 
 	for _, r := range routes {
-		req := httptest.NewRequest(r.method, r.path, nil)
+		req := authenticatedRequest(r.method, r.path, nil)
 		rec := httptest.NewRecorder()
 		srv.router.ServeHTTP(rec, req)
 		if rec.Code != r.status {
