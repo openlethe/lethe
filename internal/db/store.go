@@ -70,46 +70,20 @@ func (s *Store) CreateSession(ctx context.Context, sess *models.Session) error {
 
 // UpdateSessionState updates a session's state and optionally its summary/ended_at.
 func (s *Store) UpdateSessionState(ctx context.Context, sessionID string, state models.SessionState, summary string, endedAt *time.Time) error {
-	q := `UPDATE sessions SET state=?, summary=? WHERE session_id=?`
-	_, err := s.ExecContext(ctx, q, state, summary, sessionID)
-	if err != nil {
-		return err
-	}
-	if endedAt != nil {
-		q2 := `UPDATE sessions SET ended_at=? WHERE session_id=?`
-		_, err = s.ExecContext(ctx, q2, *endedAt, sessionID)
-	}
+	q := `UPDATE sessions SET state=?, summary=?, ended_at=? WHERE session_id=?`
+	_, err := s.ExecContext(ctx, q, state, nullString(summary), endedAt, sessionID)
 	return err
 }
 
 // TouchSessionHeartbeat updates last_heartbeat_at and optionally token_budget.
 // If the session is currently interrupted, it is transitioned back to active.
 func (s *Store) TouchSessionHeartbeat(ctx context.Context, sessionID string, tokenBudget int) error {
-	// Check current state — if interrupted, reactivate.
-	var currentState string
-	err := s.QueryRowContext(ctx, `SELECT state FROM sessions WHERE session_id=?`, sessionID).Scan(&currentState)
-	if err != nil {
-		return err
-	}
-	reactivate := currentState == string(models.SessionInterrupted)
-
-	if tokenBudget > 0 {
-		if reactivate {
-			q := `UPDATE sessions SET last_heartbeat_at=?, token_budget=?, state=? WHERE session_id=?`
-			_, err = s.ExecContext(ctx, q, time.Now().UTC(), tokenBudget, models.SessionActive, sessionID)
-		} else {
-			q := `UPDATE sessions SET last_heartbeat_at=?, token_budget=? WHERE session_id=?`
-			_, err = s.ExecContext(ctx, q, time.Now().UTC(), tokenBudget, sessionID)
-		}
-	} else {
-		if reactivate {
-			q := `UPDATE sessions SET last_heartbeat_at=?, state=? WHERE session_id=?`
-			_, err = s.ExecContext(ctx, q, time.Now().UTC(), models.SessionActive, sessionID)
-		} else {
-			q := `UPDATE sessions SET last_heartbeat_at=? WHERE session_id=?`
-			_, err = s.ExecContext(ctx, q, time.Now().UTC(), sessionID)
-		}
-	}
+	q := `UPDATE sessions
+	      SET last_heartbeat_at=?,
+	          token_budget=CASE WHEN ? > 0 THEN ? ELSE token_budget END,
+	          state=CASE WHEN state=? THEN ? ELSE state END
+	      WHERE session_id=?`
+	_, err := s.ExecContext(ctx, q, time.Now().UTC(), tokenBudget, tokenBudget, models.SessionInterrupted, models.SessionActive, sessionID)
 	return err
 }
 

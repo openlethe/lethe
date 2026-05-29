@@ -4,11 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -83,9 +85,6 @@ func (db *DB) Migrate() error {
 		}
 		if err := db.runMigration(name); err != nil {
 			return fmt.Errorf("migration %s: %w", name, err)
-		}
-		if _, err := db.Exec("INSERT INTO schema_versions (name) VALUES (?)", name); err != nil {
-			return fmt.Errorf("record migration %s: %w", name, err)
 		}
 		log.Printf("migrations: applied %s", name)
 	}
@@ -165,6 +164,134 @@ func (db *DB) runMigration(name string) error {
 	if err != nil {
 		return err
 	}
-	_, err = db.Exec(string(sqlBytes))
-	return err
+	statements, err := splitSQLStatements(string(sqlBytes))
+	if err != nil {
+		return err
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, stmt := range statements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec("INSERT INTO schema_versions (name) VALUES (?)", name); err != nil {
+		return fmt.Errorf("record migration: %w", err)
+	}
+	return tx.Commit()
+}
+
+func splitSQLStatements(sqlText string) ([]string, error) {
+	var statements []string
+	var current strings.Builder
+	inSingleQuote := false
+	inDoubleQuote := false
+	inLineComment := false
+	inBlockComment := false
+
+	for i := 0; i < len(sqlText); i++ {
+		ch := sqlText[i]
+		next := byte(0)
+		if i+1 < len(sqlText) {
+			next = sqlText[i+1]
+		}
+
+		if inLineComment {
+			current.WriteByte(ch)
+			if ch == '\n' {
+				inLineComment = false
+			}
+			continue
+		}
+		if inBlockComment {
+			current.WriteByte(ch)
+			if ch == '*' && next == '/' {
+				current.WriteByte(next)
+				i++
+				inBlockComment = false
+			}
+			continue
+		}
+
+		if !inSingleQuote && !inDoubleQuote && ch == '-' && next == '-' {
+			current.WriteByte(ch)
+			current.WriteByte(next)
+			i++
+			inLineComment = true
+			continue
+		}
+		if !inSingleQuote && !inDoubleQuote && ch == '/' && next == '*' {
+			current.WriteByte(ch)
+			current.WriteByte(next)
+			i++
+			inBlockComment = true
+			continue
+		}
+
+		if ch == '\'' && !inDoubleQuote {
+			current.WriteByte(ch)
+			if inSingleQuote && next == '\'' {
+				current.WriteByte(next)
+				i++
+				continue
+			}
+			inSingleQuote = !inSingleQuote
+			continue
+		}
+		if ch == '"' && !inSingleQuote {
+			current.WriteByte(ch)
+			if inDoubleQuote && next == '"' {
+				current.WriteByte(next)
+				i++
+				continue
+			}
+			inDoubleQuote = !inDoubleQuote
+			continue
+		}
+
+		if ch == ';' && !inSingleQuote && !inDoubleQuote {
+			stmt := strings.TrimSpace(current.String())
+			if stmt != "" {
+				statements = append(statements, stmt)
+			}
+			current.Reset()
+			continue
+		}
+
+		current.WriteByte(ch)
+	}
+
+	if inSingleQuote || inDoubleQuote || inBlockComment {
+		return nil, fmt.Errorf("unterminated SQL statement")
+	}
+	stmt := strings.TrimSpace(current.String())
+	if stmt != "" {
+		statements = append(statements, stmt)
+	}
+	return statements, nil
+}
+
+var errTestMigrationFailed = errors.New("test migration failed")
+
+func (db *DB) runMigrationForTest(name string, statements []string) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for _, stmt := range statements {
+		if _, err := tx.Exec(stmt); err != nil {
+			return fmt.Errorf("%w: %v", errTestMigrationFailed, err)
+		}
+	}
+	if _, err := tx.Exec("INSERT INTO schema_versions (name) VALUES (?)", name); err != nil {
+		return fmt.Errorf("%w: record migration: %v", errTestMigrationFailed, err)
+	}
+	return tx.Commit()
 }

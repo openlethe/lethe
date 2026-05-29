@@ -113,9 +113,9 @@ func TestInterruptWritesCheckpoint(t *testing.T) {
 	sess, _ := m.StartSession(context.Background(), "agent-1", "proj-1", "Archimedes", "WAGMIOS")
 
 	snap := &models.Snapshot{
-		OpenThreads:    []string{"task-1"},
-		CurrentTask:   "deploying",
-		LastTool:      "docker",
+		OpenThreads: []string{"task-1"},
+		CurrentTask: "deploying",
+		LastTool:    "docker",
 	}
 	err := m.InterruptSession(context.Background(), sess, snap)
 	if err != nil {
@@ -181,5 +181,22 @@ func TestSameStateNoOp(t *testing.T) {
 	err = m.InterruptSession(context.Background(), sess, nil) // already interrupted → interrupted
 	if err != nil {
 		t.Fatalf("InterruptSession same state: %v", err)
+	}
+}
+
+func TestStartSessionWithKeyReturnsExistingSession(t *testing.T) {
+	m, cleanup := newTestManager(t)
+	defer cleanup()
+
+	first, err := m.StartSessionWithKey(context.Background(), "stable-key", "agent-1", "proj-1", "Archimedes", "Lethe")
+	if err != nil {
+		t.Fatalf("StartSessionWithKey first: %v", err)
+	}
+	second, err := m.StartSessionWithKey(context.Background(), "stable-key", "agent-1", "proj-1", "Archimedes", "Lethe")
+	if err != nil {
+		t.Fatalf("StartSessionWithKey second: %v", err)
+	}
+	if second.SessionID != first.SessionID {
+		t.Fatalf("expected existing session %s, got %s", first.SessionID, second.SessionID)
 	}
 }
