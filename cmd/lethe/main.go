@@ -76,10 +76,12 @@ func main() {
 	r.With(apiServer.AuthMiddleware()).Get("/live", apiServer.HandleSSE())
 
 	srv := &http.Server{
-		Addr:         *httpAddr,
-		Handler:      r,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		Addr:        *httpAddr,
+		Handler:     r,
+		ReadTimeout: 10 * time.Second,
+		// WriteTimeout must stay disabled for long-lived SSE streams.
+		// Per-route middleware timeouts still protect non-SSE API handlers.
+		WriteTimeout: 0,
 		IdleTimeout:  60 * time.Second,
 	}
 

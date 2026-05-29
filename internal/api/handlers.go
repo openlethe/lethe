@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/openlethe/lethe/internal/models"
@@ -660,7 +661,10 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	ch, done := s.broadcaster.AddClient()
 	defer done()
 
-	// Send initial ping
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	// Send initial ping.
 	fmt.Fprintf(w, "event: ping\ndata: {\"status\":\"connected\"}\n\n")
 	f.Flush()
 
@@ -668,11 +672,16 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-heartbeat.C:
+			fmt.Fprintf(w, "event: ping\ndata: {\"ts\":%d}\n\n", time.Now().Unix())
+			f.Flush()
 		case msg, ok := <-ch:
 			if !ok {
 				return
 			}
-			w.Write(msg)
+			if _, err := w.Write(msg); err != nil {
+				return
+			}
 			f.Flush()
 		}
 	}

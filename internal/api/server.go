@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -35,6 +36,8 @@ type broadcaster struct {
 	removeCh    chan chan []byte
 	broadcastCh chan []byte
 	stopCh      chan struct{}
+	stopOnce    sync.Once
+	doneCh      chan struct{}
 }
 
 func newBroadcaster() *broadcaster {
@@ -42,14 +45,16 @@ func newBroadcaster() *broadcaster {
 		clients:     make(map[chan []byte]struct{}),
 		addCh:       make(chan chan []byte),
 		removeCh:    make(chan chan []byte),
-		broadcastCh: make(chan []byte),
+		broadcastCh: make(chan []byte, 100),
 		stopCh:      make(chan struct{}),
+		doneCh:      make(chan struct{}),
 	}
 	go b.run()
 	return b
 }
 
 func (b *broadcaster) run() {
+	defer close(b.doneCh)
 	for {
 		select {
 		case ch := <-b.addCh:
@@ -70,6 +75,7 @@ func (b *broadcaster) run() {
 			for ch := range b.clients {
 				close(ch)
 			}
+			b.clients = nil
 			return
 		}
 	}
@@ -83,18 +89,43 @@ func (b *broadcaster) Broadcast(eventType string, data interface{}) {
 	}
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "event: %s\ndata: %s\n\n", eventType, dataBytes)
-	b.broadcastCh <- buf.Bytes()
+	select {
+	case <-b.doneCh:
+		return
+	case b.broadcastCh <- buf.Bytes():
+	default:
+		log.Printf("[SSE] broadcaster queue full; dropped %s event", eventType)
+	}
 }
 
 func (b *broadcaster) AddClient() (<-chan []byte, func()) {
 	ch := make(chan []byte, 50)
-	b.addCh <- ch
-	done := func() { b.removeCh <- ch }
+	select {
+	case <-b.doneCh:
+		close(ch)
+		return ch, func() {}
+	case b.addCh <- ch:
+	}
+	var removeOnce sync.Once
+	done := func() {
+		removeOnce.Do(func() {
+			select {
+			case <-b.doneCh:
+				return
+			case b.removeCh <- ch:
+			}
+		})
+	}
 	return ch, done
 }
 
 func (b *broadcaster) Stop() {
-	close(b.stopCh)
+	b.stopOnce.Do(func() { close(b.stopCh) })
+	select {
+	case <-b.doneCh:
+	case <-time.After(5 * time.Second):
+		log.Printf("[SSE] timed out waiting for broadcaster shutdown")
+	}
 }
 
 // NewServer creates a new API server.
@@ -105,7 +136,7 @@ func NewServer(store *db.Store, sessMgr *session.Manager, opts ...Option) *Serve
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(skipTimeoutForSSE(30 * time.Second))
 
 	s := &Server{
 		router:      r,
@@ -119,6 +150,23 @@ func NewServer(store *db.Store, sessMgr *session.Manager, opts ...Option) *Serve
 
 	s.registerRoutes()
 	return s
+}
+
+func skipTimeoutForSSE(timeout time.Duration) func(http.Handler) http.Handler {
+	timeoutMiddleware := middleware.Timeout(timeout)
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if isSSEPath(r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			timeoutMiddleware(next).ServeHTTP(w, r)
+		})
+	}
+}
+
+func isSSEPath(path string) bool {
+	return path == "/live" || path == "/api/live"
 }
 
 // registerRoutes sets up all API routes under /api prefix.
@@ -193,10 +241,12 @@ func (s *Server) Router() *chi.Mux { return s.router }
 // Listen starts the HTTP server.
 func (s *Server) Listen(addr string) error {
 	s.httpServer = &http.Server{
-		Addr:         addr,
-		Handler:      s.router,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		Addr:        addr,
+		Handler:     s.router,
+		ReadTimeout: 10 * time.Second,
+		// WriteTimeout must stay disabled for long-lived SSE streams.
+		// Per-route middleware timeouts still protect non-SSE API handlers.
+		WriteTimeout: 0,
 		IdleTimeout:  60 * time.Second,
 	}
 	return s.httpServer.ListenAndServe()
