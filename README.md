@@ -66,6 +66,30 @@ Most agent memory is just conversation storage. Lethe is different:
 
 ---
 
+## What’s New in 0.3.0
+
+Lethe 0.3.0 is a reliability and safety release focused on making the memory
+path trustworthy in real deployments.
+
+- Restores project-scoped events and fixes migration compatibility for existing DBs.
+- Adds `go test ./...` and `go vet ./...` CI gates before container builds.
+- Adds optional bearer-token auth via `LETHE_API_KEY` / `--api-key`.
+- Fixes OpenClaw plugin first-run bootstrap (`/api/sessions`) and disables noisy
+  automatic tool-call/thread event logging by default (`autoLog: false`).
+- Hardens live SSE streams with heartbeat pings and no premature write timeout.
+- Adds a unique `session_key` index and transactional migration execution.
+- Polishes Docker runtime defaults, non-root `/data` permissions, and 18483 docs.
+
+Recommended image tags:
+
+```bash
+docker pull ghcr.io/openlethe/lethe:0.3.0
+# or
+docker pull ghcr.io/openlethe/lethe:latest
+```
+
+---
+
 ## Quick Start
 
 ### Docker
@@ -75,7 +99,7 @@ docker run -d \
   --name lethe \
   -v "$PWD/lethe-data:/data" \
   -p 127.0.0.1:18483:18483 \
-  ghcr.io/openlethe/lethe:latest
+  ghcr.io/openlethe/lethe:0.3.0
 ```
 
 ### From Source
