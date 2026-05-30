@@ -15,7 +15,8 @@ The Lethe plugin activates automatically as a context engine. It intercepts sess
   "endpoint": "http://localhost:18483",
   "apiKey": "your-api-key",
   "agentId": "archimedes",
-  "projectId": "default"
+  "projectId": "default",
+  "autoLog": false
 }
 ```
 

@@ -73,7 +73,7 @@ Most agent memory is just conversation storage. Lethe is different:
 ```bash
 docker run -d \
   --name lethe \
-  -v lethe-data:/data \
+  -v "$PWD/lethe-data:/data" \
   -p 18483:18483 \
   ghcr.io/openlethe/lethe:latest
 ```
@@ -82,10 +82,24 @@ docker run -d \
 
 ```bash
 go build ./cmd/lethe
-./lethe --db ./lethe.db --http :18483
+./lethe --db ./lethe.db --http localhost:18483
 ```
 
 The server starts on port 18483 with a built-in UI at `http://localhost:18483/ui/`.
+
+### Security / Auth
+
+By default Lethe runs in trusted-localhost mode: local clients can connect without
+a token, but non-local clients are rejected. If you expose Lethe beyond localhost,
+set a bearer token and configure clients/plugins with the same value:
+
+```bash
+export LETHE_API_KEY="change-me"
+./lethe --db ./lethe.db --http :18483
+# or: ./lethe --api-key "change-me" ...
+```
+
+Clients should send `Authorization: Bearer <token>`.
 
 ---
 
@@ -122,8 +136,10 @@ The Lethe plugin for OpenClaw handles bootstrap and context assembly automatical
 {
   "id": "lethe",
   "endpoint": "http://localhost:18483",
+  "apiKey": "change-me-if-LETHE_API_KEY-is-set",
   "agentId": "archimedes",
-  "projectId": "default"
+  "projectId": "default",
+  "autoLog": false
 }
 ```
 

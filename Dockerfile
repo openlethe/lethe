@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.26-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /build
 
@@ -13,7 +13,7 @@ RUN go mod download
 
 # Now copy source and build
 COPY . .
-RUN go mod tidy
+RUN go mod tidy -diff
 RUN GOOS=linux go build -ldflags="-s -w" -o lethe ./cmd/lethe
 
 # Runtime stage — minimal alpine image
@@ -23,10 +23,13 @@ RUN apk add --no-cache ca-certificates
 
 WORKDIR /app
 
+# Create non-root user and writable data directory for SQLite/WAL files.
+RUN adduser -D -g '' appuser \
+    && mkdir -p /data \
+    && chown -R appuser:appuser /data
+
 COPY --from=builder /build/lethe /app/lethe
 
-# Create non-root user for security
-RUN adduser -D -g '' appuser
 USER appuser
 
 EXPOSE 18483

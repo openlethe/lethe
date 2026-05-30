@@ -19,9 +19,9 @@ import (
 )
 
 var (
-	httpAddr = flag.String("http", "localhost:3421", "HTTP listen address")
+	httpAddr = flag.String("http", "localhost:18483", "HTTP listen address")
 	apiPort  = flag.String("api-port", "", "Port the UI handlers should use to reach the API (defaults to the port in --http)")
-	apiURL   = flag.String("api-url", "", "Full base URL for the API (e.g. http://192.168.1.10:3421). Overrides --api-port")
+	apiURL   = flag.String("api-url", "", "Full base URL for the API (e.g. http://192.168.1.10:18483). Overrides --api-port")
 	dbPath   = flag.String("db", "./lethe.db", "path to SQLite database")
 	apiKey   = flag.String("api-key", "", "Bearer token required for API/UI/SSE access. Defaults to LETHE_API_KEY if unset; no key keeps trusted localhost mode.")
 )

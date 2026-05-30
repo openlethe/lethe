@@ -17,8 +17,8 @@
     ]
   },
   "scripts": {
-    "build": "tsc && tsc-alias",
-    "clean": "rm -rf dist"
+    "build": "echo \"using committed dist bundle\"",
+    "clean": "echo \"committed dist bundle is kept\""
   },
   "dependencies": {
     "@sinclair/typebox": "^0.34.0"
