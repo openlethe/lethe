@@ -12,8 +12,8 @@ import (
 type Option func(*Server)
 
 // WithAuthToken enables bearer-token authentication when token is non-empty.
-// Empty token keeps trusted-localhost mode: loopback clients are allowed and
-// non-local clients are rejected.
+// Empty token keeps trusted-local-network mode: loopback/private clients are
+// allowed and public clients are rejected.
 func WithAuthToken(token string) Option {
 	return func(s *Server) {
 		s.authToken = strings.TrimSpace(token)
@@ -22,8 +22,8 @@ func WithAuthToken(token string) Option {
 
 // AuthMiddleware protects API, UI, and SSE routes. With a configured token it
 // requires Authorization: Bearer <token>. Without a token, it only allows
-// loopback clients so local development remains usable without exposing memory
-// data to the network by accident.
+// loopback/private clients so Docker Desktop and local development remain
+// usable without exposing memory data to public networks by accident.
 func (s *Server) AuthMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +32,7 @@ func (s *Server) AuthMiddleware() func(http.Handler) http.Handler {
 					next.ServeHTTP(w, r)
 					return
 				}
-				writeAuthError(w, http.StatusForbidden, "lethe API key not configured; non-local access denied")
+				writeAuthError(w, http.StatusForbidden, "lethe API key not configured; public-network access denied")
 				return
 			}
 
@@ -60,7 +60,7 @@ func isLocalRequest(r *http.Request) bool {
 		return true
 	}
 	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
 }
 
 func writeAuthError(w http.ResponseWriter, status int, message string) {

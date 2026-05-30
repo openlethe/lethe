@@ -65,7 +65,7 @@ func main() {
 	r := chi.NewRouter()
 	apiServer := api.NewServer(database, sessMgr, api.WithAuthToken(*apiKey))
 	if *apiKey == "" {
-		log.Println("lethe: WARNING: no --api-key/LETHE_API_KEY configured; API/UI/SSE are restricted to localhost clients only")
+		log.Println("lethe: WARNING: no --api-key/LETHE_API_KEY configured; API/UI/SSE are restricted to trusted local/private-network clients only")
 	} else {
 		log.Println("lethe: bearer authentication enabled for API/UI/SSE")
 	}

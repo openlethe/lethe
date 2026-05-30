@@ -74,7 +74,7 @@ Most agent memory is just conversation storage. Lethe is different:
 docker run -d \
   --name lethe \
   -v "$PWD/lethe-data:/data" \
-  -p 18483:18483 \
+  -p 127.0.0.1:18483:18483 \
   ghcr.io/openlethe/lethe:latest
 ```
 
@@ -89,9 +89,10 @@ The server starts on port 18483 with a built-in UI at `http://localhost:18483/ui
 
 ### Security / Auth
 
-By default Lethe runs in trusted-localhost mode: local clients can connect without
-a token, but non-local clients are rejected. If you expose Lethe beyond localhost,
-set a bearer token and configure clients/plugins with the same value:
+By default Lethe runs in trusted local/private-network mode: local Docker Desktop
+and private-network clients can connect without a token, while public-network
+clients are rejected. If you expose Lethe beyond localhost or a trusted private
+network, set a bearer token and configure clients/plugins with the same value:
 
 ```bash
 export LETHE_API_KEY="change-me"

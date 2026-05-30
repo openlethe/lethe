@@ -4,9 +4,9 @@ services:
     container_name: lethe-server
     restart: unless-stopped
     ports:
-      - "18483:18483"
+      - "127.0.0.1:18483:18483"
     environment:
-      # Recommended for LAN-exposed deployments. Leave unset for localhost-only trusted mode.
+      # Recommended for LAN-exposed deployments. Leave unset for trusted local/private-network mode.
       # LETHE_API_KEY: "change-me"
     volumes:
       - /home/ubuntu/lethe-data:/data  # bind mount — survives docker-compose down, never use named volumes for persistent data

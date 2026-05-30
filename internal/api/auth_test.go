@@ -38,7 +38,7 @@ func TestAuthMiddlewareRequiresBearerWhenTokenConfigured(t *testing.T) {
 	}
 }
 
-func TestAuthMiddlewareNoTokenAllowsOnlyLoopback(t *testing.T) {
+func TestAuthMiddlewareNoTokenAllowsTrustedLocalNetwork(t *testing.T) {
 	s := &Server{}
 	h := s.AuthMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -51,7 +51,8 @@ func TestAuthMiddlewareNoTokenAllowsOnlyLoopback(t *testing.T) {
 	}{
 		{name: "loopback ipv4", remoteAddr: "127.0.0.1:12345", want: http.StatusNoContent},
 		{name: "loopback ipv6", remoteAddr: "[::1]:12345", want: http.StatusNoContent},
-		{name: "remote", remoteAddr: "203.0.113.10:12345", want: http.StatusForbidden},
+		{name: "docker desktop private gateway", remoteAddr: "192.168.65.1:12345", want: http.StatusNoContent},
+		{name: "remote public", remoteAddr: "203.0.113.10:12345", want: http.StatusForbidden},
 	}
 
 	for _, tt := range tests {
