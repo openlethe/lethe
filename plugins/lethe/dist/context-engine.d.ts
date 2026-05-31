@@ -18,7 +18,7 @@ interface AssembleParams {
     messages: AgentMessage[];
     tokenBudget?: number;
     prompt?: string;
-    /** Hard cap on recent events fetched from Lethe (default 20). */
+    /** Hard cap on recent events fetched from Lethe (default 5). */
     hardLimit?: number;
 }
 interface AfterTurnParams {

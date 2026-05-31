@@ -34,7 +34,7 @@ interface AssembleParams {
   messages: AgentMessage[];
   tokenBudget?: number;
   prompt?: string;
-  /** Hard cap on recent events fetched from Lethe (default 20). */
+  /** Hard cap on recent events fetched from Lethe (default 5). */
   hardLimit?: number;
 }
 
@@ -96,7 +96,7 @@ export class LetheContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
     id: "mentholmike-lethe",
     name: "Lethe",
-    version: "0.2.9",
+    version: "0.3.0",
     ownsCompaction: true,
   };
 
