@@ -133,7 +133,6 @@ func NewServer(store *db.Store, sessMgr *session.Manager, opts ...Option) *Serve
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
-	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(skipTimeoutForSSE(30 * time.Second))

@@ -1,10 +1,13 @@
 package db
 
 import (
+	"database/sql"
 	"errors"
 	"os"
 	"strings"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
 
 func TestOpenCreatesDB(t *testing.T) {
@@ -144,6 +147,74 @@ func TestSessionKeyUniqueIndex(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(err.Error()), "unique") {
 		t.Fatalf("expected unique constraint error, got %v", err)
+	}
+}
+
+func TestSessionKeyMigrationDetachesExistingDuplicates(t *testing.T) {
+	tmp := t.TempDir() + "/duplicate-session-key.db"
+	raw, err := sql.Open("sqlite", tmp+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("sql.Open: %v", err)
+	}
+	database := &DB{DB: raw}
+	defer database.Close()
+
+	if _, err := database.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_versions (
+			name    TEXT PRIMARY KEY,
+			applied DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`); err != nil {
+		t.Fatalf("create schema_versions: %v", err)
+	}
+	for _, name := range []string{
+		"001_init.sql",
+		"002_add_session_key.sql",
+		"003_add_token_budget.sql",
+		"004_add_lifetime_tokens.sql",
+		"005_add_threads.sql",
+		"006_project_scoped_events.sql",
+	} {
+		if err := database.runMigration(name); err != nil {
+			t.Fatalf("run %s: %v", name, err)
+		}
+	}
+
+	for _, stmt := range []string{
+		"INSERT INTO agents(agent_id, name) VALUES ('agent', 'Agent')",
+		"INSERT INTO projects(project_id, name) VALUES ('project', 'Project')",
+		"INSERT INTO sessions(session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at) VALUES ('older', 'stable-key', 'agent', 'project', 'interrupted', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+		"INSERT INTO sessions(session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at) VALUES ('newer', 'stable-key', 'agent', 'project', 'active', '2026-01-02T00:00:00Z', '2026-01-02T00:00:00Z')",
+		"INSERT INTO sessions(session_id, session_key, agent_id, project_id, state, started_at, last_heartbeat_at) VALUES ('other', 'other-key', 'agent', 'project', 'active', '2026-01-03T00:00:00Z', '2026-01-03T00:00:00Z')",
+	} {
+		if _, err := database.Exec(stmt); err != nil {
+			t.Fatalf("exec %q: %v", stmt, err)
+		}
+	}
+
+	if err := database.runMigration("007_unique_session_key.sql"); err != nil {
+		t.Fatalf("run 007 with duplicate session_key: %v", err)
+	}
+
+	var kept string
+	if err := database.QueryRow("SELECT session_id FROM sessions WHERE session_key='stable-key'").Scan(&kept); err != nil {
+		t.Fatalf("query kept stable-key: %v", err)
+	}
+	if kept != "newer" {
+		t.Fatalf("kept session = %q, want newer", kept)
+	}
+
+	var detached int
+	if err := database.QueryRow("SELECT COUNT(*) FROM sessions WHERE session_id='older' AND session_key IS NULL").Scan(&detached); err != nil {
+		t.Fatalf("query detached duplicate: %v", err)
+	}
+	if detached != 1 {
+		t.Fatalf("older duplicate was not detached")
+	}
+
+	_, err = database.Exec("INSERT INTO sessions(session_id, session_key, agent_id, project_id, state, started_at) VALUES ('dupe', 'stable-key', 'agent', 'project', 'active', datetime('now'))")
+	if err == nil {
+		t.Fatal("expected duplicate session_key insert to fail after migration")
 	}
 }
 

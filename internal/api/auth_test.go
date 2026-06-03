@@ -88,3 +88,18 @@ func TestRouterUsesAuthMiddleware(t *testing.T) {
 		t.Fatalf("expected valid bearer token to reach health handler, got %d", rr.Code)
 	}
 }
+
+func TestRouterNoTokenDoesNotTrustForwardedHeaders(t *testing.T) {
+	server := NewServer(nil, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	req.RemoteAddr = "203.0.113.10:12345"
+	req.Header.Set("X-Forwarded-For", "127.0.0.1")
+	req.Header.Set("X-Real-IP", "127.0.0.1")
+	rr := httptest.NewRecorder()
+
+	server.Router().ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected public socket peer with spoofed forwarded headers to be rejected, got %d", rr.Code)
+	}
+}
