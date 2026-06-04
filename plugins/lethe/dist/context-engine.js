@@ -28,7 +28,7 @@ export class LetheContextEngine {
     info = {
         id: "mentholmike-lethe",
         name: "Lethe",
-        version: "0.3.0",
+        version: "0.3.1",
         ownsCompaction: true,
     };
     constructor(cfg) {
