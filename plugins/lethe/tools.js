@@ -95,7 +95,7 @@ export class LetheTools {
     // ---------------------------------------------------------------------------
     getRecordTool() {
         return this.makeTool({
-            name: "memory.record",
+            name: "lethe.record",
             description: "Record a deliberate decision the agent has made, including the reasoning behind it. Use this for architecture choices, trade-off resolutions, and any conclusions reached during the session.",
             params: RecordParams,
             label: "Record Decision",
@@ -103,7 +103,7 @@ export class LetheTools {
                 const { content, sessionKey, tags } = params;
                 const { endpoint, apiKey, agentId, projectId } = this.cfg;
                 const sk = sessionKey ?? agentId;
-                const res = await lethePost(endpoint, apiKey, `/sessions/${sk}/events`, {
+                const res = await lethePost(endpoint, apiKey, `/api/sessions/${sk}/events`, {
                     event_type: "record",
                     content,
                     tags: tags ?? [],
@@ -130,7 +130,7 @@ export class LetheTools {
     }
     getLogTool() {
         return this.makeTool({
-            name: "memory.log",
+            name: "lethe.log",
             description: "Log an ambient observation, event, or note. Lower stakes than record — use this to track what's happening without requiring structured reasoning.",
             params: LogParams,
             label: "Log Observation",
@@ -138,7 +138,7 @@ export class LetheTools {
                 const { content, sessionKey, tags } = params;
                 const { endpoint, apiKey, agentId, projectId } = this.cfg;
                 const sk = sessionKey ?? agentId;
-                const res = await lethePost(endpoint, apiKey, `/sessions/${sk}/events`, {
+                const res = await lethePost(endpoint, apiKey, `/api/sessions/${sk}/events`, {
                     event_type: "log",
                     content,
                     tags: tags ?? [],
@@ -160,7 +160,7 @@ export class LetheTools {
     }
     getFlagTool() {
         return this.makeTool({
-            name: "memory.flag",
+            name: "lethe.flag",
             description: "Flag a knowledge gap, uncertainty, or educated guess. The confidence score surfaces this for human review. Use when you know you're working with incomplete information.",
             params: FlagParams,
             label: "Flag Uncertainty",
@@ -168,7 +168,7 @@ export class LetheTools {
                 const { content, confidence, sessionKey } = params;
                 const { endpoint, apiKey, agentId, projectId } = this.cfg;
                 const sk = sessionKey ?? agentId;
-                const res = await lethePost(endpoint, apiKey, `/sessions/${sk}/events`, {
+                const res = await lethePost(endpoint, apiKey, `/api/sessions/${sk}/events`, {
                     event_type: "flag",
                     content,
                     confidence,
@@ -195,7 +195,7 @@ export class LetheTools {
     }
     getTaskTool() {
         return this.makeTool({
-            name: "memory.task",
+            name: "lethe.task",
             description: "Track a task through status transitions (todo → in_progress → done | blocked). Each transition is recorded as a separate event with a parent link, building a full audit trail.",
             params: TaskParams,
             label: "Update Task",
@@ -203,7 +203,7 @@ export class LetheTools {
                 const { title, status, sessionKey, parentEventId } = params;
                 const { endpoint, apiKey, agentId, projectId } = this.cfg;
                 const sk = sessionKey ?? agentId;
-                const res = await lethePost(endpoint, apiKey, `/sessions/${sk}/events`, {
+                const res = await lethePost(endpoint, apiKey, `/api/sessions/${sk}/events`, {
                     event_type: "task",
                     content: title,
                     task_status: status,
@@ -234,7 +234,7 @@ export class LetheTools {
     // ---------------------------------------------------------------------------
     getSearchTool() {
         return this.makeTool({
-            name: "memory_search",
+            name: "lethe_search",
             description: "Search Lethe memory for past decisions, observations, flags, and tasks. " +
                 "Use this before re-reasoning about prior work, past decisions, or context " +
                 "from previous sessions. Returns matching events sorted by recency.",
@@ -251,7 +251,7 @@ export class LetheTools {
                     searchParams.set("event_type", eventType);
                 try {
                     // Search across all sessions first (broader recall)
-                    const res = await fetch(`${endpoint}/events/search?${searchParams.toString()}`, { method: "GET", headers: letheHeaders(apiKey) });
+                    const res = await fetch(`${endpoint}/api/events/search?${searchParams.toString()}`, { method: "GET", headers: letheHeaders(apiKey) });
                     if (!res.ok) {
                         const err = await res.text();
                         return {
@@ -265,7 +265,7 @@ export class LetheTools {
                     if (events.length === 0) {
                         // If no cross-session results, try session-scoped search
                         const sk = sessionKey ?? agentId;
-                        const sessionRes = await fetch(`${endpoint}/sessions/${encodeURIComponent(sk)}/events/search?${searchParams.toString()}`, { method: "GET", headers: letheHeaders(apiKey) });
+                        const sessionRes = await fetch(`${endpoint}/api/sessions/${encodeURIComponent(sk)}/events/search?${searchParams.toString()}`, { method: "GET", headers: letheHeaders(apiKey) });
                         if (sessionRes.ok) {
                             const sessionData = await sessionRes.json();
                             const sessionEvents = sessionData.events ?? [];
