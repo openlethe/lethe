@@ -104,6 +104,64 @@ func TestUpdateSessionState(t *testing.T) {
 	}
 }
 
+func TestUpdateSessionStateCanClearSummaryWhenBlank(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	setupAgentProject(t, s, "agent-1", "proj-1")
+
+	s1 := &models.Session{SessionID: "sess-1", AgentID: "agent-1", ProjectID: "proj-1", State: models.SessionActive}
+	if err := s.CreateSession(context.Background(), s1); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if err := s.CompactSession(context.Background(), "sess-1", "saved summary"); err != nil {
+		t.Fatalf("CompactSession: %v", err)
+	}
+
+	if err := s.UpdateSessionState(context.Background(), "sess-1", models.SessionCompleted, "", nil); err != nil {
+		t.Fatalf("UpdateSessionState: %v", err)
+	}
+
+	sess, err := s.GetSession(context.Background(), "sess-1")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("session nil after update")
+	}
+	if sess.Summary != "" {
+		t.Errorf("summary=%q, want empty", sess.Summary)
+	}
+}
+
+func TestUpdateSessionStatePreservingSummary(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	setupAgentProject(t, s, "agent-1", "proj-1")
+
+	s1 := &models.Session{SessionID: "sess-1", AgentID: "agent-1", ProjectID: "proj-1", State: models.SessionActive}
+	if err := s.CreateSession(context.Background(), s1); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	if err := s.CompactSession(context.Background(), "sess-1", "saved summary"); err != nil {
+		t.Fatalf("CompactSession: %v", err)
+	}
+
+	if err := s.UpdateSessionStatePreservingSummary(context.Background(), "sess-1", models.SessionInterrupted, nil); err != nil {
+		t.Fatalf("UpdateSessionStatePreservingSummary: %v", err)
+	}
+
+	sess, err := s.GetSession(context.Background(), "sess-1")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if sess == nil {
+		t.Fatal("session nil after update")
+	}
+	if sess.Summary != "saved summary" {
+		t.Errorf("summary=%q, want saved summary", sess.Summary)
+	}
+}
+
 func TestTouchSessionHeartbeat(t *testing.T) {
 	s, cleanup := newTestStore(t)
 	defer cleanup()
@@ -156,8 +214,8 @@ func TestCheckpointCreateAndGet(t *testing.T) {
 		Snapshot: models.Snapshot{
 			OpenThreads:    []string{"task-1"},
 			RecentEventIDs: []string{"evt-1"},
-			CurrentTask:   "deploying WAGMIOS",
-			LastTool:      "docker compose up",
+			CurrentTask:    "deploying WAGMIOS",
+			LastTool:       "docker compose up",
 		},
 	}
 	if err := s.CreateCheckpoint(context.Background(), c); err != nil {

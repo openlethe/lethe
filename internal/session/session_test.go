@@ -39,6 +39,9 @@ func TestResumeSession(t *testing.T) {
 
 	// Start then interrupt a session.
 	sess, _ := m.StartSession(context.Background(), "agent-1", "proj-1", "Archimedes", "WAGMIOS")
+	if err := m.store.CompactSession(context.Background(), sess.SessionID, "saved summary"); err != nil {
+		t.Fatalf("CompactSession: %v", err)
+	}
 	m.InterruptSession(context.Background(), sess, nil)
 
 	// Resume it.
@@ -51,6 +54,14 @@ func TestResumeSession(t *testing.T) {
 	}
 	if resumed.SessionID != sess.SessionID {
 		t.Errorf("session_id changed: %s → %s", sess.SessionID, resumed.SessionID)
+	}
+
+	resumed, err = m.store.GetSession(context.Background(), sess.SessionID)
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if resumed.Summary != "saved summary" {
+		t.Errorf("summary=%q, want saved summary", resumed.Summary)
 	}
 }
 

@@ -75,6 +75,14 @@ func (s *Store) UpdateSessionState(ctx context.Context, sessionID string, state 
 	return err
 }
 
+// UpdateSessionStatePreservingSummary changes lifecycle state without mutating
+// the compacted session summary.
+func (s *Store) UpdateSessionStatePreservingSummary(ctx context.Context, sessionID string, state models.SessionState, endedAt *time.Time) error {
+	q := `UPDATE sessions SET state=?, ended_at=? WHERE session_id=?`
+	_, err := s.ExecContext(ctx, q, state, endedAt, sessionID)
+	return err
+}
+
 // TouchSessionHeartbeat updates last_heartbeat_at and optionally token_budget.
 // If the session is currently interrupted, it is transitioned back to active.
 func (s *Store) TouchSessionHeartbeat(ctx context.Context, sessionID string, tokenBudget int) error {

@@ -69,7 +69,7 @@ func (m *Manager) ResumeSession(ctx context.Context, agentID, projectID string) 
 	}
 
 	sess.State = models.SessionActive
-	if err := m.store.UpdateSessionState(ctx, sess.SessionID, models.SessionActive, "", nil); err != nil {
+	if err := m.store.UpdateSessionStatePreservingSummary(ctx, sess.SessionID, models.SessionActive, nil); err != nil {
 		return nil, fmt.Errorf("resume transition: %w", err)
 	}
 
@@ -87,7 +87,7 @@ func (m *Manager) InterruptSession(ctx context.Context, sess *models.Session, sn
 		cp := &models.Checkpoint{
 			CheckpointID: uuid.New().String(),
 			SessionID:    sess.SessionID,
-			Snapshot:    *snapshot,
+			Snapshot:     *snapshot,
 		}
 		if err := m.store.CreateCheckpoint(ctx, cp); err != nil {
 			return fmt.Errorf("create checkpoint: %w", err)
@@ -95,7 +95,7 @@ func (m *Manager) InterruptSession(ctx context.Context, sess *models.Session, sn
 	}
 
 	sess.State = models.SessionInterrupted
-	if err := m.store.UpdateSessionState(ctx, sess.SessionID, models.SessionInterrupted, "", nil); err != nil {
+	if err := m.store.UpdateSessionStatePreservingSummary(ctx, sess.SessionID, models.SessionInterrupted, nil); err != nil {
 		return fmt.Errorf("interrupt transition: %w", err)
 	}
 	return nil
@@ -153,10 +153,10 @@ func (m *Manager) StartSessionWithKey(ctx context.Context, sessionKey, agentID, 
 	sess := &models.Session{
 		SessionID:  uuid.New().String(),
 		SessionKey: sessionKey,
-		AgentID:   agentID,
-		ProjectID: projectID,
-		State:     models.SessionActive,
-		StartedAt: time.Now().UTC(),
+		AgentID:    agentID,
+		ProjectID:  projectID,
+		State:      models.SessionActive,
+		StartedAt:  time.Now().UTC(),
 	}
 	if err := m.store.CreateSession(ctx, sess); err != nil {
 		return nil, fmt.Errorf("create session: %w", err)
@@ -180,7 +180,7 @@ func (m *Manager) ResumeSessionByKey(ctx context.Context, sessionKey string) (*m
 	}
 
 	sess.State = models.SessionActive
-	if err := m.store.UpdateSessionState(ctx, sess.SessionID, models.SessionActive, "", nil); err != nil {
+	if err := m.store.UpdateSessionStatePreservingSummary(ctx, sess.SessionID, models.SessionActive, nil); err != nil {
 		return nil, fmt.Errorf("resume transition: %w", err)
 	}
 
@@ -189,7 +189,7 @@ func (m *Manager) ResumeSessionByKey(ctx context.Context, sessionKey string) (*m
 
 // ResumeSessionByID transitions a specific session (by ID) to active.
 func (m *Manager) ResumeSessionByID(ctx context.Context, sessionID string) error {
-	return m.store.UpdateSessionState(ctx, sessionID, models.SessionActive, "", nil)
+	return m.store.UpdateSessionStatePreservingSummary(ctx, sessionID, models.SessionActive, nil)
 }
 
 // UpdateTokenBudget persists the latest token count for a session.
