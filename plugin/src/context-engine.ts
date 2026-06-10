@@ -1,7 +1,9 @@
 import {
+  delegateCompactionToRuntime,
+} from "openclaw/plugin-sdk/core";
+import {
   type ContextEngine,
   type ContextEngineInfo,
-  delegateCompactionToRuntime,
 } from "openclaw/plugin-sdk";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type {

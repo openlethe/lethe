@@ -141,6 +141,17 @@ update_pkg "$PLUGIN_SOURCE/package.json" "$NEW_VERSION" "$OPENCLAW_VERSION"
 update_pkg "$PLUGIN_DIST/package.json"  "$NEW_VERSION" "$OPENCLAW_VERSION"
 echo ""
 
+# ──────────────────── 1b) bump openclaw.plugin.json ────────────────────
+echo "==> Bumping openclaw.plugin.json..."
+PLUGIN_JSON="$PLUGIN_DIST/openclaw.plugin.json"
+if [[ -f "$PLUGIN_JSON" ]]; then
+    jq --arg v "$NEW_VERSION" '.version = $v' "$PLUGIN_JSON" >"${PLUGIN_JSON}.tmp" && mv "${PLUGIN_JSON}.tmp" "$PLUGIN_JSON"
+    echo "  ✓ openclaw.plugin.json → $NEW_VERSION"
+else
+    echo "  ⚠ openclaw.plugin.json not found in $PLUGIN_DIST"
+fi
+echo ""
+
 # ──────────────────── 2) rebuild dist ────────────────────
 echo "==> Building distribution..."
 cd "$PLUGIN_SOURCE"

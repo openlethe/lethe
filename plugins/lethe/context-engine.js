@@ -1,4 +1,4 @@
-import { delegateCompactionToRuntime, } from "openclaw/plugin-sdk";
+import { delegateCompactionToRuntime, } from "openclaw/plugin-sdk/core";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
