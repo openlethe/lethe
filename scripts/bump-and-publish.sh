@@ -81,6 +81,27 @@ update_pkg() {
     echo "  ✓ $(basename "$(dirname "$file")")/package.json → $plugin_ver (oc $oc_ver)"
 }
 
+update_manifest() {
+    local file="$1" plugin_ver="$2"
+    if [[ -f "$file" ]]; then
+        jq --arg v "$plugin_ver" '.version = $v' "$file" >"${file}.tmp" && mv "${file}.tmp" "$file"
+        echo "  ✓ $(basename "$(dirname "$file")")/openclaw.plugin.json → $plugin_ver"
+    else
+        echo "  ⚠ openclaw.plugin.json not found in $(dirname "$file")"
+    fi
+}
+
+update_lockfile_root() {
+    local file="$1" plugin_ver="$2"
+    if [[ -f "$file" ]]; then
+        jq --arg v "$plugin_ver" '
+            .version = (.version // $v) |
+            .packages[""].version = $v
+        ' "$file" >"${file}.tmp" && mv "${file}.tmp" "$file"
+        echo "  ✓ $(basename "$(dirname "$file")")/package-lock.json → $plugin_ver"
+    fi
+}
+
 # ──────────────────── args ────────────────────
 for arg in "$@"; do
     case "$arg" in
@@ -139,17 +160,14 @@ $DRY_RUN && { echo ""; echo "Dry run complete."; exit 0; }
 echo "==> Bumping package.json files..."
 update_pkg "$PLUGIN_SOURCE/package.json" "$NEW_VERSION" "$OPENCLAW_VERSION"
 update_pkg "$PLUGIN_DIST/package.json"  "$NEW_VERSION" "$OPENCLAW_VERSION"
+update_lockfile_root "$PLUGIN_SOURCE/package-lock.json" "$NEW_VERSION"
+update_lockfile_root "$PLUGIN_DIST/package-lock.json" "$NEW_VERSION"
 echo ""
 
 # ──────────────────── 1b) bump openclaw.plugin.json ────────────────────
 echo "==> Bumping openclaw.plugin.json..."
-PLUGIN_JSON="$PLUGIN_DIST/openclaw.plugin.json"
-if [[ -f "$PLUGIN_JSON" ]]; then
-    jq --arg v "$NEW_VERSION" '.version = $v' "$PLUGIN_JSON" >"${PLUGIN_JSON}.tmp" && mv "${PLUGIN_JSON}.tmp" "$PLUGIN_JSON"
-    echo "  ✓ openclaw.plugin.json → $NEW_VERSION"
-else
-    echo "  ⚠ openclaw.plugin.json not found in $PLUGIN_DIST"
-fi
+update_manifest "$PLUGIN_SOURCE/openclaw.plugin.json" "$NEW_VERSION"
+update_manifest "$PLUGIN_DIST/openclaw.plugin.json" "$NEW_VERSION"
 echo ""
 
 # ──────────────────── 2) rebuild dist ────────────────────
