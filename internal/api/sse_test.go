@@ -1,9 +1,12 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -52,26 +55,63 @@ func TestBroadcasterClientReceivesBroadcastAndDoneIsIdempotent(t *testing.T) {
 	}
 }
 
+type safeRecorder struct {
+	http.ResponseWriter
+	mu     sync.Mutex
+	body   bytes.Buffer
+	header http.Header
+	code   int
+}
+
+func (r *safeRecorder) Header() http.Header {
+	if r.header == nil {
+		r.header = make(http.Header)
+	}
+	return r.header
+}
+
+func (r *safeRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.code == 0 {
+		r.code = 200
+	}
+	return r.body.Write(p)
+}
+
+func (r *safeRecorder) WriteHeader(code int) {
+	r.code = code
+}
+
+func (r *safeRecorder) Flush() {}
+
+func (r *safeRecorder) BodyString() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.body.String()
+}
+
 func TestSSEReceivesInitialPing(t *testing.T) {
 	s := &Server{broadcaster: newBroadcaster()}
 	defer s.StopBroadcaster()
 
-	req := httptest.NewRequest(http.MethodGet, "/live", nil)
-	rr := httptest.NewRecorder()
-	done := make(chan struct{})
-	go func() {
-		s.handleSSE(rr, req)
-		close(done)
-	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodGet, "/live", nil).WithContext(ctx)
+	rr := &safeRecorder{}
 
+	go s.handleSSE(rr, req)
+
+	// Poll for the initial ping; cancel context once found to stop the handler.
 	deadline := time.After(500 * time.Millisecond)
 	for {
-		if strings.Contains(rr.Body.String(), "event: ping") {
+		if strings.Contains(rr.BodyString(), "event: ping") {
+			cancel()
 			return
 		}
 		select {
 		case <-deadline:
-			t.Fatalf("initial ping not written: %q", rr.Body.String())
+			cancel()
+			t.Fatalf("initial ping not written: %q", rr.BodyString())
 		default:
 			time.Sleep(10 * time.Millisecond)
 		}

@@ -1,6 +1,6 @@
 {
   "name": "@mentholmike/lethe",
-  "version": "0.3.8",
+  "version": "0.4.0",
   "description": "Lethe — persistent memory layer for AI agents. OpenClaw plugin.",
   "type": "module",
   "main": "dist/index.js",
@@ -18,6 +18,7 @@
   },
   "scripts": {
     "build": "tsc && tsc-alias",
+    "test": "npm run build && node --test dist/**/*.test.js",
     "clean": "rm -rf dist"
   },
   "dependencies": {

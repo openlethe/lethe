@@ -11,8 +11,44 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/openlethe/lethe/internal/db"
 	"github.com/openlethe/lethe/internal/models"
 )
+
+// ---------------------------------------------------------------------------
+// Validation helpers
+// ---------------------------------------------------------------------------
+
+// validPublicEventType returns true for the four public event types.
+func validPublicEventType(v string) bool {
+	switch v {
+	case string(models.EventRecord), string(models.EventLog), string(models.EventFlag), string(models.EventTask):
+		return true
+	}
+	return false
+}
+
+// validTaskStatus returns true for supported task statuses.
+func validTaskStatus(v string) bool {
+	switch v {
+	case string(models.TaskTodo), string(models.TaskInProgress), string(models.TaskDone), string(models.TaskBlocked):
+		return true
+	}
+	return false
+}
+
+// queryLimit parses a bounded integer from query parameters.
+func queryLimit(r *http.Request, name string, defaultValue, maxValue int) int {
+	if v := r.URL.Query().Get(name); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			if n > maxValue {
+				return maxValue
+			}
+			return n
+		}
+	}
+	return defaultValue
+}
 
 // handleHealth returns server health status.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -156,8 +192,8 @@ func (s *Server) handleInterruptSession(w http.ResponseWriter, r *http.Request) 
 		Snapshot struct {
 			OpenThreads    []string `json:"open_threads"`
 			RecentEventIDs []string `json:"recent_event_ids"`
-			CurrentTask   string   `json:"current_task"`
-			LastTool      string   `json:"last_tool"`
+			CurrentTask    string   `json:"current_task"`
+			LastTool       string   `json:"last_tool"`
 		} `json:"snapshot"`
 	}
 	var snapshot *models.Snapshot
@@ -165,8 +201,8 @@ func (s *Server) handleInterruptSession(w http.ResponseWriter, r *http.Request) 
 		snapshot = &models.Snapshot{
 			OpenThreads:    req.Snapshot.OpenThreads,
 			RecentEventIDs: req.Snapshot.RecentEventIDs,
-			CurrentTask:   req.Snapshot.CurrentTask,
-			LastTool:      req.Snapshot.LastTool,
+			CurrentTask:    req.Snapshot.CurrentTask,
+			LastTool:       req.Snapshot.LastTool,
 		}
 	}
 
@@ -236,6 +272,10 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	if req.EventType == "" {
 		req.EventType = string(models.EventLog)
 	}
+	if !validPublicEventType(req.EventType) {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid event_type: must be record, log, flag, or task"})
+		return
+	}
 	if strings.TrimSpace(req.Content) == "" {
 		writeJSON(w, http.StatusCreated, map[string]interface{}{"event_id": "", "skipped": "empty content"})
 		return
@@ -244,18 +284,26 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "task_title is required for task events"})
 		return
 	}
+	if req.TaskStatus != "" && !validTaskStatus(req.TaskStatus) {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid task_status: must be todo, in_progress, done, or blocked"})
+		return
+	}
+	if req.Confidence != nil && (*req.Confidence < 0.0 || *req.Confidence > 1.0) {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "confidence must be between 0.0 and 1.0"})
+		return
+	}
 
 	event := &models.Event{
 		EventID:       generateID(),
 		SessionID:     &sess.SessionID,
 		ProjectID:     sess.ProjectID,
 		ParentEventID: req.ParentEventID,
-		EventType:    models.EventType(req.EventType),
-		Content:      req.Content,
-		Confidence:   req.Confidence,
-		Tags:         strings.Join(req.Tags, ","),
-		TaskTitle:    req.TaskTitle,
-		ThreadID:     req.ThreadID,
+		EventType:     models.EventType(req.EventType),
+		Content:       req.Content,
+		Confidence:    req.Confidence,
+		Tags:          strings.Join(req.Tags, ","),
+		TaskTitle:     req.TaskTitle,
+		ThreadID:      req.ThreadID,
 	}
 	if req.TaskStatus != "" {
 		ts := models.TaskStatus(req.TaskStatus)
@@ -268,11 +316,11 @@ func (s *Server) handleCreateEvent(w http.ResponseWriter, r *http.Request) {
 	if req.EventType == "flag" && req.ThreadID == "" {
 		slug := makeSlug(req.Content)
 		thread := &models.Thread{
-			ThreadID: generateID(),
+			ThreadID:  generateID(),
 			SessionID: sess.SessionID,
-			Name: slug,
-			Title: req.Content,
-			Status: models.ThreadOpen,
+			Name:      slug,
+			Title:     req.Content,
+			Status:    models.ThreadOpen,
 		}
 		if err := s.store.CreateThread(r.Context(), thread); err == nil {
 			event.ThreadID = thread.ThreadID
@@ -406,8 +454,8 @@ func (s *Server) handleCreateCheckpoint(w http.ResponseWriter, r *http.Request) 
 		Snapshot struct {
 			OpenThreads    []string `json:"open_threads"`
 			RecentEventIDs []string `json:"recent_event_ids"`
-			CurrentTask   string   `json:"current_task"`
-			LastTool      string   `json:"last_tool"`
+			CurrentTask    string   `json:"current_task"`
+			LastTool       string   `json:"last_tool"`
 		} `json:"snapshot"`
 	}
 	if err := readJSON(w, r, &req); err != nil {
@@ -421,8 +469,8 @@ func (s *Server) handleCreateCheckpoint(w http.ResponseWriter, r *http.Request) 
 		Snapshot: models.Snapshot{
 			OpenThreads:    req.Snapshot.OpenThreads,
 			RecentEventIDs: req.Snapshot.RecentEventIDs,
-			CurrentTask:   req.Snapshot.CurrentTask,
-			LastTool:      req.Snapshot.LastTool,
+			CurrentTask:    req.Snapshot.CurrentTask,
+			LastTool:       req.Snapshot.LastTool,
 		},
 	}
 	if err := s.store.CreateCheckpoint(r.Context(), cp); err != nil {
@@ -434,9 +482,9 @@ func (s *Server) handleCreateCheckpoint(w http.ResponseWriter, r *http.Request) 
 	if s.broadcaster != nil {
 		s.broadcaster.Broadcast("checkpoint", map[string]interface{}{
 			"checkpoint_id": cp.CheckpointID,
-			"session_id":     cp.SessionID,
-			"seq":            cp.Seq,
-			"created_at":     cp.CreatedAt,
+			"session_id":    cp.SessionID,
+			"seq":           cp.Seq,
+			"created_at":    cp.CreatedAt,
 		})
 	}
 
@@ -491,12 +539,24 @@ func (s *Server) handleCreateProjectEvent(w http.ResponseWriter, r *http.Request
 	if req.EventType == "" {
 		req.EventType = string(models.EventLog)
 	}
+	if !validPublicEventType(req.EventType) {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid event_type: must be record, log, flag, or task"})
+		return
+	}
 	if req.EventType == "task" && req.TaskTitle == "" {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "task_title is required for task events"})
 		return
 	}
+	if req.TaskStatus != "" && !validTaskStatus(req.TaskStatus) {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid task_status: must be todo, in_progress, done, or blocked"})
+		return
+	}
+	if req.Confidence != nil && (*req.Confidence < 0.0 || *req.Confidence > 1.0) {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "confidence must be between 0.0 and 1.0"})
+		return
+	}
 
-	// sessionID is optional — if provided, validate it exists.
+	// sessionID is optional — if provided, validate it exists and matches project.
 	var sessionID *string
 	if req.SessionID != "" {
 		sess, err := s.resolveSession(r.Context(), req.SessionID)
@@ -504,12 +564,16 @@ func (s *Server) handleCreateProjectEvent(w http.ResponseWriter, r *http.Request
 			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "session not found"})
 			return
 		}
+		if sess.ProjectID != req.ProjectID {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "session does not belong to project"})
+			return
+		}
 		sessionID = &sess.SessionID
 	}
 
 	event := &models.Event{
 		EventID:       generateID(),
-		SessionID:     sessionID,  // nil for project-level events
+		SessionID:     sessionID, // nil for project-level events
 		ProjectID:     req.ProjectID,
 		ParentEventID: req.ParentEventID,
 		EventType:     models.EventType(req.EventType),
@@ -580,17 +644,19 @@ func (s *Server) handleSearchEvents(w http.ResponseWriter, r *http.Request) {
 	// so a bare /events/search doesn't return everything with no filter.
 	projectId := r.URL.Query().Get("projectId")
 	eventType := r.URL.Query().Get("eventType")
+	if eventType == "" {
+		eventType = r.URL.Query().Get("event_type")
+	}
 	if query == "" && projectId == "" && eventType == "" {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "at least one filter required: q, projectId, or eventType"})
 		return
 	}
-	tag := r.URL.Query().Get("tag")
-	limit := 20
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if n, err := strconv.Atoi(l); err == nil && n > 0 {
-			limit = n
-		}
+	if eventType != "" && !validPublicEventType(eventType) {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid event_type: must be record, log, flag, or task"})
+		return
 	}
+	tag := r.URL.Query().Get("tag")
+	limit := queryLimit(r, "limit", 20, 100)
 
 	events, err := s.store.SearchEvents(r.Context(), query, tag, projectId, eventType, limit)
 	if err != nil {
@@ -601,17 +667,17 @@ func (s *Server) handleSearchEvents(w http.ResponseWriter, r *http.Request) {
 	eventsOut := make([]map[string]interface{}, len(events))
 	for i, e := range events {
 		eventsOut[i] = map[string]interface{}{
-			"event_id":   e.EventID,
-			"session_id": e.SessionID,
-			"project_id": e.ProjectID,
+			"event_id":        e.EventID,
+			"session_id":      e.SessionID,
+			"project_id":      e.ProjectID,
 			"parent_event_id": e.ParentEventID,
-			"event_type": e.EventType,
-			"content":    e.Content,
-			"confidence": e.Confidence,
-			"tags":       e.Tags,
-			"task_title": e.TaskTitle,
-			"task_status": e.TaskStatus,
-			"created_at": e.CreatedAt,
+			"event_type":      e.EventType,
+			"content":         e.Content,
+			"confidence":      e.Confidence,
+			"tags":            e.Tags,
+			"task_title":      e.TaskTitle,
+			"task_status":     e.TaskStatus,
+			"created_at":      e.CreatedAt,
 		}
 	}
 
@@ -656,7 +722,6 @@ func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	ch, done := s.broadcaster.AddClient()
 	defer done()
@@ -717,6 +782,10 @@ func (s *Server) handleReviewFlag(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.MarkFlagReviewed(r.Context(), eventID, req.ReviewerID); err != nil {
+		if err == db.ErrFlagNotFound {
+			writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "flag not found or already reviewed"})
+			return
+		}
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -750,16 +819,16 @@ func (s *StringOrStringArray) UnmarshalJSON(data []byte) error {
 }
 
 type CreateEventRequest struct {
-	EventType     string   `json:"event_type"`
-	Content       string   `json:"content"`
-	SessionID     string   `json:"session_id,omitempty"`      // optional; if set, links event to a session
-	ProjectID     string   `json:"project_id,omitempty"`     // required for project-level writes; optional for session writes
-	Confidence    *float64 `json:"confidence,omitempty"`
+	EventType     string              `json:"event_type"`
+	Content       string              `json:"content"`
+	SessionID     string              `json:"session_id,omitempty"` // optional; if set, links event to a session
+	ProjectID     string              `json:"project_id,omitempty"` // required for project-level writes; optional for session writes
+	Confidence    *float64            `json:"confidence,omitempty"`
 	Tags          StringOrStringArray `json:"tags,omitempty"`
-	ParentEventID string   `json:"parent_event_id,omitempty"`
-	TaskTitle     string   `json:"task_title,omitempty"`
-	TaskStatus    string   `json:"task_status,omitempty"`
-	ThreadID      string   `json:"thread_id,omitempty"` // attach event to existing thread
+	ParentEventID string              `json:"parent_event_id,omitempty"`
+	TaskTitle     string              `json:"task_title,omitempty"`
+	TaskStatus    string              `json:"task_status,omitempty"`
+	ThreadID      string              `json:"thread_id,omitempty"` // attach event to existing thread
 }
 
 func truncate(s string, max int) string {
@@ -775,8 +844,8 @@ func truncate(s string, max int) string {
 func (s *Server) handleCreateThread(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		SessionKey string `json:"session_key"`
-		Name      string `json:"name"`
-		Title     string `json:"title"`
+		Name       string `json:"name"`
+		Title      string `json:"title"`
 	}
 	if err := readJSON(w, r, &req); err != nil || req.SessionKey == "" || req.Name == "" || req.Title == "" {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "session_key, name, and title are required"})
@@ -969,8 +1038,8 @@ func (s *Server) handleGetSessionSummary(w http.ResponseWriter, r *http.Request)
 		"summary":           topSummary,
 		"latest_checkpoint": latestCP,
 		"recent_events":     events,
-		"checkpoint_count": len(cps),
-		"event_count":      totalEventCount,
+		"checkpoint_count":  len(cps),
+		"event_count":       totalEventCount,
 	})
 }
 
@@ -992,7 +1061,6 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "session not found"})
 		return
 	}
-
 
 	cps, err := s.store.GetCheckpoints(ctx, sess.SessionID)
 	if err != nil {
@@ -1069,5 +1137,3 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 		"summary": summaryText,
 	})
 }
-
-

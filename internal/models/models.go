@@ -7,9 +7,9 @@ import (
 
 // Agent represents a registered agent.
 type Agent struct {
-	AgentID    string       `json:"agent_id"`
-	Name      string       `json:"name"`
-	CreatedAt  time.Time   `json:"created_at"`
+	AgentID    string     `json:"agent_id"`
+	Name       string     `json:"name"`
+	CreatedAt  time.Time  `json:"created_at"`
 	LastSeenAt *time.Time `json:"last_seen_at,omitempty"`
 }
 
@@ -27,39 +27,39 @@ type SessionState string
 const (
 	SessionActive      SessionState = "active"
 	SessionInterrupted SessionState = "interrupted"
-	SessionCompleted  SessionState = "completed"
+	SessionCompleted   SessionState = "completed"
 )
 
 // Session represents a Lethe session.
 type Session struct {
-	SessionID        string       `json:"session_id"`
-	SessionKey       string       `json:"session_key,omitempty"`
-	AgentID          string       `json:"agent_id"`
-	ProjectID        string       `json:"project_id"`
-	State            SessionState `json:"state"`
-	StartedAt        time.Time    `json:"started_at"`
-	LastHeartbeatAt  *time.Time    `json:"last_heartbeat_at,omitempty"`
-	EndedAt          *time.Time    `json:"ended_at,omitempty"`
-	Summary               string       `json:"summary,omitempty"`
-	TokenBudget           int          `json:"token_budget"`            // latest token count from heartbeat
-	TotalTokensConsumed   int          `json:"total_tokens_consumed"`   // lifetime accumulator across compacts
+	SessionID           string       `json:"session_id"`
+	SessionKey          string       `json:"session_key,omitempty"`
+	AgentID             string       `json:"agent_id"`
+	ProjectID           string       `json:"project_id"`
+	State               SessionState `json:"state"`
+	StartedAt           time.Time    `json:"started_at"`
+	LastHeartbeatAt     *time.Time   `json:"last_heartbeat_at,omitempty"`
+	EndedAt             *time.Time   `json:"ended_at,omitempty"`
+	Summary             string       `json:"summary,omitempty"`
+	TokenBudget         int          `json:"token_budget"`          // latest token count from heartbeat
+	TotalTokensConsumed int          `json:"total_tokens_consumed"` // lifetime accumulator across compacts
 }
 
 // Checkpoint represents a session checkpoint snapshot.
 type Checkpoint struct {
 	CheckpointID string    `json:"checkpoint_id"`
-	SessionID   string    `json:"session_id"`
-	Seq         int       `json:"seq"`
-	Snapshot    Snapshot  `json:"snapshot"`
-	CreatedAt   time.Time `json:"created_at"`
+	SessionID    string    `json:"session_id"`
+	Seq          int       `json:"seq"`
+	Snapshot     Snapshot  `json:"snapshot"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // Snapshot is the JSON blob stored in a checkpoint.
 type Snapshot struct {
 	OpenThreads    []string `json:"open_threads"`
 	RecentEventIDs []string `json:"recent_event_ids"`
-	CurrentTask   string   `json:"current_task"`
-	LastTool      string   `json:"last_tool"`
+	CurrentTask    string   `json:"current_task"`
+	LastTool       string   `json:"last_tool"`
 }
 
 // MarshalSnapshot encodes a Snapshot to JSON bytes.
@@ -97,7 +97,7 @@ const (
 
 // Event represents a Lethe event.
 type Event struct {
-	EventID         string       `json:"event_id"`
+	EventID         string      `json:"event_id"`
 	SessionID       *string     `json:"session_id"` // nullable: project-level events have no session
 	ProjectID       string      `json:"project_id"` // always set, defaults to 'default'
 	ParentEventID   string      `json:"parent_event_id,omitempty"`
@@ -108,8 +108,8 @@ type Event struct {
 	EmbeddingID     string      `json:"embedding_id,omitempty"`
 	TaskTitle       string      `json:"task_title,omitempty"`
 	TaskStatus      *TaskStatus `json:"task_status,omitempty"`
-	StatusChangedAt *time.Time `json:"status_changed_at,omitempty"`
-	HumanReviewedAt *time.Time `json:"human_reviewed_at,omitempty"`
+	StatusChangedAt *time.Time  `json:"status_changed_at,omitempty"`
+	HumanReviewedAt *time.Time  `json:"human_reviewed_at,omitempty"`
 	ReviewerID      string      `json:"reviewer_id,omitempty"`
 	ThreadID        string      `json:"thread_id,omitempty"`
 	CreatedAt       time.Time   `json:"created_at"`
@@ -117,9 +117,9 @@ type Event struct {
 
 // SessionLink records a relationship between two sessions.
 type SessionLink struct {
-	SessionID       string `json:"session_id"`
-	PriorSessionID  string `json:"prior_session_id"`
-	LinkType        string `json:"link_type"`
+	SessionID      string `json:"session_id"`
+	PriorSessionID string `json:"prior_session_id"`
+	LinkType       string `json:"link_type"`
 }
 
 // ThreadState is the status of a thread.
@@ -135,10 +135,10 @@ const (
 type Thread struct {
 	ThreadID   string      `json:"thread_id"`
 	SessionID  string      `json:"session_id"`
-	Name       string      `json:"name"`       // slug: "auth-design"
-	Title      string      `json:"title"`      // human readable: "Auth approach decision"
+	Name       string      `json:"name"`  // slug: "auth-design"
+	Title      string      `json:"title"` // human readable: "Auth approach decision"
 	Status     ThreadState `json:"status"`
 	CreatedAt  time.Time   `json:"created_at"`
 	UpdatedAt  time.Time   `json:"updated_at"`
-	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
+	ResolvedAt *time.Time  `json:"resolved_at,omitempty"`
 }

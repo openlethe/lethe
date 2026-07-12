@@ -137,11 +137,11 @@ func (s *APIServer) handleGetSessionSummary(w http.ResponseWriter, r *http.Reque
 	evts, _ := s.store.GetRecentSessionEvents(r.Context(), sess.SessionID, 20)
 	if isHTMX(r) {
 		s.frag(w, r, "session_summary", map[string]interface{}{
-			"session":          sess,
-			"checkpoint_count": len(cps),
-			"event_count":      len(evts),
+			"session":           sess,
+			"checkpoint_count":  len(cps),
+			"event_count":       len(evts),
 			"latest_checkpoint": firstOrNil(cps),
-			"recent_events":    evts,
+			"recent_events":     evts,
 		})
 		return
 	}

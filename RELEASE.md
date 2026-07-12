@@ -171,6 +171,8 @@ openclaw plugins info mentholmike-lethe
 
 | Version | Date | OpenClaw | Changes |
 |---------|------|----------|---------|
+| 0.4.0 | 2026-07-12 | 2026.6.11 | Context correctness, assembly observability, feedback labels, security hardening, project-scoped search, version alignment |
+| 0.3.7 | 2026-06-11 | 2026.6.11 | Previous stable v0.3.x |
 | 0.2.5 | 2026-04-28 | 2026.4.26 | Fixed extension path, ClawHub package |
 | 0.2.4 | 2026-04-28 | 2026.4.26 | Cache refresh attempt |
 | 0.2.3 | 2026-04-28 | 2026.4.26 | Bumped OpenClaw compat |
@@ -178,4 +180,4 @@ openclaw plugins info mentholmike-lethe
 
 ---
 
-_Last updated: 2026-04-28_
+_Last updated: 2026-07-12_

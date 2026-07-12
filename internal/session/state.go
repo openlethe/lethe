@@ -9,7 +9,7 @@ var ValidTransitions = map[models.SessionState]map[models.SessionState]bool{
 		models.SessionCompleted:   true,
 	},
 	models.SessionInterrupted: {
-		models.SessionActive:     true, // resume
+		models.SessionActive:    true, // resume
 		models.SessionCompleted: true,
 	},
 	models.SessionCompleted: {}, // terminal

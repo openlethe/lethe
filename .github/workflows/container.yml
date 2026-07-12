@@ -30,8 +30,26 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Race Test
+        run: go test -race ./...
+
       - name: Vet
         run: go vet ./...
+
+      - name: Format Check
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "Unformatted Go files:"
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: Plugin Build and Test
+        working-directory: plugin
+        run: |
+          npm ci
+          npm run build
+          npm test
 
   build:
     runs-on: ubuntu-latest

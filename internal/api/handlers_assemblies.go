@@ -72,23 +72,23 @@ func (s *Server) handleCreateAssembly(w http.ResponseWriter, r *http.Request) {
 
 	// Build assembly model.
 	assembly := &models.ContextAssembly{
-		AssemblyID:   req.AssemblyID,
-		SessionID:    sess.SessionID,
-		ProjectID:    sess.ProjectID,
-		Source:       req.Source,
-		PluginVersion: req.PluginVersion,
-		AssemblerVersion: req.AssemblerVersion,
-		MessageCount: req.MessageCount,
-		ProvidedTokenBudget: req.ProvidedTokenBudget,
-		EstimatorID:  req.EstimatorID,
-		SummaryEstimatedTokens: req.SummaryEstimatedTokens,
-		RecentEstimatedTokens: req.RecentEstimatedTokens,
+		AssemblyID:                  req.AssemblyID,
+		SessionID:                   sess.SessionID,
+		ProjectID:                   sess.ProjectID,
+		Source:                      req.Source,
+		PluginVersion:               req.PluginVersion,
+		AssemblerVersion:            req.AssemblerVersion,
+		MessageCount:                req.MessageCount,
+		ProvidedTokenBudget:         req.ProvidedTokenBudget,
+		EstimatorID:                 req.EstimatorID,
+		SummaryEstimatedTokens:      req.SummaryEstimatedTokens,
+		RecentEstimatedTokens:       req.RecentEstimatedTokens,
 		ConversationEstimatedTokens: req.ConversationEstimatedTokens,
-		TotalEstimatedTokens: req.TotalEstimatedTokens,
-		PackedBytes:  req.PackedBytes,
-		RecentSkipped: req.RecentSkipped,
-		SkipReason:   req.SkipReason,
-		Notes:        req.Notes,
+		TotalEstimatedTokens:        req.TotalEstimatedTokens,
+		PackedBytes:                 req.PackedBytes,
+		RecentSkipped:               req.RecentSkipped,
+		SkipReason:                  req.SkipReason,
+		Notes:                       req.Notes,
 	}
 
 	// Validate and convert items.
@@ -241,11 +241,11 @@ func (s *Server) handleCreateFeedback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	feedback := &models.ContextAssemblyFeedback{
-		FeedbackID:   generateID(),
-		AssemblyID:   assemblyID,
-		Verdict:      req.Verdict,
+		FeedbackID:     generateID(),
+		AssemblyID:     assemblyID,
+		Verdict:        req.Verdict,
 		RelatedEventID: req.RelatedEventID,
-		Note:         req.Note,
+		Note:           req.Note,
 	}
 	if err := s.store.CreateContextAssemblyFeedback(r.Context(), feedback); err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -254,5 +254,3 @@ func (s *Server) handleCreateFeedback(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusCreated, feedback)
 }
-
-

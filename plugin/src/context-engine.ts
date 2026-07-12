@@ -16,6 +16,10 @@ import type {
   AssemblyItem,
 } from "./context-engine-types.js";
 
+// Throttled warning for assembly report failures.
+let assemblyWarnCount = 0;
+const ASSEMBLY_WARN_MAX = 3;
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -483,18 +487,10 @@ export class LetheContextEngine implements ContextEngine {
       ordinal++;
     }
 
-    // Conversation messages (packed as a single item for telemetry).
+    // Only summary and event items are stored in the ledger.
+    // Conversation metadata is reported at the top level but never stored
+    // as items (no prompt / message content in telemetry per section 11.5).
     const convoText = JSON.stringify(params.messages);
-    const convoBytes = new TextEncoder().encode(convoText);
-    items.push({
-      ordinal,
-      item_kind: "event",
-      bucket: "conversation",
-      content_snapshot: `messages: ${params.messages.length}`,
-      content_sha256: await sha256Hex(convoText),
-      packed_bytes: convoBytes.length,
-      estimated_tokens: estimateTokens(convoText),
-    });
 
     const totalBytes = items.reduce((sum, i) => sum + i.packed_bytes, 0);
     const totalTokens = params.summaryTokens + params.recentTokens + estimateTokens(convoText);
@@ -503,10 +499,10 @@ export class LetheContextEngine implements ContextEngine {
       assembly_id: assemblyId,
       source: "openclaw-plugin",
       plugin_version: this.info.version ?? "0.4.0",
-      assembler_version: this.info.version ?? "0.4.0",
+      assembler_version: "openclaw-recent-v1",
       message_count: params.messages.length,
       provided_token_budget: params.tokenBudget,
-      estimator_id: "char-count/4",
+      estimator_id: "js-utf16-length-div-4-v1",
       summary_estimated_tokens: params.summaryTokens || undefined,
       recent_estimated_tokens: params.recentTokens || undefined,
       conversation_estimated_tokens: estimateTokens(convoText),
@@ -528,8 +524,13 @@ export class LetheContextEngine implements ContextEngine {
       if (res.ok) {
         return { assembly_id: assemblyId };
       }
-    } catch {
-      // Best-effort: silently fail.
+    } catch (err: any) {
+      if (assemblyWarnCount < ASSEMBLY_WARN_MAX) {
+        assemblyWarnCount++;
+        console.warn(
+          `[Lethe] assembly report failed (assembly_id=${assemblyId}, count=${assemblyWarnCount}/${ASSEMBLY_WARN_MAX}): ${err?.message || "unknown"}`
+        );
+      }
     }
     return null;
   }

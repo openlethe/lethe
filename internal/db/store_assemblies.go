@@ -14,9 +14,9 @@ import (
 
 // Sentinel errors for assembly operations.
 var (
-	ErrAssemblyNotFound      = errors.New("assembly not found")
-	ErrAssemblyConflict      = errors.New("assembly id conflict")
-	ErrAssemblyEventMismatch = errors.New("assembly event does not belong to session")
+	ErrAssemblyNotFound       = errors.New("assembly not found")
+	ErrAssemblyConflict       = errors.New("assembly id conflict")
+	ErrAssemblyEventMismatch  = errors.New("assembly event does not belong to session")
 	ErrSessionProjectMismatch = errors.New("session project mismatch")
 )
 
@@ -315,7 +315,7 @@ func (s *Store) PruneContextAssemblies(ctx context.Context, olderThan time.Time,
 	// Delete assemblies older than the cutoff, keeping maxPerSession newest per session.
 	// This is a two-step process: first identify sessions with excess assemblies,
 	// then delete the oldest excess ones.
-	
+
 	// Simple approach: delete assemblies older than cutoff, limited to deleteLimit.
 	q := `DELETE FROM context_assemblies
 	      WHERE assembly_id IN (

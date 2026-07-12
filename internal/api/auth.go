@@ -8,7 +8,41 @@ import (
 	"strings"
 )
 
-// Option configures the API server.
+// parseBearer parses an Authorization header and returns the token.
+// It requires exactly two fields: "Bearer" (case-insensitive) and the token.
+// It does not accept raw tokens, missing schemes, or extra fields.
+func parseBearer(header string) (string, bool) {
+	fields := strings.Fields(header)
+	if len(fields) != 2 {
+		return "", false
+	}
+	if !strings.EqualFold(fields[0], "Bearer") {
+		return "", false
+	}
+	if fields[1] == "" {
+		return "", false
+	}
+	return fields[1], true
+}
+
+// TrustMode controls which clients are trusted when no API key is configured.
+type TrustMode string
+
+const (
+	// TrustPrivate allows loopback, private-network, and link-local peers.
+	// This is the default for local development and Docker Desktop.
+	TrustPrivate TrustMode = "private"
+	// TrustLoopback allows only loopback peers.
+	TrustLoopback TrustMode = "loopback"
+)
+
+// WithTrustMode sets the trust mode for unauthenticated requests.
+func WithTrustMode(mode TrustMode) Option {
+	return func(s *Server) {
+		s.trustMode = mode
+	}
+}
+
 type Option func(*Server)
 
 // WithAuthToken enables bearer-token authentication when token is non-empty.
@@ -28,7 +62,7 @@ func (s *Server) AuthMiddleware() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if s.authToken == "" {
-				if isLocalRequest(r) {
+				if isTrustedPeer(r.RemoteAddr, s.trustMode) {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -36,8 +70,8 @@ func (s *Server) AuthMiddleware() func(http.Handler) http.Handler {
 				return
 			}
 
-			got := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-			if got == "" || subtle.ConstantTimeCompare([]byte(got), []byte(s.authToken)) != 1 {
+			got, ok := parseBearer(r.Header.Get("Authorization"))
+			if !ok || subtle.ConstantTimeCompare([]byte(got), []byte(s.authToken)) != 1 {
 				writeAuthError(w, http.StatusUnauthorized, "missing or invalid bearer token")
 				return
 			}
@@ -47,20 +81,29 @@ func (s *Server) AuthMiddleware() func(http.Handler) http.Handler {
 	}
 }
 
-func isLocalRequest(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+// isTrustedPeer returns whether a remote address is trusted under the given mode.
+// It parses the host from "host:port" and checks the IP against the mode rules.
+// It does not use hostnames or forwarded headers as trust identities.
+func isTrustedPeer(remoteAddr string, mode TrustMode) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
-		host = r.RemoteAddr
+		host = remoteAddr
 	}
 	if host == "" {
 		return false
 	}
-	if strings.HasSuffix(host, ".example.com") || host == "example.com" {
-		// httptest.NewRequest sets RemoteAddr to example.com:80 by default.
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() {
 		return true
 	}
-	ip := net.ParseIP(host)
-	return ip != nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
+	if mode == TrustLoopback {
+		return false
+	}
+	return ip.IsPrivate() || ip.IsLinkLocalUnicast()
 }
 
 func writeAuthError(w http.ResponseWriter, status int, message string) {
