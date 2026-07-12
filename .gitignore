@@ -28,3 +28,4 @@ plugins/lethe/node_modules/
 
 plugin/dist/
 plugin/node_modules/
+package-lock.json
