@@ -312,19 +312,28 @@ func (s *Store) ListContextAssemblyFeedback(ctx context.Context, assemblyID stri
 
 // PruneContextAssemblies deletes old assemblies and their items/feedback.
 func (s *Store) PruneContextAssemblies(ctx context.Context, olderThan time.Time, maxPerSession int, deleteLimit int) (int64, error) {
-	// Delete assemblies older than the cutoff, keeping maxPerSession newest per session.
-	// This is a two-step process: first identify sessions with excess assemblies,
-	// then delete the oldest excess ones.
-
-	// Simple approach: delete assemblies older than cutoff, limited to deleteLimit.
-	q := `DELETE FROM context_assemblies
-	      WHERE assembly_id IN (
-	        SELECT assembly_id FROM context_assemblies
-	        WHERE created_at < ?
-	        ORDER BY created_at ASC
-	        LIMIT ?
-	      )`
-	result, err := s.ExecContext(ctx, q, olderThan, deleteLimit)
+	// Delete assemblies older than the cutoff, plus any excess per session beyond maxPerSession.
+	// Use a CTE to identify candidate assemblies:
+	// 1. Assemblies older than olderThan
+	// 2. Assemblies beyond the maxPerSession newest per session (regardless of age)
+	q := `
+	WITH ranked AS (
+		SELECT
+			assembly_id,
+			ROW_NUMBER() OVER (PARTITION BY session_id ORDER BY created_at DESC) AS row_num
+		FROM context_assemblies
+	),
+	candidates AS (
+		SELECT a.assembly_id
+		FROM context_assemblies a
+		LEFT JOIN ranked r ON a.assembly_id = r.assembly_id
+		WHERE a.created_at < ? OR (r.row_num > ? AND ? > 0)
+		ORDER BY a.created_at ASC
+		LIMIT ?
+	)
+	DELETE FROM context_assemblies
+	WHERE assembly_id IN (SELECT assembly_id FROM candidates)`
+	result, err := s.ExecContext(ctx, q, olderThan, maxPerSession, maxPerSession, deleteLimit)
 	if err != nil {
 		return 0, err
 	}
