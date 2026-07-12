@@ -756,7 +756,7 @@ func handleProjectEvents(w http.ResponseWriter, r *http.Request) {
 	// Pre-fetch first batch server-side so page renders immediately
 	var events []map[string]interface{}
 	eventsRes, err := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
-		apiBase+"/api/events/search?q=%25&limit=20")
+		apiBase+"/api/events/search?projectId=default&limit=20")
 	if err == nil {
 		if e, ok := eventsRes["events"].([]interface{}); ok {
 			for _, v := range e {
