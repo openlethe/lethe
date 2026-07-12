@@ -1,21 +1,6 @@
 ---
-name: "lethe-memory"
+name: lethe-memory
 description: "Persistent memory for AI agents: startup, recall, recording, flags, threads, compaction, assembly feedback."
-status: live
-version: "v2"
-date: "2026-07-12T19:00:00.000Z"
-user-invocable: true
-metadata:
-  openclaw:
-    emoji: "🧠"
-    requires:
-      bins: ["curl", "jq"]
-      anyBins: ["docker"]
-    notes:
-      - "Local API base is http://localhost:18483/api; every route includes /api."
-      - "Server is local-only. Do not expose port 18483."
-      - "Do not set LETHE_API unless the user explicitly opts into remote storage."
-      - "lethe-log lives in this skill directory."
 ---
 
 # Lethe Memory
@@ -24,7 +9,7 @@ Lethe is the primary long-term memory source. Prefer it over memory files, scrat
 
 The OpenClaw plugin handles bootstrap, context assembly, and automatic session events. This skill covers explicit orientation, search, recording, flags, threads, compaction, recovery, and assembly feedback.
 
-## What Lethe Records
+## What It Records
 
 | Type | Use | Example |
 |------|-----|---------|
@@ -35,6 +20,28 @@ The OpenClaw plugin handles bootstrap, context assembly, and automatic session e
 | `thread` | Cross-session topic or open question | "thread: Kubernetes migration approach" |
 
 Events carry confidence scores (0.0-1.0). Flags persist across sessions until resolved. Task events chain together so you can trace the history of any work item.
+
+## Use When
+
+- User asks about prior work, decisions, or status
+- User says "remember", "did we", "what was", "last time"
+- Completing non-trivial work that should persist
+- Making or changing a decision
+- Fixing a bug or deployment issue
+- Raising or resolving uncertainty
+- Closing out significant work (compact)
+- User explicitly asks you to remember, log, record, or flag something
+
+## Contract
+
+- **Prefer Lethe first** — search Lethe before answering questions about prior work, decisions, or context
+- **Orient at startup** — check session summary and flags before the first substantive reply
+- **Record immediately** — log decisions, fixes, and flags right after they happen, not at session end
+- **Cite plainly** — if search finds the answer, cite the recorded event; if not, say it is not in memory
+- **Never invent** — do not fabricate prior context; broaden search once, then admit gaps
+- **One active goal** — OpenClaw goals track the current session's work; use Lethe threads for cross-session topics
+- **Protect secrets** — do not record credentials, API keys, or sensitive personal data
+- **Local only** — leave `LETHE_API` unset unless the user explicitly opts into remote storage
 
 ## Startup
 
@@ -192,6 +199,14 @@ curl -s -X POST "http://localhost:18483/api/assemblies/${ASSEMBLY_ID}/feedback" 
 
 Assemblies are also visible in the UI under the **Assemblies** tab on any session detail page. Feedback is additive and never mutates memory — it is diagnostic data for understanding context correctness.
 
+## Recovery
+
+- Server unreachable: retry once with `curl --max-time 3`; if still down, continue without memory and flag/log when Lethe is reachable again.
+- Empty search: broaden once, then say the fact is not in memory.
+- Session not found: create a new session; do not reuse another session ID.
+- Conflicting records: present both and ask for a decision instead of choosing silently.
+- Remote storage: leave `LETHE_API` unset unless the user explicitly asks; setting it can send memory data off-host.
+
 ## UI Quick Reference
 
 ```bash
@@ -207,14 +222,6 @@ open http://localhost:18483/ui/dashboard
 | Assembly Detail | `/ui/assembly/{id}` | Ordered items, snapshots, feedback buttons |
 | Threads | `/ui/threads` | Cross-session topic tracking |
 | Flags | `/ui/flags` | Unresolved flags needing review |
-
-## Recovery
-
-- Server unreachable: retry once with `curl --max-time 3`; if still down, continue without memory and flag/log when Lethe is reachable again.
-- Empty search: broaden once, then say the fact is not in memory.
-- Session not found: create a new session; do not reuse another session ID.
-- Conflicting records: present both and ask for a decision instead of choosing silently.
-- Remote storage: leave `LETHE_API` unset unless the user explicitly asks; setting it can send memory data off-host.
 
 ## API Quick Reference
 
