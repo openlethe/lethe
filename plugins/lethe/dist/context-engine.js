@@ -1,4 +1,7 @@
 import { delegateCompactionToRuntime, } from "openclaw/plugin-sdk/core";
+// Throttled warning for assembly report failures.
+let assemblyWarnCount = 0;
+const ASSEMBLY_WARN_MAX = 3;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -28,7 +31,7 @@ export class LetheContextEngine {
     info = {
         id: "mentholmike-lethe",
         name: "Lethe",
-        version: "0.3.1",
+        version: "0.4.0",
         ownsCompaction: true,
     };
     constructor(cfg) {
@@ -232,21 +235,16 @@ export class LetheContextEngine {
                 : undefined;
             const effectiveLimit = budgetForRecent && budgetForRecent < 200 ? 3 : HARD_LIMIT;
             if (!budgetForRecent || budgetForRecent > 50) {
-                try {
-                    const eventsUrl = `${endpoint}/api/sessions/${encodeURIComponent(sessionKey)}/events?limit=${effectiveLimit}`;
-                    const res = await fetch(eventsUrl, { method: "GET", headers: letheHeaders(apiKey) });
-                    if (res.ok) {
-                        const data = await res.json();
-                        // GetSessionEvents returns ASC (oldest-first) for pagination.
-                        // Reverse so events are prepended in chronological order before current messages.
-                        const events = (data.events ?? []).slice().reverse();
-                        recentEvents = events.map(eventToMessage);
-                        recentTokens = estimateTokens(JSON.stringify(recentEvents));
-                    }
-                }
-                catch {
-                    // Proceed without recent events.
-                }
+                // Use the already-fetched recent_events from the summary response.
+                // The summary endpoint returns the newest 20 events, newest-first.
+                // We take the newest effectiveLimit, then reverse for chronological order.
+                const availableRecentEvents = Array.isArray(summaryData?.recent_events)
+                    ? summaryData.recent_events
+                    : [];
+                const selectedNewestFirst = availableRecentEvents.slice(0, effectiveLimit);
+                const selectedChronological = selectedNewestFirst.slice().reverse();
+                recentEvents = selectedChronological.map(eventToMessage);
+                recentTokens = estimateTokens(JSON.stringify(recentEvents));
             }
         }
         const systemPromptAddition = buildSystemPromptAddition(summaryText, recentTokens);
@@ -255,10 +253,22 @@ export class LetheContextEngine {
             ...recentEvents,
             ...messages,
         ];
+        // Best-effort: report the assembly to Lethe ledger.
+        const assemblyReport = await this.reportAssembly({
+            sessionKey,
+            summaryText,
+            recentEvents,
+            messages: messages,
+            summaryTokens,
+            recentTokens,
+            tokenBudget,
+            shouldSkipRecentEvents,
+        });
         return {
             messages: assembledMessages,
             estimatedTokens: summaryTokens + recentTokens + estimateTokens(JSON.stringify(messages)),
             systemPromptAddition,
+            assemblyId: assemblyReport?.assembly_id,
         };
     }
     // ------------------------------------------------------------------
@@ -289,6 +299,82 @@ export class LetheContextEngine {
         }
     }
     async dispose() { }
+    // ------------------------------------------------------------------
+    // reportAssembly — best-effort ledger of what was sent to the LLM
+    // ------------------------------------------------------------------
+    async reportAssembly(params) {
+        const { endpoint, apiKey } = this.cfg;
+        const assemblyId = generateAssemblyId();
+        const items = [];
+        let ordinal = 0;
+        // Summary item (ordinal 0).
+        if (params.summaryText) {
+            const summaryBytes = new TextEncoder().encode(params.summaryText);
+            items.push({
+                ordinal,
+                item_kind: "summary",
+                bucket: "summary",
+                content_snapshot: params.summaryText.substring(0, 500),
+                content_sha256: await sha256Hex(params.summaryText),
+                packed_bytes: summaryBytes.length,
+                estimated_tokens: params.summaryTokens,
+            });
+            ordinal++;
+        }
+        // Recent event items.
+        for (const event of params.recentEvents) {
+            const text = extractText(event);
+            const eventBytes = new TextEncoder().encode(text);
+            items.push({
+                ordinal,
+                item_kind: "event",
+                bucket: "recent",
+                event_id: event.id,
+                content_snapshot: text.substring(0, 500),
+                content_sha256: await sha256Hex(text),
+                packed_bytes: eventBytes.length,
+                estimated_tokens: estimateTokens(text),
+            });
+            ordinal++;
+        }
+        // Only summary and event items are stored in the ledger.
+        // Conversation metadata is reported at the top level but never stored
+        // as items (no prompt / message content in telemetry per section 11.5).
+        const convoText = JSON.stringify(params.messages);
+        const totalBytes = items.reduce((sum, i) => sum + i.packed_bytes, 0);
+        const totalTokens = params.summaryTokens + params.recentTokens + estimateTokens(convoText);
+        const report = {
+            assembly_id: assemblyId,
+            source: "openclaw-plugin",
+            plugin_version: this.info.version ?? "0.4.0",
+            assembler_version: "openclaw-recent-v1",
+            message_count: params.messages.length,
+            provided_token_budget: params.tokenBudget,
+            estimator_id: "js-utf16-length-div-4-v1",
+            summary_estimated_tokens: params.summaryTokens || undefined,
+            recent_estimated_tokens: params.recentTokens || undefined,
+            conversation_estimated_tokens: estimateTokens(convoText),
+            total_estimated_tokens: totalTokens,
+            packed_bytes: totalBytes,
+            recent_skipped: params.shouldSkipRecentEvents,
+            skip_reason: params.shouldSkipRecentEvents ? "session-age-heuristic" : undefined,
+            notes: `items: ${items.length}`,
+            items,
+        };
+        try {
+            const res = await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(params.sessionKey)}/assemblies`, report);
+            if (res.ok) {
+                return { assembly_id: assemblyId };
+            }
+        }
+        catch (err) {
+            if (assemblyWarnCount < ASSEMBLY_WARN_MAX) {
+                assemblyWarnCount++;
+                console.warn(`[Lethe] assembly report failed (assembly_id=${assemblyId}, count=${assemblyWarnCount}/${ASSEMBLY_WARN_MAX}): ${err?.message || "unknown"}`);
+            }
+        }
+        return null;
+    }
 }
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -430,4 +516,14 @@ function makeSummaryMessage(text) {
         stopReason: "stop",
         timestamp: Date.now(),
     };
+}
+function generateAssemblyId() {
+    return `asm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+async function sha256Hex(text) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(text);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }

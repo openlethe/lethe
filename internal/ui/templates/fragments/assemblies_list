@@ -1,5 +1,5 @@
 {{range .assemblies}}
-<div class="assembly-row" onclick="toggleAssemblyDetail('{{index . "assembly_id"}}')">
+<div class="assembly-row">
   <div class="assembly-header">
     <span class="assembly-time">{{index . "created_at" | since}} ago</span>
     <span class="assembly-version">v{{index . "assembler_version"}}</span>
@@ -16,6 +16,10 @@
     {{if (index . "total_estimated_tokens")}} · ~{{index . "total_estimated_tokens"}} tokens{{end}}
     {{if (index . "message_count")}} · {{index . "message_count"}} messages{{end}}
   </div>
+  <div class="assembly-actions" style="margin-top:8px;">
+    <a href="/ui/assembly/{{index . "assembly_id"}}" class="btn btn-ghost" style="font-size:11px;">View detail →</a>
+  </div>
 </div>
 {{end}}
-{{if not .assemblies}}<div class="empty-state">No assemblies yet. Assemblies are recorded when the plugin assembles context.</div>{{end}}
+{{if not .assemblies}}<div class="empty-state">No assemblies yet. Assemblies are recorded when the plugin assembles context.</div>
+{{end}}

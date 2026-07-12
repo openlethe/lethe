@@ -58,5 +58,6 @@ export declare class LetheContextEngine implements ContextEngine {
     assemble(params: AssembleParams): Promise<AssembleResult>;
     compact(params: CompactParams): Promise<CompactResult>;
     dispose(): Promise<void>;
+    private reportAssembly;
 }
 export {};

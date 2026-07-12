@@ -1,0 +1,167 @@
+{{$assemblyID := index .assembly "assembly_id"}}
+
+<div class="session-header">
+  <div>
+    <div class="session-label">Assembly</div>
+    <div class="session-id">
+      {{slice $assemblyID 0 12}}…
+      <span class="session-id-copy" onclick="copyToClipboard('{{$assemblyID}}').then(() => showCopiedFeedback(this))">copy</span>
+    </div>
+    <div class="session-meta">
+      <span class="meta-item">Session: <strong>{{index .assembly "session_id"}}</strong></span>
+      <span class="meta-divider"></span>
+      <span class="meta-item">Source: <strong>{{index .assembly "source"}}</strong></span>
+    </div>
+  </div>
+</div>
+
+<div class="page-with-sidebar">
+  <div class="main-col">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Assembly Detail</span>
+        <a href="/ui/sessions/{{index .assembly "session_id"}}" class="card-action">← Back to session</a>
+      </div>
+      <div class="card-body">
+        <!-- Assembly Detail Content -->
+        <div class="assembly-detail" id="assembly-{{$assemblyID}}">
+          <div class="assembly-detail-header">
+            <div class="assembly-detail-meta">
+              <span>{{index .assembly "created_at" | formatTime}}</span>
+              <span class="assembly-version">{{index .assembly "source"}} v{{index .assembly "assembler_version"}}</span>
+              {{if (index .assembly "plugin_version")}}
+              <span>plugin v{{index .assembly "plugin_version"}}</span>
+              {{end}}
+            </div>
+            {{if (index .assembly "recent_skipped")}}
+            <div class="assembly-skip-reason">Recent events skipped: {{index .assembly "skip_reason"}}</div>
+            {{end}}
+          </div>
+
+          <!-- Items -->
+          <div class="assembly-items">
+            {{range .items}}
+            <div class="assembly-item {{index . "item_kind"}}">
+              <div class="item-ordinal">{{index . "ordinal"}}</div>
+              <div class="item-body">
+                <div class="item-kind">{{index . "item_kind"}} · {{index . "bucket"}}</div>
+                {{if (index . "content_snapshot")}}
+                <div class="item-snapshot">{{truncate (index . "content_snapshot") 280 "…"}}</div>
+                {{end}}
+                {{if (index . "event_id")}}
+                <div class="item-event-id">Event: {{slice (index . "event_id") 0 8}}…</div>
+                {{end}}
+                <div class="item-size">{{index . "packed_bytes"}} bytes{{if (index . "estimated_tokens")}} · ~{{index . "estimated_tokens"}} tokens{{end}}</div>
+              </div>
+            </div>
+            {{end}}
+          </div>
+
+          <!-- Totals -->
+          <div class="assembly-totals">
+            <div class="assembly-total-row">
+              <span>Messages</span>
+              <span>{{index .assembly "message_count"}}</span>
+            </div>
+            {{if (index .assembly "provided_token_budget")}}
+            <div class="assembly-total-row">
+              <span>Token budget</span>
+              <span>{{index .assembly "provided_token_budget"}}</span>
+            </div>
+            {{end}}
+            <div class="assembly-total-row">
+              <span>Total bytes</span>
+              <span>{{index .assembly "packed_bytes"}}</span>
+            </div>
+            {{if (index .assembly "total_estimated_tokens")}}
+            <div class="assembly-total-row">
+              <span>Est. tokens</span>
+              <span>~{{index .assembly "total_estimated_tokens"}}</span>
+            </div>
+            {{end}}
+            {{if (index .assembly "estimator_id")}}
+            <div class="assembly-total-row">
+              <span>Estimator</span>
+              <span>{{index .assembly "estimator_id"}}</span>
+            </div>
+            {{end}}
+          </div>
+
+          <!-- Feedback -->
+          <div class="assembly-feedback-panel" id="feedback-panel-{{$assemblyID}}">
+            <div class="feedback-label">How was this assembly?</div>
+            <div class="feedback-buttons">
+              <button class="btn btn-ghost" onclick="submitFeedback('{{$assemblyID}}','good')">✓ Good</button>
+              <button class="btn btn-ghost" onclick="submitFeedback('{{$assemblyID}}','stale_included')">Stale included</button>
+              <button class="btn btn-ghost" onclick="submitFeedback('{{$assemblyID}}','missing_memory')">Missing memory</button>
+              <button class="btn btn-ghost" onclick="submitFeedback('{{$assemblyID}}','too_large')">Too large</button>
+              <button class="btn btn-ghost" onclick="submitFeedback('{{$assemblyID}}','irrelevant')">Irrelevant</button>
+              <button class="btn btn-ghost" onclick="submitFeedback('{{$assemblyID}}','other')">Other</button>
+            </div>
+            <div class="feedback-note" id="feedback-note-{{$assemblyID}}"></div>
+          </div>
+
+          <div class="assembly-privacy">
+            Assembly history stores temporary snapshots of Lethe summaries and references to selected Lethe events. It does not store the current conversation or full provider prompt.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+    <div class="card">
+      <div class="card-header"><span class="card-title">Assembly Info</span></div>
+      <div style="padding:4px 18px 12px;">
+        <div class="info-row">
+          <span class="info-key">Created</span>
+          <span class="info-val">{{index .assembly "created_at" | formatTime}}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Version</span>
+          <span class="info-val">v{{index .assembly "assembler_version"}}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Items</span>
+          <span class="info-val">{{index .assembly "item_count"}}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Messages</span>
+          <span class="info-val">{{index .assembly "message_count"}}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-key">Bytes</span>
+          <span class="info-val">{{index .assembly "packed_bytes"}}</span>
+        </div>
+        {{if (index .assembly "total_estimated_tokens")}}
+        <div class="info-row">
+          <span class="info-key">Est. Tokens</span>
+          <span class="info-val">~{{index .assembly "total_estimated_tokens"}}</span>
+        </div>
+        {{end}}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function submitFeedback(assemblyId, verdict) {
+  const noteEl = document.getElementById('feedback-note-' + assemblyId);
+  fetch('/api/assemblies/' + assemblyId + '/feedback', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({verdict: verdict})
+  }).then(r => {
+    if (r.ok) {
+      noteEl.textContent = 'Feedback recorded: ' + verdict;
+      noteEl.style.color = 'var(--accent)';
+    } else {
+      noteEl.textContent = 'Failed to record feedback';
+      noteEl.style.color = 'var(--danger)';
+    }
+  }).catch(e => {
+    noteEl.textContent = 'Error: ' + e.message;
+    noteEl.style.color = 'var(--danger)';
+  });
+}
+</script>

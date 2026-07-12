@@ -63,7 +63,7 @@ const TaskParams = Type.Object({
         description: "Link this status change to a prior task event.",
     })),
 });
-// memory_search — search Lethe events across sessions
+// memory_search — search Lethe events within the configured project
 const SearchParams = Type.Object({
     query: Type.String({
         description: "Search terms — keywords, phrases, or topic to find in stored memory events.",
@@ -230,7 +230,7 @@ export class LetheTools {
         });
     }
     // ---------------------------------------------------------------------------
-    // memory_search — search Lethe events across sessions
+    // memory_search — search Lethe events within the configured project
     // ---------------------------------------------------------------------------
     getSearchTool() {
         return this.makeTool({
@@ -242,15 +242,16 @@ export class LetheTools {
             label: "Search Memory",
             execute: async (toolCallId, params) => {
                 const { query, limit, sessionKey, eventType } = params;
-                const { endpoint, apiKey, agentId } = this.cfg;
+                const { endpoint, apiKey, agentId, projectId } = this.cfg;
                 // Build search URL with query params
                 const searchParams = new URLSearchParams({ q: query });
+                // Always scope search to the plugin's configured project
+                searchParams.set("projectId", projectId);
                 if (limit)
                     searchParams.set("limit", String(limit));
                 if (eventType)
                     searchParams.set("event_type", eventType);
                 try {
-                    // Search across all sessions first (broader recall)
                     const res = await fetch(`${endpoint}/api/events/search?${searchParams.toString()}`, { method: "GET", headers: letheHeaders(apiKey) });
                     if (!res.ok) {
                         const err = await res.text();
@@ -263,25 +264,6 @@ export class LetheTools {
                     const events = data.events ?? [];
                     const count = data.count ?? events.length;
                     if (events.length === 0) {
-                        // If no cross-session results, try session-scoped search
-                        const sk = sessionKey ?? agentId;
-                        const sessionRes = await fetch(`${endpoint}/api/sessions/${encodeURIComponent(sk)}/events/search?${searchParams.toString()}`, { method: "GET", headers: letheHeaders(apiKey) });
-                        if (sessionRes.ok) {
-                            const sessionData = await sessionRes.json();
-                            const sessionEvents = sessionData.events ?? [];
-                            if (sessionEvents.length > 0) {
-                                const formatted = sessionEvents
-                                    .map(formatEvent)
-                                    .join("\n---\n");
-                                return {
-                                    content: [{
-                                            type: "text",
-                                            text: `Found ${sessionData.count ?? sessionEvents.length} result(s) in session:\n${formatted}`,
-                                        }],
-                                    details: { ok: true, count: sessionData.count ?? sessionEvents.length, scope: "session" },
-                                };
-                            }
-                        }
                         return {
                             content: [{ type: "text", text: "No matching events found in Lethe memory." }],
                             details: { ok: true, count: 0 },
@@ -291,9 +273,9 @@ export class LetheTools {
                     return {
                         content: [{
                                 type: "text",
-                                text: `Found ${count} result(s) across sessions:\n${formatted}`,
+                                text: `Found ${count} result(s) in project:\n${formatted}`,
                             }],
-                        details: { ok: true, count, scope: "global" },
+                        details: { ok: true, count, scope: "project" },
                     };
                 }
                 catch (err) {
