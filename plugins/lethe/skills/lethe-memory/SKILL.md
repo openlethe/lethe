@@ -1,6 +1,11 @@
 ---
 name: lethe-memory
 description: "Persistent memory for AI agents: startup, recall, recording, flags, threads, compaction, assembly feedback."
+metadata:
+  openclaw:
+    emoji: "🧠"
+    requires:
+      bins: ["curl", "jq"]
 ---
 
 # Lethe Memory
