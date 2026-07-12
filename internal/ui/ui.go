@@ -784,6 +784,9 @@ func handleProjectEventsData(w http.ResponseWriter, r *http.Request) {
 		limit = "20"
 	}
 	apiURL := apiBase + "/api/events/search?q=" + url.QueryEscape(q) + "&limit=" + limit
+	if q == "" && eventType == "" {
+		apiURL = apiBase + "/api/events/search?projectId=default&limit=" + limit
+	}
 	if eventType != "" {
 		apiURL += "&eventType=" + url.QueryEscape(eventType)
 	}
