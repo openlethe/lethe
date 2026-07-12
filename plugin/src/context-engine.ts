@@ -12,6 +12,8 @@ import type {
   CompactResult,
   IngestResult,
   ContextEngineRuntimeContext,
+  AssemblyReport,
+  AssemblyItem,
 } from "./context-engine-types.js";
 
 // ---------------------------------------------------------------------------
@@ -98,7 +100,7 @@ export class LetheContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
     id: "mentholmike-lethe",
     name: "Lethe",
-    version: "0.3.1",
+    version: "0.4.0",
     ownsCompaction: true,
   };
 
@@ -348,20 +350,18 @@ export class LetheContextEngine implements ContextEngine {
       const effectiveLimit = budgetForRecent && budgetForRecent < 200 ? 3 : HARD_LIMIT;
 
       if (!budgetForRecent || budgetForRecent > 50) {
-        try {
-          const eventsUrl = `${endpoint}/api/sessions/${encodeURIComponent(sessionKey)}/events?limit=${effectiveLimit}`;
-          const res = await fetch(eventsUrl, { method: "GET", headers: letheHeaders(apiKey) });
-          if (res.ok) {
-            const data = await res.json();
-            // GetSessionEvents returns ASC (oldest-first) for pagination.
-            // Reverse so events are prepended in chronological order before current messages.
-            const events: any[] = (data.events ?? []).slice().reverse();
-            recentEvents = events.map(eventToMessage);
-            recentTokens = estimateTokens(JSON.stringify(recentEvents));
-          }
-        } catch {
-          // Proceed without recent events.
-        }
+        // Use the already-fetched recent_events from the summary response.
+        // The summary endpoint returns the newest 20 events, newest-first.
+        // We take the newest effectiveLimit, then reverse for chronological order.
+        const availableRecentEvents: any[] =
+          Array.isArray(summaryData?.recent_events)
+            ? summaryData.recent_events
+            : [];
+
+        const selectedNewestFirst = availableRecentEvents.slice(0, effectiveLimit);
+        const selectedChronological = selectedNewestFirst.slice().reverse();
+        recentEvents = selectedChronological.map(eventToMessage);
+        recentTokens = estimateTokens(JSON.stringify(recentEvents));
       }
     }
 
@@ -372,11 +372,24 @@ export class LetheContextEngine implements ContextEngine {
       ...(messages as any[]),
     ];
 
+    // Best-effort: report the assembly to Lethe ledger.
+    const assemblyReport = await this.reportAssembly({
+      sessionKey,
+      summaryText,
+      recentEvents,
+      messages: messages as any[],
+      summaryTokens,
+      recentTokens,
+      tokenBudget,
+      shouldSkipRecentEvents,
+    });
+
     return {
       messages: assembledMessages,
       estimatedTokens:
         summaryTokens + recentTokens + estimateTokens(JSON.stringify(messages)),
       systemPromptAddition,
+      assemblyId: assemblyReport?.assembly_id,
     };
   }
 
@@ -417,6 +430,109 @@ export class LetheContextEngine implements ContextEngine {
   }
 
   async dispose(): Promise<void> {}
+
+  // ------------------------------------------------------------------
+  // reportAssembly — best-effort ledger of what was sent to the LLM
+  // ------------------------------------------------------------------
+
+  private async reportAssembly(params: {
+    sessionKey: string;
+    summaryText: string;
+    recentEvents: AgentMessage[];
+    messages: AgentMessage[];
+    summaryTokens: number;
+    recentTokens: number;
+    tokenBudget?: number;
+    shouldSkipRecentEvents: boolean;
+  }): Promise<{ assembly_id: string } | null> {
+    const { endpoint, apiKey } = this.cfg;
+    const assemblyId = generateAssemblyId();
+
+    const items: AssemblyItem[] = [];
+    let ordinal = 0;
+
+    // Summary item (ordinal 0).
+    if (params.summaryText) {
+      const summaryBytes = new TextEncoder().encode(params.summaryText);
+      items.push({
+        ordinal,
+        item_kind: "summary",
+        bucket: "summary",
+        content_snapshot: params.summaryText.substring(0, 500),
+        content_sha256: await sha256Hex(params.summaryText),
+        packed_bytes: summaryBytes.length,
+        estimated_tokens: params.summaryTokens,
+      });
+      ordinal++;
+    }
+
+    // Recent event items.
+    for (const event of params.recentEvents) {
+      const text = extractText(event);
+      const eventBytes = new TextEncoder().encode(text);
+      items.push({
+        ordinal,
+        item_kind: "event",
+        bucket: "recent",
+        event_id: (event as any).id,
+        content_snapshot: text.substring(0, 500),
+        content_sha256: await sha256Hex(text),
+        packed_bytes: eventBytes.length,
+        estimated_tokens: estimateTokens(text),
+      });
+      ordinal++;
+    }
+
+    // Conversation messages (packed as a single item for telemetry).
+    const convoText = JSON.stringify(params.messages);
+    const convoBytes = new TextEncoder().encode(convoText);
+    items.push({
+      ordinal,
+      item_kind: "event",
+      bucket: "conversation",
+      content_snapshot: `messages: ${params.messages.length}`,
+      content_sha256: await sha256Hex(convoText),
+      packed_bytes: convoBytes.length,
+      estimated_tokens: estimateTokens(convoText),
+    });
+
+    const totalBytes = items.reduce((sum, i) => sum + i.packed_bytes, 0);
+    const totalTokens = params.summaryTokens + params.recentTokens + estimateTokens(convoText);
+
+    const report: AssemblyReport = {
+      assembly_id: assemblyId,
+      source: "openclaw-plugin",
+      plugin_version: this.info.version ?? "0.4.0",
+      assembler_version: this.info.version ?? "0.4.0",
+      message_count: params.messages.length,
+      provided_token_budget: params.tokenBudget,
+      estimator_id: "char-count/4",
+      summary_estimated_tokens: params.summaryTokens || undefined,
+      recent_estimated_tokens: params.recentTokens || undefined,
+      conversation_estimated_tokens: estimateTokens(convoText),
+      total_estimated_tokens: totalTokens,
+      packed_bytes: totalBytes,
+      recent_skipped: params.shouldSkipRecentEvents,
+      skip_reason: params.shouldSkipRecentEvents ? "session-age-heuristic" : undefined,
+      notes: `items: ${items.length}`,
+      items,
+    };
+
+    try {
+      const res = await letheFetch(
+        endpoint,
+        apiKey,
+        `/api/sessions/${encodeURIComponent(params.sessionKey)}/assemblies`,
+        report
+      );
+      if (res.ok) {
+        return { assembly_id: assemblyId };
+      }
+    } catch {
+      // Best-effort: silently fail.
+    }
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -569,4 +685,16 @@ function makeSummaryMessage(text: string): AgentMessage {
     stopReason: "stop",
     timestamp: Date.now(),
   } as AgentMessage;
+}
+
+function generateAssemblyId(): string {
+  return `asm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }

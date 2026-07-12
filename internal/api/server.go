@@ -27,6 +27,7 @@ type Server struct {
 	httpServer  *http.Server
 	broadcaster *broadcaster
 	authToken   string
+	trustMode   TrustMode
 }
 
 // broadcaster manages SSE client connections.
@@ -219,6 +220,16 @@ func (s *Server) registerRoutes() {
 		// Flag review.
 		api.Get("/flags", s.handleGetFlags)
 		api.Put("/flags/{eventID}/review", s.handleReviewFlag)
+
+		// Assemblies (context ledger).
+		api.Route("/sessions/{sessionID}/assemblies", func(r chi.Router) {
+			r.Post("/", s.handleCreateAssembly)
+			r.Get("/", s.handleListAssemblies)
+		})
+		api.Route("/assemblies/{assemblyID}", func(r chi.Router) {
+			r.Get("/", s.handleGetAssembly)
+			r.Post("/feedback", s.handleCreateFeedback)
+		})
 
 		// SSE live stream.
 		api.Get("/live", s.handleSSE)

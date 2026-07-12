@@ -3,11 +3,17 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/openlethe/lethe/internal/models"
+)
+
+// Sentinel errors for store operations.
+var (
+	ErrFlagNotFound = errors.New("flag not found or already reviewed")
 )
 
 // Store wraps a DB and provides all Lethe read/write operations.
@@ -325,7 +331,7 @@ func (s *Store) GetSessionEvents(ctx context.Context, sessionID string, limit, o
 	q := `SELECT event_id, session_id, project_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
 	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
-	      FROM events WHERE session_id=? ORDER BY created_at ASC LIMIT ? OFFSET ?`
+	      FROM events WHERE session_id=? ORDER BY created_at ASC, event_id ASC LIMIT ? OFFSET ?`
 	rows, err := s.QueryContext(ctx, q, sessionID, limit, offset)
 	if err != nil {
 		return nil, err
@@ -341,7 +347,7 @@ func (s *Store) GetRecentSessionEvents(ctx context.Context, sessionID string, li
 	q := `SELECT event_id, session_id, project_id, parent_event_id, event_type, content,
 	             confidence, tags, embedding_id, task_title, task_status,
 	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
-	      FROM events WHERE session_id=? ORDER BY created_at DESC LIMIT ?`
+	      FROM events WHERE session_id=? ORDER BY created_at DESC, event_id DESC LIMIT ?`
 	rows, err := s.QueryContext(ctx, q, sessionID, limit)
 	if err != nil {
 		return nil, err
@@ -382,7 +388,7 @@ func (s *Store) SearchEvents(ctx context.Context, query string, tag string, proj
 		args = append(args, eventType)
 	}
 
-	q += ` ORDER BY created_at DESC LIMIT ?`
+	q += ` ORDER BY created_at DESC, event_id DESC LIMIT ?`
 	args = append(args, limit)
 
 	rows, err := s.QueryContext(ctx, q, args...)
@@ -433,7 +439,7 @@ func (s *Store) GetFlaggedEvents(ctx context.Context, limit, offset int) ([]*mod
 	             confidence, tags, embedding_id, task_title, task_status,
 	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
 	      FROM events WHERE event_type='flag' AND human_reviewed_at IS NULL
-	      ORDER BY created_at DESC LIMIT ? OFFSET ?`
+	      ORDER BY created_at DESC, event_id DESC LIMIT ? OFFSET ?`
 	rows, err := s.QueryContext(ctx, q, limit, offset)
 	if err != nil {
 		return nil, err
@@ -443,10 +449,21 @@ func (s *Store) GetFlaggedEvents(ctx context.Context, limit, offset int) ([]*mod
 }
 
 // MarkFlagReviewed sets human_reviewed_at and reviewer_id on a flag event.
+// Returns an error if the event is not found or is not a flag event.
 func (s *Store) MarkFlagReviewed(ctx context.Context, eventID, reviewerID string) error {
 	q := `UPDATE events SET human_reviewed_at=?, reviewer_id=? WHERE event_id=? AND event_type='flag'`
-	_, err := s.ExecContext(ctx, q, time.Now().UTC(), reviewerID, eventID)
-	return err
+	result, err := s.ExecContext(ctx, q, time.Now().UTC(), reviewerID, eventID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrFlagNotFound
+	}
+	return nil
 }
 
 // --- Session Links ---
@@ -685,6 +702,65 @@ func (s *Store) CompactSession(ctx context.Context, sessionID string, summary st
 	q := `UPDATE sessions SET summary=? WHERE session_id=?`
 	_, err := s.ExecContext(ctx, q, nullString(summary), sessionID)
 	return err
+}
+
+// GetEvent returns a single event by ID.
+func (s *Store) GetEvent(ctx context.Context, eventID string) (*models.Event, error) {
+	q := `SELECT event_id, session_id, project_id, parent_event_id, event_type, content,
+	             confidence, tags, embedding_id, task_title, task_status,
+	             status_changed_at, human_reviewed_at, reviewer_id, thread_id, created_at
+	      FROM events WHERE event_id=?`
+	var e models.Event
+	var parent, tags, embID, taskTitle, reviewerID, threadID sql.NullString
+	var conf sql.NullFloat64
+	var statusChanged, reviewedAt sql.NullTime
+	var sessionID sql.NullString
+	var projectID sql.NullString
+	err := s.QueryRowContext(ctx, q, eventID).Scan(
+		&e.EventID, &sessionID, &projectID, &parent, &e.EventType, &e.Content,
+		&conf, &tags, &embID, &taskTitle, &e.TaskStatus,
+		&statusChanged, &reviewedAt, &reviewerID, &threadID, &e.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if sessionID.Valid {
+		e.SessionID = &sessionID.String
+	}
+	if projectID.Valid {
+		e.ProjectID = projectID.String
+	}
+	if parent.Valid {
+		e.ParentEventID = parent.String
+	}
+	if conf.Valid {
+		e.Confidence = &conf.Float64
+	}
+	if tags.Valid {
+		e.Tags = tags.String
+	}
+	if embID.Valid {
+		e.EmbeddingID = embID.String
+	}
+	if taskTitle.Valid {
+		e.TaskTitle = taskTitle.String
+	}
+	if reviewerID.Valid {
+		e.ReviewerID = reviewerID.String
+	}
+	if threadID.Valid {
+		e.ThreadID = threadID.String
+	}
+	if statusChanged.Valid {
+		e.StatusChangedAt = &statusChanged.Time
+	}
+	if reviewedAt.Valid {
+		e.HumanReviewedAt = &reviewedAt.Time
+	}
+	return &e, nil
 }
 
 // --- Helpers ---
