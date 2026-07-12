@@ -2,45 +2,38 @@
 # lethe-log — Low-friction event recording for Lethe memory layer
 # Usage: lethe-log <record|log|flag|task> <message> [options]
 #
-# Requires: LETHE_API (default: http://localhost:18483)
-# Optional: LETHE_SESSION_ID (auto-detected from current context)
+# Requires: curl, jq
+# API: http://localhost:18483 (LETHE_API env var overrides)
 
 set -e
 
 API="${LETHE_API:-http://localhost:18483}"
-SESSION_ID="${LETHE_SESSION_ID:-}"
 
-# Auto-detect session from Lethe DB if not set
-if [ -z "$SESSION_ID" ] && [ -f "$HOME/lethe-data/lethe.db" ]; then
-  SESSION_ID=$(sqlite3 "$HOME/lethe-data/lethe.db" \
-    "SELECT session_id FROM sessions WHERE state='active' ORDER BY last_heartbeat_at DESC LIMIT 1;" 2>/dev/null | tr -d '[:space:]')
-fi
+# SESSION_KEY: injected by Lethe plugin at runtime
+# FALLBACK_SESSION_KEY: used when SESSION_KEY is empty (e.g. Discord channel session)
+FALLBACK_SID="86e09dc7-7ed9-4776-9b0e-d8c7678a0357"
+SESSION_ID="${SESSION_KEY:-${LETHE_SESSION_ID:-${FALLBACK_SID}}}"
 
-if [ -z "$SESSION_ID" ]; then
-  echo "Error: No active Lethe session. Set LETHE_SESSION_ID or start a session first." >&2
-  exit 1
-fi
-
-# Also export for child processes
-export LETHE_SESSION_ID
+# project_id for Lethe API
+PROJECT_ID="default"
 
 CMD="${1:-}"
 MSG="${2:-}"
 
 if [ -z "$CMD" ] || [ -z "$MSG" ]; then
-  echo "Usage: lethe-log <record|log|flag|task> <message> [options]"
-  echo ""
-  echo "Commands:"
-  echo "  record <msg>   Record a decision or conclusion"
-  echo "  log <msg>      Log an observation or finding"
-  echo "  flag <msg>     Flag uncertainty for human review"
-  echo "  task <msg>     Create or update a task"
-  echo ""
-  echo "Options:"
-  echo "  --confidence 0.9   Confidence score (0.0-1.0)"
-  echo "  --tags tag1,tag2   Comma-separated tags"
-  echo "  --status todo      Task status (todo|in_progress|done|blocked)"
-  echo "  --task-id ID       Update existing task by event ID"
+  echo "Usage: lethe-log <record|log|flag|task> <message> [options]" >&2
+  echo "" >&2
+  echo "Commands:" >&2
+  echo "  record <msg>   Record a decision or conclusion" >&2
+  echo "  log <msg>      Log an observation or finding" >&2
+  echo "  flag <msg>     Flag uncertainty for human review" >&2
+  echo "  task <msg>     Create or update a task" >&2
+  echo "" >&2
+  echo "Options:" >&2
+  echo "  --confidence 0.9   Confidence score (0.0-1.0)" >&2
+  echo "  --tags tag1,tag2   Comma-separated tags" >&2
+  echo "  --status todo      Task status (todo|in_progress|done|blocked)" >&2
+  echo "  --task-id ID       Update existing task by event ID" >&2
   exit 1
 fi
 
@@ -61,56 +54,103 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Build JSON
+# Build tags JSON array
+if [ -n "$TAGS" ]; then
+  # Split on comma, filter empty
+  TAGS_JSON="["
+  first=true
+  IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
+  for tag in "${TAG_ARRAY[@]}"; do
+    tag=$(echo "$tag" | tr -d '[:space:]')
+    if [ -n "$tag" ]; then
+      if [ "$first" = true ]; then
+        first=false
+      else
+        TAGS_JSON="$TAGS_JSON,"
+      fi
+      TAGS_JSON="$TAGS_JSON\"$tag\""
+    fi
+  done
+  TAGS_JSON="$TAGS_JSON]"
+else
+  TAGS_JSON="[]"
+fi
+
+post_event() {
+  local payload="$1"
+  curl -s -X POST "${API}/api/events" \
+    -H "Content-Type: application/json" \
+    -d "$payload"
+}
+
+update_event() {
+  local event_id="$1"
+  local payload="$2"
+  curl -s -X PUT "${API}/api/sessions/${SESSION_ID}/events/${event_id}" \
+    -H "Content-Type: application/json" \
+    -d "$payload"
+}
+
 if [ "$CMD" = "task" ]; then
   STATUS="${STATUS:-todo}"
-  TASK_TITLE="$MSG"
   
   if [ -n "$TASK_ID" ]; then
-    # Update existing task
     PAYLOAD=$(jq -n \
-      --arg tid "$TASK_ID" \
       --arg stat "$STATUS" \
       '{task_status: $stat}')
-    RESULT=$(curl -s -X PUT "$API/api/sessions/$SESSION_ID/events/$TASK_ID" \
-      -H "Content-Type: application/json" \
-      -d "$PAYLOAD")
+    RESULT=$(update_event "$TASK_ID" "$PAYLOAD")
     echo "Task updated: $RESULT"
   else
-    # Create new task
     PAYLOAD=$(jq -n \
-      --arg content "$TASK_TITLE" \
+      --arg sid "$SESSION_ID" \
+      --arg pid "$PROJECT_ID" \
+      --arg content "$MSG" \
       --arg stat "$STATUS" \
-      --arg conf "$CONFIDENCE" \
-      --arg tags "${TAGS:-[]}" \
-      '{event_type: "task", content: $content, confidence: ($conf | tonumber), tags: ($tags | split(",") | map(select(length > 0))), task_title: $content, task_status: $stat}')
-    RESULT=$(curl -s -X POST "$API/api/sessions/$SESSION_ID/events" \
-      -H "Content-Type: application/json" \
-      -d "$PAYLOAD")
-    echo "Task created: $(echo $RESULT | jq -r '.event_id // .event_id')"
-  fi
-else
-  # record, log, or flag
-  PAYLOAD=$(jq -n \
-    --arg type "$CMD" \
-    --arg content "$MSG" \
-    --arg conf "$CONFIDENCE" \
-    --arg tags "${TAGS:-[]}" \
-    '{event_type: $type, content: $content, confidence: ($conf | tonumber), tags: ($tags | split(",") | map(select(length > 0)))}')
-  
-  RESULT=$(curl -s -X POST "$API/api/sessions/$SESSION_ID/events" \
-    -H "Content-Type: application/json" \
-    -d "$PAYLOAD")
-  
-  if [ "$CMD" = "flag" ]; then
-    echo "Flag raised: $(echo $RESULT | jq -r '.event_id')"
-  else
-    EVENT_ID=$(echo $RESULT | jq -r '.event_id' 2>/dev/null)
+      --argjson conf "$CONFIDENCE" \
+      --argjson tags "$TAGS_JSON" \
+      '{
+        session_id: $sid,
+        project_id: $pid,
+        event_type: "task",
+        content: $content,
+        confidence: $conf,
+        tags: $tags,
+        task_title: $content,
+        task_status: $stat
+      }')
+    RESULT=$(post_event "$PAYLOAD")
+    EVENT_ID=$(echo "$RESULT" | jq -r '.event_id' 2>/dev/null)
     if [ -n "$EVENT_ID" ] && [ "$EVENT_ID" != "null" ]; then
-      echo "Recorded ($EVENT_ID): $MSG"
+      echo "Task created: $EVENT_ID"
     else
-      echo "Error: $RESULT"
+      echo "Error: $RESULT" >&2
       exit 1
     fi
+  fi
+else
+  PAYLOAD=$(jq -n \
+    --arg sid "$SESSION_ID" \
+    --arg pid "$PROJECT_ID" \
+    --arg type "$CMD" \
+    --arg content "$MSG" \
+    --argjson conf "$CONFIDENCE" \
+    --argjson tags "$TAGS_JSON" \
+    '{
+      session_id: $sid,
+      project_id: $pid,
+      event_type: $type,
+      content: $content,
+      confidence: $conf,
+      tags: $tags
+    }')
+  
+  RESULT=$(post_event "$PAYLOAD")
+  EVENT_ID=$(echo "$RESULT" | jq -r '.event_id' 2>/dev/null)
+  
+  if [ -n "$EVENT_ID" ] && [ "$EVENT_ID" != "null" ]; then
+    echo "OK ($EVENT_ID): $MSG"
+  else
+    echo "Error: $RESULT" >&2
+    exit 1
   fi
 fi
