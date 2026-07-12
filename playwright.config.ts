@@ -8,10 +8,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: 1,
   reporter: 'html',
   use: {
-    baseURL: 'http://127.0.0.1:18483',
+    baseURL: 'http://127.0.0.1:28483',
     trace: 'on-first-retry',
   },
 
@@ -23,9 +23,9 @@ export default defineConfig({
   ],
 
   webServer: {
-    command: 'go build ./cmd/lethe && ./lethe --db :memory: --http 127.0.0.1:18483',
-    url: 'http://127.0.0.1:18483/api/health',
-    reuseExistingServer: !process.env.CI,
+    command: 'go build ./cmd/lethe && ./lethe --db /tmp/lethe-test.db --http 127.0.0.1:28483',
+    url: 'http://127.0.0.1:28483/api/health',
+    reuseExistingServer: false,
     timeout: 120000,
   },
 });

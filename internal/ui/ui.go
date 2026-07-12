@@ -6,13 +6,13 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"io"
 	"io/fs"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -181,7 +181,7 @@ func UseSubFS(fsys embed.FS, prefix string) (http.FileSystem, error) {
 // RenderData is the data passed to the layout template.
 type RenderData struct {
 	Title        string
-	Content      string
+	Content      template.HTML
 	Layout       string // extra CSS class for the page wrapper (e.g. "page-with-sidebar")
 	Data         interface{}
 	Request      *http.Request
@@ -233,7 +233,7 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 
 	type RenderData struct {
 		Title        string
-		Content      string
+		Content      template.HTML
 		Layout       string // optional extra CSS class for the page wrapper
 		Data         interface{}
 		Request      *http.Request
@@ -257,7 +257,7 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 
 	rd := RenderData{
 		Title:        title + " — Lethe",
-		Content:      pageContent,
+		Content:      template.HTML(pageContent),
 		Data:         data,
 		Request:      r,
 		CurrentRoute: name,

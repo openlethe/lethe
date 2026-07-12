@@ -27,8 +27,8 @@ var (
 	dbPath                = flag.String("db", "./lethe.db", "path to SQLite database")
 	apiKey                = flag.String("api-key", "", "Bearer token required for API/UI/SSE access. Defaults to LETHE_API_KEY if unset; no key keeps trusted localhost mode.")
 	trustMode             = flag.String("trust", "", "Trust mode when no API key is set: private (loopback+private+link-local) or loopback (loopback only). Defaults to LETHE_TRUST or private.")
-	assemblyRetentionDays = flag.Int("assembly-retention-days", 0, "Delete assemblies older than N days (0 = disable age-based retention). Defaults to LETHE_ASSEMBLY_RETENTION_DAYS or 30.")
-	assemblyMaxPerSession = flag.Int("assembly-max-per-session", 0, "Keep at most N assemblies per session (0 = disable count-based retention). Defaults to LETHE_ASSEMBLY_MAX_PER_SESSION or 500.")
+	assemblyRetentionDays = flag.Int("assembly-retention-days", -1, "Delete assemblies older than N days (0 = disable age-based retention, -1 = default 30).")
+	assemblyMaxPerSession = flag.Int("assembly-max-per-session", -1, "Keep at most N assemblies per session (0 = disable count-based retention, -1 = default 500).")
 )
 
 func main() {
@@ -102,25 +102,25 @@ func main() {
 
 	// Resolve assembly retention settings.
 	retentionDays := *assemblyRetentionDays
-	if retentionDays == 0 {
+	if retentionDays == -1 {
 		if envVal := os.Getenv("LETHE_ASSEMBLY_RETENTION_DAYS"); envVal != "" {
 			if _, err := fmt.Sscanf(envVal, "%d", &retentionDays); err != nil {
 				log.Fatalf("lethe: invalid LETHE_ASSEMBLY_RETENTION_DAYS: %v", err)
 			}
 		}
 	}
-	if retentionDays == 0 {
+	if retentionDays == -1 {
 		retentionDays = 30
 	}
 	maxPerSession := *assemblyMaxPerSession
-	if maxPerSession == 0 {
+	if maxPerSession == -1 {
 		if envVal := os.Getenv("LETHE_ASSEMBLY_MAX_PER_SESSION"); envVal != "" {
 			if _, err := fmt.Sscanf(envVal, "%d", &maxPerSession); err != nil {
 				log.Fatalf("lethe: invalid LETHE_ASSEMBLY_MAX_PER_SESSION: %v", err)
 			}
 		}
 	}
-	if maxPerSession == 0 {
+	if maxPerSession == -1 {
 		maxPerSession = 500
 	}
 
@@ -133,7 +133,17 @@ func main() {
 	defer cancel()
 
 	pruneFn := func() {
-		olderThan := time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+		// Skip if both retention dimensions are disabled.
+		if retentionDays == 0 && maxPerSession == 0 {
+			return
+		}
+		var olderThan time.Time
+		if retentionDays > 0 {
+			olderThan = time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+		} else {
+			// Age-based retention disabled: use a far-future time so the age condition matches nothing.
+			olderThan = time.Now().UTC().Add(100 * 365 * 24 * time.Hour)
+		}
 		deleted, err := database.PruneContextAssemblies(ctx, olderThan, maxPerSession, deleteLimit)
 		if err != nil {
 			pruneFailures++
