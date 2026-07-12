@@ -4,7 +4,7 @@
   <div>
     <div class="session-label">Assembly</div>
     <div class="session-id">
-      {{slice $assemblyID 0 12}}…
+      {{truncate $assemblyID 12 "…"}}
       <span class="session-id-copy" onclick="copyToClipboard('{{$assemblyID}}').then(() => showCopiedFeedback(this))">copy</span>
     </div>
     <div class="session-meta">
@@ -49,7 +49,7 @@
                 <div class="item-snapshot">{{truncate (index . "content_snapshot") 280 "…"}}</div>
                 {{end}}
                 {{if (index . "event_id")}}
-                <div class="item-event-id">Event: {{slice (index . "event_id") 0 8}}…</div>
+                <div class="item-event-id">Event: {{truncate (index . "event_id") 8 "…"}}</div>
                 {{end}}
                 <div class="item-size">{{index . "packed_bytes"}} bytes{{if (index . "estimated_tokens")}} · ~{{index . "estimated_tokens"}} tokens{{end}}</div>
               </div>
@@ -147,7 +147,7 @@
 <script>
 function submitFeedback(assemblyId, verdict) {
   const noteEl = document.getElementById('feedback-note-' + assemblyId);
-  fetch('/api/assemblies/' + assemblyId + '/feedback', {
+  fetch('/ui/assembly/' + assemblyId + '/feedback', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({verdict: verdict})

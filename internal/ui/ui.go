@@ -299,6 +299,7 @@ func SetupRoutes(r *chi.Mux, baseURL string, middleware ...func(http.Handler) ht
 	ui.Get("/threads/{threadID}/events-data", handleThreadEventsData)
 	ui.Get("/session/{sessionID}/assemblies-data", handleSessionAssembliesData)
 	ui.Get("/assembly/{assemblyID}", handleAssemblyDetail)
+	ui.Post("/assembly/{assemblyID}/feedback", handleAssemblyFeedback)
 
 	// HTMX data endpoints — return rendered HTML fragments
 	ui.Get("/sessions-data", handleSessionsData)
@@ -848,6 +849,40 @@ func handleAssemblyDetail(w http.ResponseWriter, r *http.Request) {
 		"items":    items,
 	}
 	Render(w, r, "assembly_detail", pageData)
+}
+
+// handleAssemblyFeedback proxies feedback POSTs from the UI to the API,
+// injecting the bearer token so auth-enabled deployments work.
+func handleAssemblyFeedback(w http.ResponseWriter, r *http.Request) {
+	assemblyID := chi.URLParam(r, "assemblyID")
+	apiURL := apiBase + "/api/assemblies/" + assemblyID + "/feedback"
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	req, err := http.NewRequestWithContext(r.Context(), "POST", apiURL, bytes.NewReader(body))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if authToken := authTokenFromRequest(r); authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+authToken)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 // APIProxy proxies API calls to the Lethe server.
