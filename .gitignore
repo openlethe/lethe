@@ -16,10 +16,13 @@ lethe.exe
 .DS_Store
 Thumbs.db
 
-# Lethe
-lethe.db
-
-# Plugin
+# Test artifacts
+node_modules/
+playwright-report/
+test-results/
+*.db
+*.db-shm
+*.db-wal
 plugins/lethe/dist/
 plugins/lethe/node_modules/
 
