@@ -141,8 +141,8 @@ func main() {
 		if retentionDays > 0 {
 			olderThan = time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
 		} else {
-			// Age-based retention disabled: use a far-future time so the age condition matches nothing.
-			olderThan = time.Now().UTC().Add(100 * 365 * 24 * time.Hour)
+			// Age-based retention disabled: use a zero time so the age condition matches nothing.
+			olderThan = time.Time{}
 		}
 		deleted, err := database.PruneContextAssemblies(ctx, olderThan, maxPerSession, deleteLimit)
 		if err != nil {
