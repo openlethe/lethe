@@ -155,6 +155,7 @@ func init() {
 		"templates/sessions",
 		"templates/threads",
 		"templates/thread_detail",
+		"templates/assembly_detail",
 	)
 	if err != nil {
 		panic("parse templates: " + err.Error())
@@ -224,6 +225,8 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 		title = "Flags"
 	case "live":
 		title = "Live"
+	case "assembly_detail":
+		title = "Assembly Detail"
 	default:
 		title = "Lethe"
 	}
@@ -294,6 +297,9 @@ func SetupRoutes(r *chi.Mux, baseURL string, middleware ...func(http.Handler) ht
 	ui.Get("/threads", handleThreads)
 	ui.Get("/threads/{threadID}", handleThreadDetail)
 	ui.Get("/threads/{threadID}/events-data", handleThreadEventsData)
+	ui.Get("/session/{sessionID}/assemblies-data", handleSessionAssembliesData)
+	ui.Get("/assembly/{assemblyID}", handleAssemblyDetail)
+
 	// HTMX data endpoints — return rendered HTML fragments
 	ui.Get("/sessions-data", handleSessionsData)
 	ui.Get("/flags-data", handleFlagsData)
@@ -777,6 +783,59 @@ func handleProjectEventsData(w http.ResponseWriter, r *http.Request) {
 	if err := templates.ExecuteTemplate(w, "memories_list", searchResult); err != nil {
 		log.Printf("memories_list error: %v", err)
 	}
+}
+
+// handleSessionAssembliesData returns assembly list fragment for a session.
+func handleSessionAssembliesData(w http.ResponseWriter, r *http.Request) {
+	sessionID := chi.URLParam(r, "sessionID")
+	result, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/sessions/"+sessionID+"/assemblies?limit=20")
+	var assemblies []map[string]interface{}
+	if err == nil {
+		if a, ok := result["assemblies"].([]interface{}); ok {
+			for _, v := range a {
+				if m, ok := v.(map[string]interface{}); ok {
+					assemblies = append(assemblies, m)
+				}
+			}
+		}
+	}
+	if assemblies == nil {
+		assemblies = []map[string]interface{}{}
+	}
+	data := map[string]interface{}{"assemblies": assemblies}
+	if err := templates.ExecuteTemplate(w, "assemblies_list", data); err != nil {
+		log.Printf("assemblies_list error: %v", err)
+	}
+}
+
+// handleAssemblyDetail renders a full assembly detail page.
+func handleAssemblyDetail(w http.ResponseWriter, r *http.Request) {
+	assemblyID := chi.URLParam(r, "assemblyID")
+	result, err := httpGetJSON[map[string]interface{}](r.Context(), apiBase+"/api/assemblies/"+assemblyID)
+	if err != nil || result == nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	assembly, _ := result["assembly"].(map[string]interface{})
+	if assembly == nil {
+		assembly = result // direct assembly response
+	}
+
+	var items []map[string]interface{}
+	if i, ok := assembly["items"].([]interface{}); ok {
+		for _, v := range i {
+			if m, ok := v.(map[string]interface{}); ok {
+				items = append(items, m)
+			}
+		}
+	}
+
+	pageData := map[string]interface{}{
+		"assembly": assembly,
+		"items":    items,
+	}
+	Render(w, r, "assembly_detail", pageData)
 }
 
 // APIProxy proxies API calls to the Lethe server.

@@ -1,0 +1,21 @@
+{{range .assemblies}}
+<div class="assembly-row" onclick="toggleAssemblyDetail('{{index . "assembly_id"}}')">
+  <div class="assembly-header">
+    <span class="assembly-time">{{index . "created_at" | since}} ago</span>
+    <span class="assembly-version">v{{index . "assembler_version"}}</span>
+    <span class="assembly-bytes">{{index . "packed_bytes"}} bytes</span>
+    {{if (index . "recent_skipped")}}
+    <span class="assembly-skipped">skipped</span>
+    {{end}}
+    {{if (index . "feedback_count")}}
+    <span class="assembly-feedback">{{index . "feedback_count"}} feedback</span>
+    {{end}}
+  </div>
+  <div class="assembly-summary">
+    {{if (index . "item_count")}}{{index . "item_count"}} items{{end}}
+    {{if (index . "total_estimated_tokens")}} · ~{{index . "total_estimated_tokens"}} tokens{{end}}
+    {{if (index . "message_count")}} · {{index . "message_count"}} messages{{end}}
+  </div>
+</div>
+{{end}}
+{{if not .assemblies}}<div class="empty-state">No assemblies yet. Assemblies are recorded when the plugin assembles context.</div>{{end}}

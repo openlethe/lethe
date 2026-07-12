@@ -440,11 +440,14 @@
       el.style.color = 'var(--green)';
       setTimeout(() => { el.textContent = orig; el.style.color = ''; }, 1500);
     }
-    function switchTab(btn, showId, hideId) {
+    function switchTab(btn, showId, ...hideIds) {
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       btn.classList.add('active');
       document.getElementById(showId).style.display = '';
-      document.getElementById(hideId).style.display = 'none';
+      hideIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+      });
     }
     function showConfirm() { document.getElementById('confirm-box').classList.add('visible'); }
     function hideConfirm() { document.getElementById('confirm-box').classList.remove('visible'); }

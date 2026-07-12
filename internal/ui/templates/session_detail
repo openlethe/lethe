@@ -31,11 +31,12 @@
 <div class="page-with-sidebar">
   <div class="main-col">
 
-    <!-- EVENTS + CHECKPOINTS CARD -->
+    <!-- EVENTS + CHECKPOINTS + ASSEMBLIES CARD -->
     <div class="card">
       <div class="tabs">
-        <button class="tab active" onclick="switchTab(this,'events-pane','checkpoints-pane')">Events</button>
-        <button class="tab" onclick="switchTab(this,'checkpoints-pane','events-pane')">Checkpoints</button>
+        <button class="tab active" onclick="switchTab(this,'events-pane','checkpoints-pane','assemblies-pane')">Events</button>
+        <button class="tab" onclick="switchTab(this,'checkpoints-pane','events-pane','assemblies-pane')">Checkpoints</button>
+        <button class="tab" onclick="switchTab(this,'assemblies-pane','events-pane','checkpoints-pane')">Assemblies</button>
       </div>
 
       <!-- EVENTS PANE -->
@@ -49,6 +50,13 @@
       <!-- CHECKPOINTS PANE (hidden initially) -->
       <div id="checkpoints-pane" style="display:none"
         hx-get="/ui/session/{{$sessionID}}/checkpoints-data"
+        hx-trigger="revealed"
+        hx-swap="innerHTML">
+      </div>
+
+      <!-- ASSEMBLIES PANE (hidden initially) -->
+      <div id="assemblies-pane" style="display:none"
+        hx-get="/ui/session/{{$sessionID}}/assemblies-data"
         hx-trigger="revealed"
         hx-swap="innerHTML">
       </div>
