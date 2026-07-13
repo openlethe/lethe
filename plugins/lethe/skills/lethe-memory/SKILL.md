@@ -55,12 +55,12 @@ Events carry confidence scores (0.0-1.0). Flags persist across sessions until re
 ./lethe keygen
 # Output: LETHE_API_KEY=lethe_xxx...
 
-# 2. Start Lethe with the key
-LETHE_API_KEY=lethe_xxx... ./lethe --db ./lethe.db
+# 2. Start Lethe with the key (export required - Lethe does NOT auto-load .env)
+export LETHE_API_KEY=lethe_xxx...
+./lethe --db ./lethe.db
 
-# Or use .env file
-# echo "LETHE_API_KEY=lethe_xxx..." > .env
-# ./lethe
+# Or pass explicitly (not recommended for interactive use)
+./lethe --api-key lethe_xxx... --db ./lethe.db
 ```
 
 ## Startup
