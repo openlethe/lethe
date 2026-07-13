@@ -3,6 +3,9 @@ lethe
 lethe.exe
 *.exe
 
+# Build output
+/dist/
+
 # SQLite
 *.db
 *.db-shm
