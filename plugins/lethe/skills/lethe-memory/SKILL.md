@@ -48,6 +48,21 @@ Events carry confidence scores (0.0-1.0). Flags persist across sessions until re
 - **Protect secrets** — do not record credentials, API keys, or sensitive personal data
 - **Local only** — leave `LETHE_API` unset unless the user explicitly opts into remote storage
 
+## Quick Start
+
+```bash
+# 1. Generate an API key
+./lethe keygen
+# Output: LETHE_API_KEY=lethe_xxx...
+
+# 2. Start Lethe with the key
+LETHE_API_KEY=lethe_xxx... ./lethe --db ./lethe.db
+
+# Or use .env file
+# echo "LETHE_API_KEY=lethe_xxx..." > .env
+# ./lethe
+```
+
 ## Startup
 
 On the first real user message of a session, orient before answering:
@@ -231,6 +246,9 @@ open http://localhost:18483/ui/dashboard
 ## API Quick Reference
 
 ```bash
+# Generate API key
+./lethe keygen
+
 # Session
 curl -s "http://localhost:18483/api/sessions/${SESSION_KEY}/summary"
 curl -s -X POST "http://localhost:18483/api/sessions/${SESSION_KEY}/compact"
