@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -33,6 +35,14 @@ var (
 
 func main() {
 	flag.Parse()
+
+	// Handle keygen subcommand before server startup
+	if len(flag.Args()) > 0 && flag.Args()[0] == "keygen" {
+		if err := runKeygen(); err != nil {
+			log.Fatalf("keygen failed: %v", err)
+		}
+		return
+	}
 
 	database, err := db.NewStore(*dbPath)
 	if err != nil {
@@ -212,4 +222,30 @@ func main() {
 		log.Fatalf("HTTP server error: %v", err)
 	}
 	log.Println("lethe: server stopped")
+}
+
+// runKeygen generates a secure API key for Lethe.
+// It prints the key to stdout in a format ready for .env files.
+func runKeygen() error {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Errorf("failed to generate random bytes: %w", err)
+	}
+	key := "lethe_" + hex.EncodeToString(b)
+
+	fmt.Println("# Generated Lethe API Key")
+	fmt.Println("# Add this to your .env file:")
+	fmt.Println()
+	fmt.Printf("LETHE_API_KEY=%s\n", key)
+	fmt.Println()
+	fmt.Println("# Or export directly:")
+	fmt.Printf("# export LETHE_API_KEY=%s\n", key)
+	fmt.Println()
+	fmt.Println("# Security notes:")
+	fmt.Println("# - This is a single shared secret")
+	fmt.Println("# - All clients use this same key")
+	fmt.Println("# - For multi-client access, use Charon with per-client Obols")
+	fmt.Println("# - Store this in .env (not committed to git)")
+
+	return nil
 }
