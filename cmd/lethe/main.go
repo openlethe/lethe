@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -36,12 +39,20 @@ var (
 func main() {
 	flag.Parse()
 
-	// Handle keygen subcommand before server startup
-	if len(flag.Args()) > 0 && flag.Args()[0] == "keygen" {
-		if err := runKeygen(); err != nil {
-			log.Fatalf("keygen failed: %v", err)
+	// Handle subcommands before server startup
+	if len(flag.Args()) > 0 {
+		switch flag.Args()[0] {
+		case "keygen":
+			if err := runKeygen(); err != nil {
+				log.Fatalf("keygen failed: %v", err)
+			}
+			return
+		case "memory":
+			if err := runMemoryCLI(flag.Args()[1:]); err != nil {
+				log.Fatalf("memory command failed: %v", err)
+			}
+			return
 		}
-		return
 	}
 
 	database, err := db.NewStore(*dbPath)
@@ -224,6 +235,358 @@ func main() {
 	log.Println("lethe: server stopped")
 }
 
+// runMemoryCLI implements the `lethe memory` subcommand family.
+func runMemoryCLI(args []string) error {
+	if len(args) == 0 {
+		fmt.Println("Usage: lethe memory <command> [args]")
+		fmt.Println()
+		fmt.Println("Commands:")
+		fmt.Println("  status <project> [ref]        Show ref head and recent changesets")
+		fmt.Println("  log <project> [ref]           List changeset history for a ref")
+		fmt.Println("  show <changeset-id>           Display a changeset with operations")
+		fmt.Println("  diff <base> <target>          Semantic diff between changesets")
+		fmt.Println("  branch <project> <ref> <head> Create a new branch ref")
+		fmt.Println("  merge-propose ...             Create a merge proposal (see --help)")
+		fmt.Println("  manifest <manifest-id>        Show a context manifest")
+		return nil
+	}
+
+	cmd := args[0]
+	rest := args[1:]
+
+	switch cmd {
+	case "status":
+		return memoryStatus(rest)
+	case "log":
+		return memoryLog(rest)
+	case "show":
+		return memoryShow(rest)
+	case "diff":
+		return memoryDiff(rest)
+	case "branch":
+		return memoryBranch(rest)
+	case "merge-propose":
+		return memoryMergePropose(rest)
+	case "manifest":
+		return memoryManifest(rest)
+	default:
+		return fmt.Errorf("unknown memory command: %s", cmd)
+	}
+}
+
+func memoryAPIClient() *apiClient {
+	key := os.Getenv("LETHE_API_KEY")
+	base := os.Getenv("LETHE_API_URL")
+	if base == "" {
+		base = "http://localhost:18483"
+	}
+	return &apiClient{baseURL: base, apiKey: key}
+}
+
+type apiClient struct {
+	baseURL string
+	apiKey  string
+}
+
+func (c *apiClient) get(path string) ([]byte, error) {
+	req, err := http.NewRequest("GET", c.baseURL+"/api"+path, nil)
+	if err != nil {
+		return nil, err
+	}
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
+	}
+	return body, nil
+}
+
+func (c *apiClient) post(path string, body any) ([]byte, error) {
+	b, _ := json.Marshal(body)
+	req, err := http.NewRequest("POST", c.baseURL+"/api"+path, bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	rbody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(rbody))
+	}
+	return rbody, nil
+}
+
+func memoryStatus(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: lethe memory status <project> [ref]")
+	}
+	project := args[0]
+	refName := "refs/shared/main"
+	if len(args) > 1 {
+		refName = args[1]
+	}
+	c := memoryAPIClient()
+	body, err := c.get(fmt.Sprintf("/memory/%s/refs/%s", project, refName))
+	if err != nil {
+		return err
+	}
+	var ref struct {
+		RefName         string `json:"ref_name"`
+		HeadChangesetID string `json:"head_changeset_id"`
+		Protected       bool   `json:"protected"`
+	}
+	if err := json.Unmarshal(body, &ref); err != nil {
+		return err
+	}
+	fmt.Printf("Ref:       %s\n", ref.RefName)
+	fmt.Printf("Head:      %s\n", ref.HeadChangesetID)
+	fmt.Printf("Protected: %v\n", ref.Protected)
+
+	// Show recent changesets
+	logBody, err := c.get(fmt.Sprintf("/memory/%s/changesets?ref=%s&limit=5", project, refName))
+	if err != nil {
+		return err
+	}
+	var logResp struct {
+		Changesets []struct {
+			ChangesetID string `json:"changeset_id"`
+			Message     string `json:"message"`
+			Author      string `json:"author_principal"`
+			CreatedAt   string `json:"created_at"`
+		} `json:"changesets"`
+	}
+	if err := json.Unmarshal(logBody, &logResp); err != nil {
+		return err
+	}
+	fmt.Println("\nRecent changesets:")
+	for _, cs := range logResp.Changesets {
+		fmt.Printf("  %s  %s  %s\n", cs.ChangesetID[:8], cs.Author, cs.Message)
+	}
+	return nil
+}
+
+func memoryLog(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: lethe memory log <project> [ref]")
+	}
+	project := args[0]
+	refName := "refs/shared/main"
+	if len(args) > 1 {
+		refName = args[1]
+	}
+	c := memoryAPIClient()
+	body, err := c.get(fmt.Sprintf("/memory/%s/changesets?ref=%s&limit=50", project, refName))
+	if err != nil {
+		return err
+	}
+	var resp struct {
+		Changesets []struct {
+			ChangesetID     string `json:"changeset_id"`
+			Message         string `json:"message"`
+			AuthorPrincipal string `json:"author_principal"`
+			CreatedAt       string `json:"created_at"`
+			ParentIDs       []string `json:"parent_ids"`
+		} `json:"changesets"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil {
+		return err
+	}
+	for _, cs := range resp.Changesets {
+		parents := ""
+		if len(cs.ParentIDs) > 0 {
+			parents = fmt.Sprintf(" (parents: %v)", cs.ParentIDs)
+		}
+		fmt.Printf("%s  %s  %s%s\n", cs.ChangesetID[:8], cs.AuthorPrincipal, cs.Message, parents)
+	}
+	return nil
+}
+
+func memoryShow(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: lethe memory show <changeset-id>")
+	}
+	id := args[0]
+	c := memoryAPIClient()
+	body, err := c.get("/memory/changesets/" + id)
+	if err != nil {
+		return err
+	}
+	var cs struct {
+		ChangesetID     string `json:"changeset_id"`
+		SchemaVersion   string `json:"schema_version"`
+		ProjectID       string `json:"project_id"`
+		RefName         string `json:"ref_name"`
+		ParentIDs       []string `json:"parent_ids"`
+		AuthorPrincipal string `json:"author_principal"`
+		ActorID         string `json:"actor_id"`
+		Message         string `json:"message"`
+		CreatedAt       string `json:"created_at"`
+		IdempotencyKey  string `json:"idempotency_key"`
+		IntegrityDigest string `json:"integrity_digest"`
+		Ops             []struct {
+			Ordinal          int    `json:"ordinal"`
+			OpType           string `json:"op_type"`
+			TargetEventID    string `json:"target_event_id"`
+			ResultingEventID string `json:"resulting_event_id"`
+			Payload          map[string]any `json:"payload"`
+		} `json:"ops"`
+	}
+	if err := json.Unmarshal(body, &cs); err != nil {
+		return err
+	}
+	fmt.Printf("Changeset: %s\n", cs.ChangesetID)
+	fmt.Printf("Project:   %s\n", cs.ProjectID)
+	fmt.Printf("Ref:       %s\n", cs.RefName)
+	fmt.Printf("Author:    %s (actor: %s)\n", cs.AuthorPrincipal, cs.ActorID)
+	fmt.Printf("Message:   %s\n", cs.Message)
+	fmt.Printf("Created:   %s\n", cs.CreatedAt)
+	fmt.Printf("Digest:    %s\n", cs.IntegrityDigest)
+	if len(cs.ParentIDs) > 0 {
+		fmt.Printf("Parents:   %v\n", cs.ParentIDs)
+	}
+	fmt.Println("\nOperations:")
+	for _, op := range cs.Ops {
+		summary := ""
+		if s, ok := op.Payload["summary"].(string); ok {
+			summary = s
+		} else if c, ok := op.Payload["content"].(string); ok {
+			if len(c) > 80 {
+				summary = c[:80] + "..."
+			} else {
+				summary = c
+			}
+		}
+		fmt.Printf("  [%d] %s", op.Ordinal, op.OpType)
+		if op.TargetEventID != "" {
+			fmt.Printf(" target=%s", op.TargetEventID)
+		}
+		if op.ResultingEventID != "" {
+			fmt.Printf(" result=%s", op.ResultingEventID)
+		}
+		if summary != "" {
+			fmt.Printf(" | %s", summary)
+		}
+		fmt.Println()
+	}
+	return nil
+}
+
+func memoryDiff(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("usage: lethe memory diff <base-changeset> <target-changeset>")
+	}
+	baseID, targetID := args[0], args[1]
+	c := memoryAPIClient()
+	body, err := c.post("/memory/changesets/"+targetID+"/diff", map[string]string{
+		"base_changeset_id": baseID,
+	})
+	if err != nil {
+		return err
+	}
+	var diff struct {
+		MemoriesAdded       []map[string]any `json:"memories_added"`
+		Corrections         []map[string]any `json:"corrections_proposed"`
+		Superseded          []map[string]any `json:"records_superseded"`
+		RelationshipsAdded  []map[string]any `json:"relationships_added"`
+		DecisionsChanged    []map[string]any `json:"decisions_changed"`
+		TasksFlagsChanged   []map[string]any `json:"tasks_or_flags_changed"`
+		Duplicates          []map[string]any `json:"duplicates_detected"`
+		VisibilityAffected  []map[string]any `json:"permissions_or_visibility_affected"`
+		EvidenceChanged     []map[string]any `json:"evidence_added_or_removed"`
+		UnresolvedConflicts []string         `json:"unresolved_conflicts"`
+	}
+	if err := json.Unmarshal(body, &diff); err != nil {
+		return err
+	}
+	fmt.Printf("Semantic diff: %s → %s\n\n", baseID[:8], targetID[:8])
+	printDiffSection("Memories added", diff.MemoriesAdded)
+	printDiffSection("Corrections", diff.Corrections)
+	printDiffSection("Superseded", diff.Superseded)
+	printDiffSection("Relationships added", diff.RelationshipsAdded)
+	printDiffSection("Decisions changed", diff.DecisionsChanged)
+	printDiffSection("Tasks/flags changed", diff.TasksFlagsChanged)
+	printDiffSection("Duplicates", diff.Duplicates)
+	printDiffSection("Visibility affected", diff.VisibilityAffected)
+	printDiffSection("Evidence changed", diff.EvidenceChanged)
+	if len(diff.UnresolvedConflicts) > 0 {
+		fmt.Printf("\nUnresolved conflicts: %v\n", diff.UnresolvedConflicts)
+	}
+	return nil
+}
+
+func printDiffSection(name string, items []map[string]any) {
+	if len(items) == 0 {
+		return
+	}
+	fmt.Printf("%s (%d):\n", name, len(items))
+	for _, item := range items {
+		summary := ""
+		if s, ok := item["summary"].(string); ok {
+			summary = s
+		}
+		fmt.Printf("  - %s\n", summary)
+	}
+}
+
+func memoryBranch(args []string) error {
+	if len(args) < 3 {
+		return fmt.Errorf("usage: lethe memory branch <project> <ref-name> <head-changeset-id>")
+	}
+	project, refName, headID := args[0], args[1], args[2]
+	c := memoryAPIClient()
+	body, err := c.post(fmt.Sprintf("/memory/%s/branches", project), map[string]any{
+		"ref_name":          refName,
+		"head_changeset_id": headID,
+		"principal":         os.Getenv("USER"),
+	})
+	if err != nil {
+		return err
+	}
+	var ref map[string]any
+	if err := json.Unmarshal(body, &ref); err != nil {
+		return err
+	}
+	fmt.Printf("Created branch: %s → %s\n", ref["ref_name"], ref["head_changeset_id"])
+	return nil
+}
+
+func memoryMergePropose(args []string) error {
+	return fmt.Errorf("merge-propose: use Charon API or Lethe HTTP API directly; CLI wrapper not yet implemented")
+}
+
+func memoryManifest(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: lethe memory manifest <manifest-id>")
+	}
+	id := args[0]
+	c := memoryAPIClient()
+	body, err := c.get("/memory/manifests/" + id)
+	if err != nil {
+		return err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return err
+	}
+	b, _ := json.MarshalIndent(m, "", "  ")
+	fmt.Println(string(b))
+	return nil
+}
+
 // runKeygen generates a secure API key for Lethe.
 // It prints the key to stdout in a format ready for .env files.
 func runKeygen() error {
@@ -249,3 +612,4 @@ func runKeygen() error {
 
 	return nil
 }
+

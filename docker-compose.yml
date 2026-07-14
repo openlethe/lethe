@@ -6,11 +6,17 @@ services:
     ports:
       - "127.0.0.1:18483:18483"
     environment:
-      # Recommended for LAN-exposed deployments. Leave unset for trusted local/private-network mode.
-      # LETHE_API_KEY: "change-me"
+      - LETHE_API_KEY=${LETHE_API_KEY:-}
+      - LETHE_TRUST=${LETHE_TRUST:-private}
     volumes:
-      - /home/ubuntu/lethe-data:/data  # bind mount — survives docker-compose down, never use named volumes for persistent data
+      - ${LETHE_DATA_DIR:-./lethe-data}:/data
 
 # NOTE: Do NOT use named volumes for Lethe data. They get wiped on docker-compose down -v.
 # Always use bind mounts pointing to a host directory. The image owns /data as appuser;
 # for bind mounts, ensure the host directory is writable by UID/GID 1000 or run a one-time chown.
+#
+# Quick start:
+#   1. cp .env.example .env
+#   2. Edit .env and set LETHE_API_KEY (generate with: openssl rand -hex 32)
+#   3. docker compose up -d
+#   4. curl http://localhost:18483/api/health

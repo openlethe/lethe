@@ -240,8 +240,27 @@ func (s *Server) registerRoutes() {
 		// Project-level event write (no session required).
 		api.Post("/events", s.handleCreateProjectEvent)
 
-		// Task chain.
-		api.Get("/events/{eventID}/chain", s.handleGetTaskChain)
+		// Memory Git (v1)
+		api.Route("/memory", func(r chi.Router) {
+			// Project-scoped routes.
+			r.Route("/{project}", func(r chi.Router) {
+				r.Post("/legacy-root", s.handleEnsureLegacyRoot)
+				r.Post("/branches", s.handleCreateBranch)
+				r.Get("/refs", s.handleListRefs)
+				r.Get("/refs/{ref}", s.handleGetRef)
+				r.Post("/refs/{ref}/advance", s.handleCASAdvanceRef)
+				r.Get("/changesets", s.handleListChangesets)
+			})
+			// Changeset by ID (global lookup, project check enforced by DB).
+			r.Get("/changesets/{id}", s.handleGetChangeset)
+			r.Post("/changesets/{id}/diff", s.handleDiffChangeset)
+			// Changeset creation.
+			r.Post("/changesets", s.handleCreateChangeset)
+			// Manifests.
+			r.Post("/manifests", s.handleCreateManifest)
+			r.Get("/manifests/{id}", s.handleGetManifest)
+		})
+		
 	})
 }
 
