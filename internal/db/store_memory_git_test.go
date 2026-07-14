@@ -111,7 +111,7 @@ func TestMemoryGitLegacyRootAndBranchCAS(t *testing.T) {
 	}
 
 	// Fast-forward merge arch into shared via CAS
-	if _, err := s.CASUpdateRef(context.Background(), "proj-mg", models.RefSharedMain, root.ChangesetID, csArch.ChangesetID); err != nil {
+	if _, err := s.CASMergeProtectedRef(context.Background(), "proj-mg", models.RefSharedMain, root.ChangesetID, csArch.ChangesetID); err != nil {
 		t.Fatalf("CASUpdateRef shared: %v", err)
 	}
 	shared, err := s.GetMemoryRef(context.Background(), "proj-mg", models.RefSharedMain)
@@ -120,13 +120,13 @@ func TestMemoryGitLegacyRootAndBranchCAS(t *testing.T) {
 	}
 
 	// Stale ChatGPT base against shared should CAS-fail if trying to advance shared from old root
-	_, err = s.CASUpdateRef(context.Background(), "proj-mg", models.RefSharedMain, root.ChangesetID, csChat.ChangesetID)
+	_, err = s.CASMergeProtectedRef(context.Background(), "proj-mg", models.RefSharedMain, root.ChangesetID, csChat.ChangesetID)
 	if !errors.Is(err, ErrRefCASConflict) {
 		t.Fatalf("expected CAS conflict for stale base, got %v", err)
 	}
 
 	// Multi-parent reviewed merge without losing history
-	mergeCS, err := s.CreateChangeset(context.Background(), CreateChangesetRequest{
+	mergeCS, err := createProtectedChangesetForTest(t, s, context.Background(), CreateChangesetRequest{
 		ProjectID:       "proj-mg",
 		RefName:         models.RefSharedMain,
 		ParentIDs:       []string{csArch.ChangesetID, csChat.ChangesetID},
@@ -151,7 +151,7 @@ func TestMemoryGitLegacyRootAndBranchCAS(t *testing.T) {
 	}
 
 	// Revert via correcting changeset
-	revertCS, err := s.CreateChangeset(context.Background(), CreateChangesetRequest{
+	revertCS, err := createProtectedChangesetForTest(t, s, context.Background(), CreateChangesetRequest{
 		ProjectID:       "proj-mg",
 		RefName:         models.RefSharedMain,
 		ParentIDs:       []string{mergeCS.ChangesetID},
@@ -294,4 +294,73 @@ func TestMemoryGitCASConcurrentStyle(t *testing.T) {
 	if ref.HeadChangesetID != first.ChangesetID {
 		t.Fatalf("head=%s want %s", ref.HeadChangesetID, first.ChangesetID)
 	}
+}
+
+func TestMemoryGitRejectsCrossProjectPointersAndParents(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	setupAgentProject(t, s, "agent-1", "project-a")
+	setupAgentProject(t, s, "agent-1", "project-b")
+	rootA, _, err := s.EnsureLegacyRoot(context.Background(), "project-a", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rootB, _, err := s.EnsureLegacyRoot(context.Background(), "project-b", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateMemoryBranch(context.Background(), "project-a", "refs/agents/a/main", rootB.ChangesetID, "p1", false); err == nil {
+		t.Fatal("cross-project branch head was accepted")
+	}
+	if _, err := s.CASMergeProtectedRef(context.Background(), "project-a", models.RefSharedMain, rootA.ChangesetID, rootB.ChangesetID); err == nil {
+		t.Fatal("cross-project CAS head was accepted")
+	}
+	if _, err := s.CreateChangeset(context.Background(), CreateChangesetRequest{
+		ProjectID: "project-a", RefName: "refs/agents/a/main", ParentIDs: []string{rootB.ChangesetID},
+		AuthorPrincipal: "p1", IdempotencyKey: "cross-parent", Ops: []models.MemorySemanticOp{{
+			OpType: models.OpAddMemory, Payload: map[string]any{"content": "must remain isolated"},
+		}},
+	}); err == nil {
+		t.Fatal("cross-project changeset parent was accepted")
+	}
+}
+
+func TestMemoryGitGenericChangesetCannotAdvanceProtectedRef(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	setupAgentProject(t, s, "agent-1", "project-protected")
+	root, _, err := s.EnsureLegacyRoot(context.Background(), "project-protected", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.CreateChangeset(context.Background(), CreateChangesetRequest{
+		ProjectID: "project-protected", RefName: models.RefSharedMain, ParentIDs: []string{root.ChangesetID},
+		AuthorPrincipal: "attacker", IdempotencyKey: "protected-bypass", ExpectedHead: root.ChangesetID,
+		AdvanceRef: true, Ops: []models.MemorySemanticOp{{OpType: models.OpAddMemory, Payload: map[string]any{"content": "bypass"}}},
+	})
+	if !errors.Is(err, ErrProtectedRef) {
+		t.Fatalf("generic protected advance error = %v", err)
+	}
+	ref, err := s.GetMemoryRef(context.Background(), "project-protected", models.RefSharedMain)
+	if err != nil || ref.HeadChangesetID != root.ChangesetID {
+		t.Fatalf("protected ref moved: %#v, %v", ref, err)
+	}
+	if _, err := s.CASUpdateRef(context.Background(), "project-protected", models.RefSharedMain, root.ChangesetID, root.ChangesetID); !errors.Is(err, ErrProtectedRef) {
+		t.Fatalf("generic CAS on protected ref error = %v", err)
+	}
+}
+
+func createProtectedChangesetForTest(t *testing.T, s *Store, ctx context.Context, req CreateChangesetRequest) (*models.MemoryChangeset, error) {
+	t.Helper()
+	expectedHead := req.ExpectedHead
+	req.AdvanceRef = false
+	req.CreateRefIfMissing = false
+	cs, err := s.CreateChangeset(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.CASMergeProtectedRef(ctx, req.ProjectID, req.RefName, expectedHead, cs.ChangesetID); err != nil {
+		return nil, err
+	}
+	return cs, nil
 }

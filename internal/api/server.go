@@ -21,13 +21,14 @@ import (
 
 // Server is the HTTP API server.
 type Server struct {
-	router      *chi.Mux
-	store       *db.Store
-	sessMgr     *session.Manager
-	httpServer  *http.Server
-	broadcaster *broadcaster
-	authToken   string
-	trustMode   TrustMode
+	router         *chi.Mux
+	store          *db.Store
+	sessMgr        *session.Manager
+	httpServer     *http.Server
+	broadcaster    *broadcaster
+	authToken      string
+	charonMergeKey []byte
+	trustMode      TrustMode
 }
 
 // broadcaster manages SSE client connections.
@@ -241,26 +242,7 @@ func (s *Server) registerRoutes() {
 		api.Post("/events", s.handleCreateProjectEvent)
 
 		// Memory Git (v1)
-		api.Route("/memory", func(r chi.Router) {
-			// Project-scoped routes.
-			r.Route("/{project}", func(r chi.Router) {
-				r.Post("/legacy-root", s.handleEnsureLegacyRoot)
-				r.Post("/branches", s.handleCreateBranch)
-				r.Get("/refs", s.handleListRefs)
-				r.Get("/refs/{ref}", s.handleGetRef)
-				r.Post("/refs/{ref}/advance", s.handleCASAdvanceRef)
-				r.Get("/changesets", s.handleListChangesets)
-			})
-			// Changeset by ID (global lookup, project check enforced by DB).
-			r.Get("/changesets/{id}", s.handleGetChangeset)
-			r.Post("/changesets/{id}/diff", s.handleDiffChangeset)
-			// Changeset creation.
-			r.Post("/changesets", s.handleCreateChangeset)
-			// Manifests.
-			r.Post("/manifests", s.handleCreateManifest)
-			r.Get("/manifests/{id}", s.handleGetManifest)
-		})
-		
+		s.registerMemoryGitRoutes(api)
 	})
 }
 

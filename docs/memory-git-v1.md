@@ -112,6 +112,11 @@ Existing events remain readable. On first Memory Git use for a project:
 - Concurrent CAS miss → `409 conflict` with current head (never silent discard)
 - Divergence is explicit: caller must rebase, multi-parent merge, or reject
 - Models cannot set arbitrary ref pointers; only service paths with scope
+- Generic branch creation and changeset/ref advance reject protected refs at the
+  store boundary. Protected advances use a separate Charon-signed merge CAS.
+- The protected merge signature uses `CHARON_HMAC_KEY`, separate from
+  `LETHE_API_KEY`; Lethe verifies project, ref, expected/new heads, proposal ID,
+  and reviewer principal before applying CAS.
 
 ## Semantic diff
 

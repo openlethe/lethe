@@ -146,16 +146,16 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 				"scope":      "observability",
 			},
 		}},
-		IdempotencyKey:     "arch-monitoring-001",
-		AdvanceRef:         true,
-		ExpectedHead:       archCs.ChangesetID,
+		IdempotencyKey: "arch-monitoring-001",
+		AdvanceRef:     true,
+		ExpectedHead:   archCs.ChangesetID,
 	})
 	if err != nil {
 		t.Fatalf("step 6 - arch second changeset: %v", err)
 	}
 
 	// Fast-forward merge arch into shared/main
-	_, err = s.CASUpdateRef(ctx, projectID, mainRef, rootCs.ChangesetID, archCs2.ChangesetID)
+	_, err = s.CASMergeProtectedRef(ctx, projectID, mainRef, rootCs.ChangesetID, archCs2.ChangesetID)
 	if err != nil {
 		t.Fatalf("step 6 - fast-forward merge: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 	// --- Step 7: Attempt stale ChatGPT proposal and detect stale base ---
 	// ChatGPT's branch still points at root, but main is now at archCs2
 	// Try to merge chatgpt's changeset (based on root) into main (now at archCs2)
-	_, err = s.CASUpdateRef(ctx, projectID, mainRef, rootCs.ChangesetID, chatCs.ChangesetID)
+	_, err = s.CASMergeProtectedRef(ctx, projectID, mainRef, rootCs.ChangesetID, chatCs.ChangesetID)
 	if !errors.Is(err, ErrRefCASConflict) {
 		t.Fatalf("step 7 - expected stale base CAS conflict, got: %v", err)
 	}
@@ -176,13 +176,13 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 
 	// --- Step 8: Rebase or create explicit multi-parent reviewed merge ---
 	// First, merge arch's monitoring into main via fast-forward
-	_, err = s.CASUpdateRef(ctx, projectID, mainRef, archCs2.ChangesetID, archCs2.ChangesetID)
+	_, err = s.CASMergeProtectedRef(ctx, projectID, mainRef, archCs2.ChangesetID, archCs2.ChangesetID)
 	if err != nil {
 		t.Fatalf("step 8 - ensure main at archCs2: %v", err)
 	}
 
 	// Now create a multi-parent merge that includes both the arch and chat decisions
-	mergeCs, err := s.CreateChangeset(ctx, CreateChangesetRequest{
+	mergeCs, err := createProtectedChangesetForTest(t, s, ctx, CreateChangesetRequest{
 		ProjectID:       projectID,
 		RefName:         mainRef,
 		ParentIDs:       []string{archCs2.ChangesetID, chatCs.ChangesetID},
@@ -211,9 +211,9 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 				},
 			},
 		},
-		IdempotencyKey:     "merge-reviewed-001",
-		AdvanceRef:         true,
-		ExpectedHead:       archCs2.ChangesetID,
+		IdempotencyKey: "merge-reviewed-001",
+		AdvanceRef:     true,
+		ExpectedHead:   archCs2.ChangesetID,
 	})
 	if err != nil {
 		t.Fatalf("step 8 - multi-parent merge: %v", err)
@@ -247,9 +247,9 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 				"scope":      "networking",
 			},
 		}},
-		IdempotencyKey:     "conflict-networking-001",
-		AdvanceRef:         true,
-		ExpectedHead:       mergeCs.ChangesetID,
+		IdempotencyKey: "conflict-networking-001",
+		AdvanceRef:     true,
+		ExpectedHead:   mergeCs.ChangesetID,
 	})
 	if err != nil {
 		t.Fatalf("step 9 - conflict changeset: %v", err)
@@ -303,16 +303,16 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 				},
 			},
 		},
-		IdempotencyKey:     "mixed-changeset-001",
-		AdvanceRef:         true,
-		ExpectedHead:       conflictCs.ChangesetID,
+		IdempotencyKey: "mixed-changeset-001",
+		AdvanceRef:     true,
+		ExpectedHead:   conflictCs.ChangesetID,
 	})
 	if err != nil {
 		t.Fatalf("step 10 - mixed changeset: %v", err)
 	}
 
 	// Cherry-pick: create a new changeset with only the acceptable op
-	cherryCs, err := s.CreateChangeset(ctx, CreateChangesetRequest{
+	cherryCs, err := createProtectedChangesetForTest(t, s, ctx, CreateChangesetRequest{
 		ProjectID:       projectID,
 		RefName:         mainRef,
 		ParentIDs:       []string{mergeCs.ChangesetID},
@@ -323,16 +323,16 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 			OpType:           models.OpAddMemory,
 			ResultingEventID: "evt-good-001",
 			Payload: map[string]any{
-				"content":    "Add health check endpoint to API",
-				"event_type": "record",
-				"kind":       "decision",
-				"scope":      "api",
+				"content":           "Add health check endpoint to API",
+				"event_type":        "record",
+				"kind":              "decision",
+				"scope":             "api",
 				"cherrypicked_from": mixedCs.ChangesetID,
 			},
 		}},
-		IdempotencyKey:     "cherry-pick-001",
-		AdvanceRef:         true,
-		ExpectedHead:       mergeCs.ChangesetID,
+		IdempotencyKey: "cherry-pick-001",
+		AdvanceRef:     true,
+		ExpectedHead:   mergeCs.ChangesetID,
 	})
 	if err != nil {
 		t.Fatalf("step 10 - cherry-pick: %v", err)
@@ -340,7 +340,7 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 	t.Log("✓ Step 10: Cherry-picked acceptable operation from mixed changeset")
 
 	// --- Step 11: Reject remaining operations while preserving history ---
-	rejectedCs, err := s.CreateChangeset(ctx, CreateChangesetRequest{
+	rejectedCs, err := createProtectedChangesetForTest(t, s, ctx, CreateChangesetRequest{
 		ProjectID:       projectID,
 		RefName:         mainRef,
 		ParentIDs:       []string{cherryCs.ChangesetID},
@@ -348,18 +348,18 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 		AuthorPrincipal: "principal_archimedes",
 		ActorID:         "archimedes",
 		Ops: []models.MemorySemanticOp{{
-			OpType:           models.OpAttachEvidence,
-			TargetEventID:    "evt-bad-001",
+			OpType:        models.OpAttachEvidence,
+			TargetEventID: "evt-bad-001",
 			Payload: map[string]any{
-				"summary":      "Rejected: disabling authentication violates security policy",
-				"rejected_from":  mixedCs.ChangesetID,
-				"reviewer":       "principal_archimedes",
-				"status":         "rejected",
+				"summary":       "Rejected: disabling authentication violates security policy",
+				"rejected_from": mixedCs.ChangesetID,
+				"reviewer":      "principal_archimedes",
+				"status":        "rejected",
 			},
 		}},
-		IdempotencyKey:     "reject-evidence-001",
-		AdvanceRef:         true,
-		ExpectedHead:       cherryCs.ChangesetID,
+		IdempotencyKey: "reject-evidence-001",
+		AdvanceRef:     true,
+		ExpectedHead:   cherryCs.ChangesetID,
 	})
 	if err != nil {
 		t.Fatalf("step 11 - rejection evidence: %v", err)
@@ -368,7 +368,7 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 	t.Log("✓ Step 11: Rejected operations preserved with evidence in history")
 
 	// --- Step 12: Revert an accepted change through new correcting changeset ---
-	revertCs, err := s.CreateChangeset(ctx, CreateChangesetRequest{
+	revertCs, err := createProtectedChangesetForTest(t, s, ctx, CreateChangesetRequest{
 		ProjectID:       projectID,
 		RefName:         mainRef,
 		ParentIDs:       []string{rejectedCs.ChangesetID},
@@ -383,9 +383,9 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 				"summary": "correct endpoint path without erasing history",
 			},
 		}},
-		IdempotencyKey:     "revert-correction-001",
-		AdvanceRef:         true,
-		ExpectedHead:       rejectedCs.ChangesetID,
+		IdempotencyKey: "revert-correction-001",
+		AdvanceRef:     true,
+		ExpectedHead:   rejectedCs.ChangesetID,
 	})
 	if err != nil {
 		t.Fatalf("step 12 - revert: %v", err)
@@ -452,9 +452,9 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 				"summary": "proposing merge into shared/main",
 			},
 		}},
-		IdempotencyKey:     "chatgpt-merge-attempt",
-		AdvanceRef:         true,
-		ExpectedHead:       chatCs.ChangesetID,
+		IdempotencyKey: "chatgpt-merge-attempt",
+		AdvanceRef:     true,
+		ExpectedHead:   chatCs.ChangesetID,
 	})
 	if err != nil {
 		t.Fatalf("step 15 - chatgpt create: %v", err)
@@ -462,7 +462,7 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 	_ = chatAttemptCs
 
 	// Verify ChatGPT cannot directly CAS-update protected shared/main
-	_, err = s.CASUpdateRef(ctx, projectID, mainRef, revertCs.ChangesetID, chatAttemptCs.ChangesetID)
+	_, err = s.CASMergeProtectedRef(ctx, projectID, mainRef, revertCs.ChangesetID, chatAttemptCs.ChangesetID)
 	// The CAS would succeed technically, but in a real system this would be blocked by authz.
 	// For V1, we verify the ref is protected and the changeset was created on ChatGPT's own branch.
 	mainRefCheck, _ := s.GetMemoryRef(ctx, projectID, mainRef)

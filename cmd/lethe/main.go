@@ -108,7 +108,11 @@ func main() {
 		apiBase = "http://" + host + ":" + port
 	}
 	r := chi.NewRouter()
-	apiServer := api.NewServer(database, sessMgr, api.WithAuthToken(*apiKey), api.WithTrustMode(resolvedTrust))
+	apiServer := api.NewServer(database, sessMgr,
+		api.WithAuthToken(*apiKey),
+		api.WithCharonMergeKey(os.Getenv("CHARON_HMAC_KEY")),
+		api.WithTrustMode(resolvedTrust),
+	)
 	if *apiKey == "" {
 		log.Printf("lethe: WARNING: no --api-key/LETHE_API_KEY configured; unauthenticated access is allowed from %s peers only", modeStr)
 		log.Println("lethe: Set LETHE_API_KEY for reverse proxies, tunnels, shared networks, or any non-single-user deployment.")
@@ -395,10 +399,10 @@ func memoryLog(args []string) error {
 	}
 	var resp struct {
 		Changesets []struct {
-			ChangesetID     string `json:"changeset_id"`
-			Message         string `json:"message"`
-			AuthorPrincipal string `json:"author_principal"`
-			CreatedAt       string `json:"created_at"`
+			ChangesetID     string   `json:"changeset_id"`
+			Message         string   `json:"message"`
+			AuthorPrincipal string   `json:"author_principal"`
+			CreatedAt       string   `json:"created_at"`
 			ParentIDs       []string `json:"parent_ids"`
 		} `json:"changesets"`
 	}
@@ -426,22 +430,22 @@ func memoryShow(args []string) error {
 		return err
 	}
 	var cs struct {
-		ChangesetID     string `json:"changeset_id"`
-		SchemaVersion   string `json:"schema_version"`
-		ProjectID       string `json:"project_id"`
-		RefName         string `json:"ref_name"`
+		ChangesetID     string   `json:"changeset_id"`
+		SchemaVersion   string   `json:"schema_version"`
+		ProjectID       string   `json:"project_id"`
+		RefName         string   `json:"ref_name"`
 		ParentIDs       []string `json:"parent_ids"`
-		AuthorPrincipal string `json:"author_principal"`
-		ActorID         string `json:"actor_id"`
-		Message         string `json:"message"`
-		CreatedAt       string `json:"created_at"`
-		IdempotencyKey  string `json:"idempotency_key"`
-		IntegrityDigest string `json:"integrity_digest"`
+		AuthorPrincipal string   `json:"author_principal"`
+		ActorID         string   `json:"actor_id"`
+		Message         string   `json:"message"`
+		CreatedAt       string   `json:"created_at"`
+		IdempotencyKey  string   `json:"idempotency_key"`
+		IntegrityDigest string   `json:"integrity_digest"`
 		Ops             []struct {
-			Ordinal          int    `json:"ordinal"`
-			OpType           string `json:"op_type"`
-			TargetEventID    string `json:"target_event_id"`
-			ResultingEventID string `json:"resulting_event_id"`
+			Ordinal          int            `json:"ordinal"`
+			OpType           string         `json:"op_type"`
+			TargetEventID    string         `json:"target_event_id"`
+			ResultingEventID string         `json:"resulting_event_id"`
 			Payload          map[string]any `json:"payload"`
 		} `json:"ops"`
 	}
@@ -612,4 +616,3 @@ func runKeygen() error {
 
 	return nil
 }
-

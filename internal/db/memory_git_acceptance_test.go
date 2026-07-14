@@ -40,7 +40,7 @@ func TestMemoryGitV1Acceptance(t *testing.T) {
 	}
 
 	// --- Step 2-3: Commit initial changesets onto main ---
-	csA, err := s.CreateChangeset(ctx, CreateChangesetRequest{
+	csA, err := createProtectedChangesetForTest(t, s, ctx, CreateChangesetRequest{
 		ProjectID:       projectID,
 		RefName:         mainRef,
 		ParentIDs:       []string{rootCs.ChangesetID},
@@ -61,7 +61,7 @@ func TestMemoryGitV1Acceptance(t *testing.T) {
 		t.Fatalf("create csA: %v", err)
 	}
 
-	csB, err := s.CreateChangeset(ctx, CreateChangesetRequest{
+	csB, err := createProtectedChangesetForTest(t, s, ctx, CreateChangesetRequest{
 		ProjectID:       projectID,
 		RefName:         mainRef,
 		ParentIDs:       []string{csA.ChangesetID},
@@ -148,7 +148,7 @@ func TestMemoryGitV1Acceptance(t *testing.T) {
 	}
 
 	// --- Step 12-13: Human approves and fast-forwards main to M1 ---
-	updatedRef, err := s.CASUpdateRef(ctx, projectID, mainRef, csB.ChangesetID, csM1.ChangesetID)
+	updatedRef, err := s.CASMergeProtectedRef(ctx, projectID, mainRef, csB.ChangesetID, csM1.ChangesetID)
 	if err != nil {
 		t.Fatalf("fast-forward main to M1: %v", err)
 	}

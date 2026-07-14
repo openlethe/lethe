@@ -1,7 +1,11 @@
 package api
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -19,8 +23,12 @@ func (s *Server) registerMemoryGitRoutes(api chi.Router) {
 			r.Post("/branches", s.handleCreateBranch)
 			r.Get("/refs", s.handleListRefs)
 			r.Get("/refs/{ref}", s.handleGetRef)
+			r.Get("/refs/resolve", s.handleGetRef)
 			r.Post("/refs/{ref}/advance", s.handleCASAdvanceRef)
+			r.Post("/refs/advance", s.handleCASAdvanceRef)
+			r.Post("/refs/merge", s.handleMergeAdvanceRef)
 			r.Get("/changesets", s.handleListChangesets)
+			r.Post("/conflicts/detect", s.handleDetectConflicts)
 		})
 		// Changeset by ID (global lookup, project check enforced by DB).
 		r.Get("/changesets/{id}", s.handleGetChangeset)
@@ -134,6 +142,13 @@ func (s *Server) handleCreateBranch(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetRef(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	refName := chi.URLParam(r, "ref")
+	if refName == "" || refName == "resolve" {
+		refName = r.URL.Query().Get("name")
+	}
+	if refName == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "ref name required"})
+		return
+	}
 	ref, err := s.store.GetMemoryRef(r.Context(), project, refName)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
@@ -160,11 +175,28 @@ func (s *Server) handleCASAdvanceRef(w http.ResponseWriter, r *http.Request) {
 	project := chi.URLParam(r, "project")
 	refName := chi.URLParam(r, "ref")
 	var req struct {
+		RefName      string `json:"ref_name"`
 		ExpectedHead string `json:"expected_head"`
 		NewHead      string `json:"new_head"`
 	}
 	if err := readJSON(w, r, &req); err != nil {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
+		return
+	}
+	if refName == "" {
+		refName = req.RefName
+	}
+	if refName == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "ref_name required"})
+		return
+	}
+	existingRef, err := s.store.GetMemoryRef(r.Context(), project, refName)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if models.IsProtectedRef(refName) || existingRef != nil && existingRef.Protected {
+		writeJSON(w, http.StatusForbidden, ErrorResponse{Error: "protected ref requires merge path"})
 		return
 	}
 	ref, err := s.store.CASUpdateRef(r.Context(), project, refName, req.ExpectedHead, req.NewHead)
@@ -179,6 +211,89 @@ func (s *Server) handleCASAdvanceRef(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, ref)
+}
+
+func (s *Server) handleMergeAdvanceRef(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	var req struct {
+		RefName           string `json:"ref_name"`
+		ExpectedHead      string `json:"expected_head"`
+		NewHead           string `json:"new_head"`
+		MergeProposalID   string `json:"merge_proposal_id"`
+		ReviewerPrincipal string `json:"reviewer_principal"`
+		Authorization     string `json:"merge_authorization"`
+	}
+	if err := readJSON(w, r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
+		return
+	}
+	existingRef, err := s.store.GetMemoryRef(r.Context(), project, req.RefName)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	if existingRef == nil || !existingRef.Protected || req.MergeProposalID == "" || req.ReviewerPrincipal == "" || req.Authorization == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "protected ref and signed merge authorization required"})
+		return
+	}
+	if len(s.charonMergeKey) < 32 || !verifyMergeAuthorization(s.charonMergeKey, project, req.RefName,
+		req.ExpectedHead, req.NewHead, req.MergeProposalID, req.ReviewerPrincipal, req.Authorization) {
+		writeJSON(w, http.StatusForbidden, ErrorResponse{Error: "invalid merge authorization"})
+		return
+	}
+	ref, err := s.store.CASMergeProtectedRef(r.Context(), project, req.RefName, req.ExpectedHead, req.NewHead)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, db.ErrRefCASConflict) {
+			status = http.StatusConflict
+		} else if errors.Is(err, db.ErrRefNotFound) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, ErrorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, ref)
+}
+
+func mergeAuthorizationMessage(project, refName, expectedHead, newHead, proposalID, reviewer string) string {
+	return fmt.Sprintf("memory-git-merge/v1\n%s\n%s\n%s\n%s\n%s\n%s", project, refName, expectedHead, newHead, proposalID, reviewer)
+}
+
+func verifyMergeAuthorization(key []byte, project, refName, expectedHead, newHead, proposalID, reviewer, signature string) bool {
+	provided, err := hex.DecodeString(signature)
+	if err != nil {
+		return false
+	}
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(mergeAuthorizationMessage(project, refName, expectedHead, newHead, proposalID, reviewer)))
+	return hmac.Equal(provided, mac.Sum(nil))
+}
+
+func (s *Server) handleDetectConflicts(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	var req struct {
+		BaseChangesetID  string `json:"base_changeset_id"`
+		LeftChangesetID  string `json:"left_changeset_id"`
+		RightChangesetID string `json:"right_changeset_id"`
+	}
+	if err := readJSON(w, r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
+		return
+	}
+	conflicts, err := db.NewConflictDetector(s.store).DetectBetween(
+		r.Context(), project, req.BaseChangesetID, req.LeftChangesetID, req.RightChangesetID,
+	)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+	for _, conflict := range conflicts {
+		if err := s.store.CreateConflict(r.Context(), conflict); err != nil {
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"conflicts": conflicts})
 }
 
 // --- Diff ---

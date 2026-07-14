@@ -34,7 +34,7 @@ func newTestServer(t *testing.T) *Server {
 	}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	return NewServer(store, session.NewManager(store), WithAuthToken("test-token"))
+	return NewServer(store, session.NewManager(store), WithAuthToken("test-token"), WithCharonMergeKey("0123456789abcdef0123456789abcdef"))
 }
 
 func authenticatedRequest(method, path string, body interface{}) *http.Request {

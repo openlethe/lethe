@@ -45,16 +45,16 @@ func (d *ConflictDetector) DetectBetween(ctx context.Context, projectID, baseID,
 	var conflicts []*models.MemoryConflict
 
 	// 1. Stale base / non-fast-forward
-	if left.ParentIDs[0] != baseID || right.ParentIDs[0] != baseID {
+	if !hasParent(left, baseID) || !hasParent(right, baseID) {
 		conflicts = append(conflicts, &models.MemoryConflict{
-			ConflictID:     uuid.Must(uuid.NewV7()).String(),
-			ProjectID:      projectID,
-			BaseChangesetID: baseID,
+			ConflictID:       uuid.Must(uuid.NewV7()).String(),
+			ProjectID:        projectID,
+			BaseChangesetID:  baseID,
 			LeftChangesetID:  leftID,
 			RightChangesetID: rightID,
-			ConflictType:   "stale_base",
-			Severity:       "warning",
-			Summary:        "One or both branches diverged from the expected base; rebase may be required",
+			ConflictType:     "stale_base",
+			Severity:         "warning",
+			Summary:          "One or both branches diverged from the expected base; rebase may be required",
 			Details: map[string]any{
 				"left_parents":  left.ParentIDs,
 				"right_parents": right.ParentIDs,
@@ -71,13 +71,20 @@ func (d *ConflictDetector) DetectBetween(ctx context.Context, projectID, baseID,
 	decisionConflicts := d.detectDecisionConflicts(left, right)
 	conflicts = append(conflicts, decisionConflicts...)
 
-	// 4. Boundary violations (project, topic, actor)
+	// 4. Incompatible accepted facts with overlapping validity.
+	factConflicts := d.detectFactConflicts(left, right)
+	conflicts = append(conflicts, factConflicts...)
+
+	// 5. Boundary violations (project, topic, actor)
 	boundaryConflicts := d.detectBoundaryViolations(left, right)
 	conflicts = append(conflicts, boundaryConflicts...)
 
-	// 5. Private-to-broader scope flow
+	// 6. Private-to-broader scope flow
 	scopeConflicts := d.detectScopeFlow(left, right)
 	conflicts = append(conflicts, scopeConflicts...)
+
+	// 7. User-approved memory replaced by lower-trust inference.
+	conflicts = append(conflicts, d.detectTrustDowngrade(left, right)...)
 
 	return conflicts, nil
 }
@@ -93,13 +100,13 @@ func (d *ConflictDetector) detectDuplicates(left, right *models.MemoryChangeset)
 			}
 			if strings.TrimSpace(la) == strings.TrimSpace(ra) {
 				out = append(out, &models.MemoryConflict{
-					ConflictID:     uuid.Must(uuid.NewV7()).String(),
-					ProjectID:      left.ProjectID,
+					ConflictID:       uuid.Must(uuid.NewV7()).String(),
+					ProjectID:        left.ProjectID,
 					LeftChangesetID:  left.ChangesetID,
 					RightChangesetID: right.ChangesetID,
-					ConflictType:   "duplicate_content",
-					Severity:       "info",
-					Summary:        "Duplicate semantic content detected in both branches",
+					ConflictType:     "duplicate_content",
+					Severity:         "info",
+					Summary:          "Duplicate semantic content detected in both branches",
 					Details: map[string]any{
 						"duplicate_content": la,
 						"left_changeset":    left.ChangesetID,
@@ -124,6 +131,10 @@ func (d *ConflictDetector) detectDecisionConflicts(left, right *models.MemoryCha
 			if ld.scope != rd.scope {
 				continue
 			}
+			conflictType := "contradictory_decision"
+			if ld.protected || rd.protected {
+				conflictType = "protected_decision"
+			}
 			if ld.eventID == "" && rd.eventID == "" {
 				// Both synthetic ops without materialized event IDs.
 				if ld.content != rd.content {
@@ -132,7 +143,7 @@ func (d *ConflictDetector) detectDecisionConflicts(left, right *models.MemoryCha
 						ProjectID:        left.ProjectID,
 						LeftChangesetID:  left.ChangesetID,
 						RightChangesetID: right.ChangesetID,
-						ConflictType:     "contradictory_decision",
+						ConflictType:     conflictType,
 						Severity:         "blocking",
 						Summary:          fmt.Sprintf("Incompatible decisions for scope %s", ld.scope),
 						Details: map[string]any{
@@ -151,7 +162,7 @@ func (d *ConflictDetector) detectDecisionConflicts(left, right *models.MemoryCha
 					ProjectID:        left.ProjectID,
 					LeftChangesetID:  left.ChangesetID,
 					RightChangesetID: right.ChangesetID,
-					ConflictType:     "contradictory_decision",
+					ConflictType:     conflictType,
 					Severity:         "blocking",
 					Summary:          fmt.Sprintf("Incompatible decisions for scope %s", ld.scope),
 					Details: map[string]any{
@@ -177,13 +188,13 @@ func (d *ConflictDetector) detectBoundaryViolations(left, right *models.MemoryCh
 			payloadActor, _ := op.Payload["actor_id"].(string)
 			if payloadProject != "" && payloadProject != cs.ProjectID {
 				out = append(out, &models.MemoryConflict{
-					ConflictID:     uuid.Must(uuid.NewV7()).String(),
-					ProjectID:      cs.ProjectID,
+					ConflictID:       uuid.Must(uuid.NewV7()).String(),
+					ProjectID:        cs.ProjectID,
 					LeftChangesetID:  left.ChangesetID,
 					RightChangesetID: right.ChangesetID,
-					ConflictType:   "boundary_violation",
-					Severity:       "blocking",
-					Summary:        fmt.Sprintf("Operation references project %s but changeset is in project %s", payloadProject, cs.ProjectID),
+					ConflictType:     "boundary_violation",
+					Severity:         "blocking",
+					Summary:          fmt.Sprintf("Operation references project %s but changeset is in project %s", payloadProject, cs.ProjectID),
 					Details: map[string]any{
 						"changeset_id":    cs.ChangesetID,
 						"payload_project": payloadProject,
@@ -193,33 +204,33 @@ func (d *ConflictDetector) detectBoundaryViolations(left, right *models.MemoryCh
 			}
 			if payloadTopic != "" && cs.TopicID != "" && payloadTopic != cs.TopicID {
 				out = append(out, &models.MemoryConflict{
-					ConflictID:     uuid.Must(uuid.NewV7()).String(),
-					ProjectID:      cs.ProjectID,
+					ConflictID:       uuid.Must(uuid.NewV7()).String(),
+					ProjectID:        cs.ProjectID,
 					LeftChangesetID:  left.ChangesetID,
 					RightChangesetID: right.ChangesetID,
-					ConflictType:   "boundary_violation",
-					Severity:       "warning",
-					Summary:        fmt.Sprintf("Operation references topic %s but changeset topic is %s", payloadTopic, cs.TopicID),
+					ConflictType:     "boundary_violation",
+					Severity:         "warning",
+					Summary:          fmt.Sprintf("Operation references topic %s but changeset topic is %s", payloadTopic, cs.TopicID),
 					Details: map[string]any{
-						"changeset_id":   cs.ChangesetID,
-						"payload_topic":  payloadTopic,
-						"cs_topic":       cs.TopicID,
+						"changeset_id":  cs.ChangesetID,
+						"payload_topic": payloadTopic,
+						"cs_topic":      cs.TopicID,
 					},
 				})
 			}
 			if payloadActor != "" && cs.ActorID != "" && payloadActor != cs.ActorID {
 				out = append(out, &models.MemoryConflict{
-					ConflictID:     uuid.Must(uuid.NewV7()).String(),
-					ProjectID:      cs.ProjectID,
+					ConflictID:       uuid.Must(uuid.NewV7()).String(),
+					ProjectID:        cs.ProjectID,
 					LeftChangesetID:  left.ChangesetID,
 					RightChangesetID: right.ChangesetID,
-					ConflictType:   "boundary_violation",
-					Severity:       "warning",
-					Summary:        fmt.Sprintf("Operation references actor %s but changeset actor is %s", payloadActor, cs.ActorID),
+					ConflictType:     "boundary_violation",
+					Severity:         "warning",
+					Summary:          fmt.Sprintf("Operation references actor %s but changeset actor is %s", payloadActor, cs.ActorID),
 					Details: map[string]any{
-						"changeset_id":   cs.ChangesetID,
-						"payload_actor":  payloadActor,
-						"cs_actor":       cs.ActorID,
+						"changeset_id":  cs.ChangesetID,
+						"payload_actor": payloadActor,
+						"cs_actor":      cs.ActorID,
 					},
 				})
 			}
@@ -237,18 +248,18 @@ func (d *ConflictDetector) detectScopeFlow(left, right *models.MemoryChangeset) 
 			if fromOK && toOK && fromVis != "" && toVis != "" {
 				if d.isNarrower(fromVis, toVis) {
 					out = append(out, &models.MemoryConflict{
-						ConflictID:     uuid.Must(uuid.NewV7()).String(),
-						ProjectID:      cs.ProjectID,
+						ConflictID:       uuid.Must(uuid.NewV7()).String(),
+						ProjectID:        cs.ProjectID,
 						LeftChangesetID:  left.ChangesetID,
 						RightChangesetID: right.ChangesetID,
-						ConflictType:   "scope_flow",
-						Severity:       "warning",
-						Summary:        fmt.Sprintf("Potential private-to-public flow: %s → %s", fromVis, toVis),
+						ConflictType:     "scope_flow",
+						Severity:         "warning",
+						Summary:          fmt.Sprintf("Potential private-to-public flow: %s → %s", fromVis, toVis),
 						Details: map[string]any{
-							"changeset_id":   cs.ChangesetID,
+							"changeset_id":    cs.ChangesetID,
 							"from_visibility": fromVis,
-							"to_visibility":  toVis,
-							"op_type":        string(op.OpType),
+							"to_visibility":   toVis,
+							"op_type":         string(op.OpType),
 						},
 					})
 				}
@@ -271,9 +282,10 @@ func (d *ConflictDetector) extractAddOps(cs *models.MemoryChangeset) []string {
 }
 
 type decisionEntry struct {
-	scope   string
-	content string
-	eventID string
+	scope     string
+	content   string
+	eventID   string
+	protected bool
 }
 
 func (d *ConflictDetector) extractDecisions(cs *models.MemoryChangeset) []decisionEntry {
@@ -293,14 +305,114 @@ func (d *ConflictDetector) extractDecisions(cs *models.MemoryChangeset) []decisi
 					scope = cs.ProjectID
 				}
 				out = append(out, decisionEntry{
-					scope:   scope,
-					content: content,
-					eventID: op.ResultingEventID,
+					scope:     scope,
+					content:   content,
+					eventID:   op.ResultingEventID,
+					protected: boolValue(op.Payload["protected"]) || stringValue(op.Payload["approval"]) == "user_approved",
 				})
 			}
 		}
 	}
 	return out
+}
+
+type factEntry struct {
+	key, scope, content, validFrom, validTo string
+}
+
+func (d *ConflictDetector) detectFactConflicts(left, right *models.MemoryChangeset) []*models.MemoryConflict {
+	leftFacts := extractFacts(left)
+	rightFacts := extractFacts(right)
+	var out []*models.MemoryConflict
+	for _, lf := range leftFacts {
+		for _, rf := range rightFacts {
+			if lf.key == "" || lf.key != rf.key || lf.scope != rf.scope || lf.content == rf.content {
+				continue
+			}
+			if !validityOverlaps(lf.validFrom, lf.validTo, rf.validFrom, rf.validTo) {
+				continue
+			}
+			out = append(out, &models.MemoryConflict{
+				ConflictID: uuid.Must(uuid.NewV7()).String(), ProjectID: left.ProjectID,
+				LeftChangesetID: left.ChangesetID, RightChangesetID: right.ChangesetID,
+				ConflictType: "incompatible_fact", Severity: "blocking",
+				Summary: fmt.Sprintf("Incompatible accepted facts for %s in scope %s", lf.key, lf.scope),
+				Details: map[string]any{"fact_key": lf.key, "scope": lf.scope, "left_content": lf.content, "right_content": rf.content},
+			})
+		}
+	}
+	return out
+}
+
+func extractFacts(cs *models.MemoryChangeset) []factEntry {
+	var out []factEntry
+	for _, op := range cs.Ops {
+		if op.OpType != models.OpAddMemory && op.OpType != models.OpCorrectMemory && op.OpType != models.OpSupersedeMemory {
+			continue
+		}
+		if stringValue(op.Payload["kind"]) != "fact" {
+			continue
+		}
+		key := stringValue(op.Payload["fact_key"])
+		if key == "" {
+			key = stringValue(op.Payload["subject"])
+		}
+		scope := stringValue(op.Payload["scope"])
+		if scope == "" {
+			scope = cs.ProjectID
+		}
+		out = append(out, factEntry{key: key, scope: scope, content: stringValue(op.Payload["content"]),
+			validFrom: stringValue(op.Payload["valid_from"]), validTo: stringValue(op.Payload["valid_to"])})
+	}
+	return out
+}
+
+func (d *ConflictDetector) detectTrustDowngrade(left, right *models.MemoryChangeset) []*models.MemoryConflict {
+	var out []*models.MemoryConflict
+	for _, cs := range []*models.MemoryChangeset{left, right} {
+		for _, op := range cs.Ops {
+			if op.OpType != models.OpCorrectMemory && op.OpType != models.OpSupersedeMemory {
+				continue
+			}
+			targetTrust := stringValue(op.Payload["target_trust"])
+			sourceTrust := stringValue(op.Payload["source_trust"])
+			if targetTrust == "user_approved" && (sourceTrust == "inference" || sourceTrust == "model_inference") {
+				out = append(out, &models.MemoryConflict{
+					ConflictID: uuid.Must(uuid.NewV7()).String(), ProjectID: cs.ProjectID,
+					LeftChangesetID: left.ChangesetID, RightChangesetID: right.ChangesetID,
+					ConflictType: "trust_downgrade", Severity: "blocking",
+					Summary: "Lower-trust inference would replace user-approved memory",
+					Details: map[string]any{"changeset_id": cs.ChangesetID, "target_event_id": op.TargetEventID,
+						"target_trust": targetTrust, "source_trust": sourceTrust},
+				})
+			}
+		}
+	}
+	return out
+}
+
+func hasParent(cs *models.MemoryChangeset, parentID string) bool {
+	for _, parent := range cs.ParentIDs {
+		if parent == parentID {
+			return true
+		}
+	}
+	return false
+}
+
+func validityOverlaps(aFrom, aTo, bFrom, bTo string) bool {
+	// RFC3339 timestamps sort lexicographically. Empty endpoints are unbounded.
+	return (aTo == "" || bFrom == "" || aTo >= bFrom) && (bTo == "" || aFrom == "" || bTo >= aFrom)
+}
+
+func stringValue(v any) string {
+	s, _ := v.(string)
+	return s
+}
+
+func boolValue(v any) bool {
+	b, _ := v.(bool)
+	return b
 }
 
 // sharesLineage checks if two events share a correction/supersede chain.

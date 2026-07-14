@@ -157,6 +157,27 @@ func (s *Store) CreateChangeset(ctx context.Context, req CreateChangesetRequest)
 	if req.ParentIDs == nil {
 		req.ParentIDs = []string{}
 	}
+	if req.CreateRefIfMissing && (req.Protected || models.IsProtectedRef(req.RefName)) {
+		return nil, ErrProtectedRef
+	}
+	if req.AdvanceRef {
+		ref, err := s.GetMemoryRef(ctx, req.ProjectID, req.RefName)
+		if err != nil {
+			return nil, err
+		}
+		if models.IsProtectedRef(req.RefName) || ref != nil && ref.Protected {
+			return nil, ErrProtectedRef
+		}
+	}
+	for _, parentID := range req.ParentIDs {
+		parent, err := s.GetChangeset(ctx, parentID)
+		if err != nil {
+			return nil, fmt.Errorf("parent %s: %w", parentID, err)
+		}
+		if parent.ProjectID != req.ProjectID {
+			return nil, fmt.Errorf("parent %s belongs to project %s, not %s", parentID, parent.ProjectID, req.ProjectID)
+		}
+	}
 
 	// Idempotent replay
 	if existing, err := s.FindChangesetByIdempotency(ctx, req.ProjectID, req.AuthorPrincipal, req.IdempotencyKey); err != nil {
@@ -353,24 +374,24 @@ func ComputeChangesetDigest(cs *models.MemoryChangeset) string {
 		})
 	}
 	payload := map[string]any{
-		"schema_version":     cs.SchemaVersion,
-		"project_id":         cs.ProjectID,
-		"ref_name":           cs.RefName,
-		"parent_ids":         parents,
-		"author_principal":   cs.AuthorPrincipal,
-		"persona_id":         cs.PersonaID,
-		"actor_id":           cs.ActorID,
-		"surface":            cs.Surface,
-		"model":              cs.Model,
-		"environment":        cs.Environment,
-		"session_id":         cs.SessionID,
-		"topic_id":           cs.TopicID,
+		"schema_version":      cs.SchemaVersion,
+		"project_id":          cs.ProjectID,
+		"ref_name":            cs.RefName,
+		"parent_ids":          parents,
+		"author_principal":    cs.AuthorPrincipal,
+		"persona_id":          cs.PersonaID,
+		"actor_id":            cs.ActorID,
+		"surface":             cs.Surface,
+		"model":               cs.Model,
+		"environment":         cs.Environment,
+		"session_id":          cs.SessionID,
+		"topic_id":            cs.TopicID,
 		"context_manifest_id": cs.ContextManifestID,
-		"message":            cs.Message,
-		"idempotency_key":    cs.IdempotencyKey,
-		"ops":                ops,
-		"evidence":           cs.Evidence,
-		"verification":       cs.Verification,
+		"message":             cs.Message,
+		"idempotency_key":     cs.IdempotencyKey,
+		"ops":                 ops,
+		"evidence":            cs.Evidence,
+		"verification":        cs.Verification,
 	}
 	b, _ := json.Marshal(payload)
 	sum := sha256.Sum256(b)
@@ -559,8 +580,15 @@ func (s *Store) CreateMemoryBranch(ctx context.Context, projectID, refName, head
 	if projectID == "" || refName == "" || headChangesetID == "" {
 		return nil, errors.New("project_id, ref_name, and head_changeset_id required")
 	}
-	if _, err := s.GetChangeset(ctx, headChangesetID); err != nil {
+	if protected || models.IsProtectedRef(refName) {
+		return nil, ErrProtectedRef
+	}
+	head, err := s.GetChangeset(ctx, headChangesetID)
+	if err != nil {
 		return nil, err
+	}
+	if head.ProjectID != projectID {
+		return nil, errors.New("head changeset project mismatch")
 	}
 	existing, err := s.GetMemoryRef(ctx, projectID, refName)
 	if err != nil {
@@ -568,9 +596,6 @@ func (s *Store) CreateMemoryBranch(ctx context.Context, projectID, refName, head
 	}
 	if existing != nil {
 		return nil, fmt.Errorf("ref already exists: %s", refName)
-	}
-	if models.IsProtectedRef(refName) {
-		protected = true
 	}
 	return s.createRef(ctx, projectID, refName, headChangesetID, principal, protected)
 }
@@ -590,6 +615,43 @@ func (s *Store) createRef(ctx context.Context, projectID, refName, head, princip
 
 // CASUpdateRef advances a ref only when the expected head matches.
 func (s *Store) CASUpdateRef(ctx context.Context, projectID, refName, expectedHead, newHead string) (*models.MemoryRef, error) {
+	ref, err := s.GetMemoryRef(ctx, projectID, refName)
+	if err != nil {
+		return nil, err
+	}
+	if ref == nil {
+		return nil, ErrRefNotFound
+	}
+	if ref.Protected || models.IsProtectedRef(refName) {
+		return nil, ErrProtectedRef
+	}
+	return s.casUpdateRef(ctx, projectID, refName, expectedHead, newHead)
+}
+
+// CASMergeProtectedRef is the narrowly scoped store primitive used only after
+// the API has verified a Charon-signed merge authorization.
+func (s *Store) CASMergeProtectedRef(ctx context.Context, projectID, refName, expectedHead, newHead string) (*models.MemoryRef, error) {
+	ref, err := s.GetMemoryRef(ctx, projectID, refName)
+	if err != nil {
+		return nil, err
+	}
+	if ref == nil {
+		return nil, ErrRefNotFound
+	}
+	if !ref.Protected {
+		return nil, errors.New("ref is not protected")
+	}
+	return s.casUpdateRef(ctx, projectID, refName, expectedHead, newHead)
+}
+
+func (s *Store) casUpdateRef(ctx context.Context, projectID, refName, expectedHead, newHead string) (*models.MemoryRef, error) {
+	cs, err := s.GetChangeset(ctx, newHead)
+	if err != nil {
+		return nil, err
+	}
+	if cs.ProjectID != projectID {
+		return nil, errors.New("new head changeset project mismatch")
+	}
 	res, err := s.ExecContext(ctx, `
 		UPDATE memory_refs
 		SET head_changeset_id = ?, updated_at = ?

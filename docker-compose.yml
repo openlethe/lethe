@@ -7,6 +7,7 @@ services:
       - "127.0.0.1:18483:18483"
     environment:
       - LETHE_API_KEY=${LETHE_API_KEY:-}
+      - CHARON_HMAC_KEY=${CHARON_HMAC_KEY:-}
       - LETHE_TRUST=${LETHE_TRUST:-private}
     volumes:
       - ${LETHE_DATA_DIR:-./lethe-data}:/data

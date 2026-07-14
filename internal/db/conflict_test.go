@@ -117,3 +117,47 @@ func TestConflictDetector(t *testing.T) {
 		t.Fatalf("expected duplicate_content, got %v", conflicts2)
 	}
 }
+
+func TestConflictDetectorMinimumV1Classes(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	setupAgentProject(t, s, "agent-1", "proj-min")
+	root, _, err := s.EnsureLegacyRoot(context.Background(), "proj-min", "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	left, err := s.CreateChangeset(context.Background(), CreateChangesetRequest{
+		ProjectID: "proj-min", RefName: "refs/agents/left/main", ParentIDs: []string{root.ChangesetID},
+		AuthorPrincipal: "left", IdempotencyKey: "left-min", Ops: []models.MemorySemanticOp{
+			{OpType: models.OpAddMemory, Payload: map[string]any{"kind": "fact", "fact_key": "cluster_version", "scope": "prod", "content": "1.31", "valid_from": "2026-07-01T00:00:00Z"}},
+			{OpType: models.OpAddMemory, Payload: map[string]any{"kind": "decision", "scope": "network", "content": "Decision: private ingress", "protected": true}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	right, err := s.CreateChangeset(context.Background(), CreateChangesetRequest{
+		ProjectID: "proj-min", RefName: "refs/agents/right/main", ParentIDs: []string{root.ChangesetID},
+		AuthorPrincipal: "right", IdempotencyKey: "right-min", Ops: []models.MemorySemanticOp{
+			{OpType: models.OpAddMemory, Payload: map[string]any{"kind": "fact", "fact_key": "cluster_version", "scope": "prod", "content": "1.32", "valid_from": "2026-07-10T00:00:00Z"}},
+			{OpType: models.OpAddMemory, Payload: map[string]any{"kind": "decision", "scope": "network", "content": "Decision: public ingress"}},
+			{OpType: models.OpCorrectMemory, TargetEventID: "evt-user", Payload: map[string]any{"content": "inferred replacement", "target_trust": "user_approved", "source_trust": "model_inference"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conflicts, err := NewConflictDetector(s).DetectBetween(context.Background(), "proj-min", root.ChangesetID, left.ChangesetID, right.ChangesetID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]bool{}
+	for _, conflict := range conflicts {
+		types[conflict.ConflictType] = true
+	}
+	for _, want := range []string{"incompatible_fact", "protected_decision", "trust_downgrade"} {
+		if !types[want] {
+			t.Errorf("missing %s conflict: %#v", want, types)
+		}
+	}
+}

@@ -54,6 +54,15 @@ func WithAuthToken(token string) Option {
 	}
 }
 
+// WithCharonMergeKey configures the separate Charon-held HMAC key used to
+// authorize protected-ref merge operations. The bearer API token alone is not
+// sufficient to move a protected ref.
+func WithCharonMergeKey(key string) Option {
+	return func(s *Server) {
+		s.charonMergeKey = []byte(strings.TrimSpace(key))
+	}
+}
+
 // AuthMiddleware protects API, UI, and SSE routes. With a configured token it
 // requires Authorization: Bearer <token>. Without a token, it only allows
 // loopback/private clients so Docker Desktop and local development remain
