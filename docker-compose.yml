@@ -3,14 +3,43 @@ services:
     image: ghcr.io/openlethe/lethe:latest
     container_name: lethe-server
     restart: unless-stopped
+    init: true
     ports:
       - "127.0.0.1:18483:18483"
     environment:
+      - LETHE_MODE=${LETHE_MODE:-legacy}
       - LETHE_API_KEY=${LETHE_API_KEY:-}
-      - CHARON_HMAC_KEY=${CHARON_HMAC_KEY:-}
+      - CHARON_MERGE_HMAC_KEY=${CHARON_MERGE_HMAC_KEY:-${CHARON_HMAC_KEY:-}}
       - LETHE_TRUST=${LETHE_TRUST:-private}
     volumes:
+      # SQLite data must persist on a bind mount — never move this to tmpfs.
+      # The container runs as UID 1000: create the host data dir with matching
+      # ownership on first run (`install -d -o 1000 -g 1000 <dir>` or
+      # `mkdir -p <dir> && sudo chown 1000:1000 <dir>`). start.sh does this
+      # automatically.
       - ${LETHE_DATA_DIR:-./lethe-data}:/data
+    read_only: true
+    tmpfs:
+      # Scratch space only (SQLite temp files); the database lives in /data.
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000,mode=0700
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 1.0
+    stop_grace_period: 20s
+    healthcheck:
+      # Token-free liveness probe: the bearer key never appears in process
+      # arguments. With LETHE_API_KEY set the server answers 401; without a
+      # key, trusted loopback clients get 200 {"status":"ok"}. Either
+      # response proves the HTTP stack is up.
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:18483/api/health 2>&1 | grep -Eq 'ok|401'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 # NOTE: Do NOT use named volumes for Lethe data. They get wiped on docker-compose down -v.
 # Always use bind mounts pointing to a host directory. The image owns /data as appuser;

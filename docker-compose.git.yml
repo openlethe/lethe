@@ -1,0 +1,48 @@
+services:
+  lethe-git:
+    build: .
+    image: openlethe/lethe-git:local
+    container_name: lethe-git-local
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:18485:18483"
+    environment:
+      - LETHE_MODE=git
+      - LETHE_API_KEY=${LETHE_API_KEY:?LETHE_API_KEY is required for lethe-git}
+      - CHARON_MERGE_HMAC_KEY=${CHARON_MERGE_HMAC_KEY:?CHARON_MERGE_HMAC_KEY is required for protected merges}
+      - LETHE_TRUST=loopback
+    volumes:
+      # SQLite data must persist on a bind mount — never move this to tmpfs.
+      # The container runs as UID 1000: the host data dir must be owned by (or
+      # already owner-only for) that UID, e.g. `chown -R 1000:1000 <dir>` on
+      # first setup; lethe fails closed rather than run against a
+      # group/other-accessible database directory it cannot tighten itself.
+      - ${LETHE_GIT_DATA_DIR:-./lethe-git-data}:/data
+    read_only: true
+    tmpfs:
+      # Scratch space only (SQLite temp files); the database lives in /data.
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000,mode=0700
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 1.0
+    stop_grace_period: 20s
+    healthcheck:
+      # Token-free liveness probe: the bearer key never appears in process
+      # arguments. /api/health requires auth, so a healthy server answers
+      # with a 401 challenge (or 200 {"status":"ok"} when no key is set);
+      # either response proves the HTTP stack is up.
+      test: ["CMD-SHELL", "wget -q -O- http://127.0.0.1:18483/api/health 2>&1 | grep -Eq 'ok|401'"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+# This stack is intentionally separate from docker-compose.yml:
+# - port 18483 + the existing data directory remain OpenLethe
+# - port 18485 + lethe-git-data are reserved for Charon-governed Memory Git
+# Use bind mounts only so local data is never tied to a disposable named volume.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -52,7 +53,7 @@ func queryLimit(r *http.Request, name string, defaultValue, maxValue int) int {
 
 // handleHealth returns server health status.
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "mode": string(s.mode)})
 }
 
 // handleStats returns aggregate stats.
@@ -689,23 +690,6 @@ func (s *Server) handleSearchEvents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleGetTaskChain(w http.ResponseWriter, r *http.Request) {
-	eventID := chi.URLParam(r, "eventID")
-	chain, err := s.store.GetTaskChain(r.Context(), eventID)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
-		return
-	}
-	if len(chain) == 0 {
-		writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "event not found"})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"chain": chain,
-		"total": len(chain),
-	})
-}
-
 // HandleSSE returns an http.Handler for SSE client connections.
 // Mount this on the root router so both /live and /ui/live work.
 func (s *Server) HandleSSE() http.HandlerFunc {
@@ -1110,7 +1094,7 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Events: include last 10 events (record, log, flag, task)
-		if evts != nil && len(evts) > 0 {
+		if len(evts) > 0 {
 			lines = append(lines, "Recent events:")
 			for _, ev := range evts {
 				prefix := fmt.Sprintf("  [%s]", ev.EventType)
@@ -1131,7 +1115,9 @@ func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
 	}
 
 	summaryText := strings.Join(lines, "\n")
-	s.store.CompactSession(ctx, sess.SessionID, summaryText)
+	if err := s.store.CompactSession(ctx, sess.SessionID, summaryText); err != nil {
+		log.Printf("compact session %s: %v", sess.SessionID, err)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"summary": summaryText,

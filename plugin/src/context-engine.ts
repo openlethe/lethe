@@ -14,11 +14,14 @@ import type {
   ContextEngineRuntimeContext,
   AssemblyReport,
   AssemblyItem,
+  MemoryContextResponse,
 } from "./context-engine-types.js";
 
 // Throttled warning for assembly report failures.
 let assemblyWarnCount = 0;
+let requestWarnCount = 0;
 const ASSEMBLY_WARN_MAX = 3;
+const REQUEST_WARN_MAX = 5;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,6 +37,11 @@ export interface LetheContextEngineConfig {
    * checkpoints but does not turn every tool call/thread marker into events.
    */
   autoLog?: boolean;
+  /**
+   * Optional compatibility adapter for Memory Git context. Disabled by
+   * default: Charon owns the versioned-memory path.
+   */
+  memoryGitContext?: boolean;
 }
 
 interface AssembleParams {
@@ -79,21 +87,155 @@ function letheHeaders(apiKey: string): Record<string, string> {
   return h;
 }
 
-async function letheFetch(
+// Request deadline and response body cap. A Lethe server that accepts a
+// connection but stalls (headers or body) must not block agent hooks
+// indefinitely, and an unbounded response body must not exhaust memory.
+// Both knobs are parsed defensively so a bad value can never wedge hooks.
+const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+const MIN_FETCH_TIMEOUT_MS = 1_000;
+const MAX_FETCH_TIMEOUT_MS = 120_000;
+const DEFAULT_MAX_BODY_BYTES = 5 * 1024 * 1024;
+const MIN_MAX_BODY_BYTES = 1_024;
+const MAX_MAX_BODY_BYTES = 64 * 1024 * 1024;
+
+function envInt(name: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+}
+
+function fetchTimeoutMs(): number {
+  return envInt(
+    "LETHE_FETCH_TIMEOUT_MS",
+    DEFAULT_FETCH_TIMEOUT_MS,
+    MIN_FETCH_TIMEOUT_MS,
+    MAX_FETCH_TIMEOUT_MS
+  );
+}
+
+function maxBodyBytes(): number {
+  return envInt(
+    "LETHE_FETCH_MAX_BODY_BYTES",
+    DEFAULT_MAX_BODY_BYTES,
+    MIN_MAX_BODY_BYTES,
+    MAX_MAX_BODY_BYTES
+  );
+}
+
+// Reads a response body with a hard byte cap. Rejects early when a declared
+// content-length already exceeds the cap, and aborts mid-stream when the
+// actual bytes do. Returns the raw bytes for a bounded re-materialization.
+async function readCappedBody(response: Response, cap: number): Promise<Uint8Array> {
+  if (!response.body) return new Uint8Array(0);
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > cap) {
+    throw new Error(
+      `Lethe response body too large: content-length ${declared} exceeds cap of ${cap} bytes`
+    );
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > cap) {
+      await reader.cancel().catch(() => {});
+      throw new Error(`Lethe response body exceeded cap of ${cap} bytes`);
+    }
+    chunks.push(value);
+  }
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
+export async function letheFetch(
   endpoint: string,
   apiKey: string,
   path: string,
-  body?: unknown
+  body?: unknown,
+  signal?: AbortSignal
 ): Promise<Response> {
-  return fetch(`${endpoint}${path}`, {
-    method: body ? "POST" : "GET",
-    headers: letheHeaders(apiKey),
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  const timeoutMs = fetchTimeoutMs();
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  // Respect a caller-provided cancellation signal alongside the deadline.
+  const onCallerAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", onCallerAbort, { once: true });
+  }
+  try {
+    const response = await fetch(`${endpoint}${path}`, {
+      method: body ? "POST" : "GET",
+      headers: letheHeaders(apiKey),
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    });
+    // The deadline stays armed across the body read: a server that sends
+    // headers but stalls the body is capped by the same timeout.
+    const bytes = await readCappedBody(response, maxBodyBytes());
+    return new Response(bytes.length > 0 ? (bytes as unknown as BodyInit) : null, {
+      status: response.status,
+      statusText: response.statusText,
+    });
+  } catch (err: any) {
+    if (timedOut) {
+      throw new Error(`Lethe request to ${path} timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onCallerAbort);
+  }
+}
+async function bestEffortPost(
+  endpoint: string,
+  apiKey: string,
+  path: string,
+  body: unknown,
+  operation: string
+): Promise<boolean> {
+  try {
+    const response = await letheFetch(endpoint, apiKey, path, body);
+    if (!response.ok) {
+      warnLetheResponse(operation, response);
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    warnLetheFailure(operation, err?.message || "network error");
+    return false;
+  }
 }
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
+}
+
+function warnLetheFailure(operation: string, detail: string): void {
+  if (requestWarnCount >= REQUEST_WARN_MAX) return;
+  requestWarnCount++;
+  console.warn(
+    `[Lethe] ${operation} failed (${detail}, count=${requestWarnCount}/${REQUEST_WARN_MAX}). ` +
+      "Check the configured endpoint and apiKey; memory/checkpoint data was not recorded."
+  );
+}
+
+function warnLetheResponse(operation: string, response: Response): void {
+  warnLetheFailure(operation, `HTTP ${response.status}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +293,7 @@ export class LetheContextEngine implements ContextEngine {
               sessionEventCount: summary.event_count ?? 0,
             };
           }
+          warnLetheResponse("bootstrap summary", summaryRes);
         }
         // Session already exists and is active.
         // Fetch event count so assemble() can decide whether to use recent events.
@@ -164,11 +307,22 @@ export class LetheContextEngine implements ContextEngine {
           if (summaryRes.ok) {
             const summary = await summaryRes.json();
             sessionEventCount = summary.event_count ?? 0;
+          } else {
+            warnLetheResponse("bootstrap event count", summaryRes);
           }
-        } catch {
-          // Non-fatal — continue without event count.
+        } catch (err: any) {
+          warnLetheFailure("bootstrap event count", err?.message || "network error");
         }
         return { bootstrapped: true, sessionEventCount };
+      }
+
+      if (res.status === 401 || res.status === 403) {
+        warnLetheResponse("bootstrap authentication", res);
+        return { bootstrapped: false, reason: `Lethe authentication failed (HTTP ${res.status})` };
+      }
+      if (res.status !== 404) {
+        warnLetheResponse("bootstrap session lookup", res);
+        return { bootstrapped: false, reason: `Lethe session lookup failed (HTTP ${res.status})` };
       }
 
       // Session doesn't exist yet — create it.
@@ -180,11 +334,13 @@ export class LetheContextEngine implements ContextEngine {
       });
 
       if (!createRes.ok && createRes.status !== 409) {
-        return { bootstrapped: false, reason: "failed to create session" };
+        warnLetheResponse("bootstrap session create", createRes);
+        return { bootstrapped: false, reason: `failed to create session (HTTP ${createRes.status})` };
       }
 
       return { bootstrapped: true };
-    } catch {
+    } catch (err: any) {
+      warnLetheFailure("bootstrap", err?.message || "network error");
       return { bootstrapped: false, reason: "network error during bootstrap" };
     }
   }
@@ -219,8 +375,10 @@ export class LetheContextEngine implements ContextEngine {
         content: logContent,
         tags: [],
       });
+      if (!res.ok) warnLetheResponse("event ingest", res);
       return { ingested: res.ok };
-    } catch {
+    } catch (err: any) {
+      warnLetheFailure("event ingest", err?.message || "network error");
       return { ingested: false };
     }
   }
@@ -237,9 +395,10 @@ export class LetheContextEngine implements ContextEngine {
     const { endpoint, apiKey } = this.cfg;
 
     if (isHeartbeat) {
-      await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/heartbeat`, {
-        token_budget: tokenBudget,
-      }).catch(() => {});
+      await bestEffortPost(
+        endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/heartbeat`,
+        { token_budget: tokenBudget }, "heartbeat"
+      );
       return;
     }
 
@@ -251,31 +410,43 @@ export class LetheContextEngine implements ContextEngine {
     const allTools = this.cfg.autoLog && lastMsg ? extractAllToolCallNames(lastMsg) : [];
 
     // Write checkpoint.
-    await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/checkpoints`, {
-      snapshot: {
-        open_threads: openThreads,
-        recent_event_ids: [],
-        current_task: "",
-        last_tool: lastTool,
+    await bestEffortPost(
+      endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/checkpoints`,
+      {
+        snapshot: {
+          open_threads: openThreads,
+          recent_event_ids: [],
+          current_task: "",
+          last_tool: lastTool,
+        },
       },
-    }).catch(() => {});
+      "checkpoint"
+    );
 
     // Optional auto-log: tools used (only if there were actual tool calls, not just text).
     if (this.cfg.autoLog && allTools.length > 0) {
-      await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/events`, {
-        event_type: "log",
-        content: `tools: ${allTools.join(" → ")}`,
-        tags: ["auto", "tool-call"],
-      }).catch(() => {});
+      await bestEffortPost(
+        endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/events`,
+        {
+          event_type: "log",
+          content: `tools: ${allTools.join(" → ")}`,
+          tags: ["auto", "tool-call"],
+        },
+        "tool auto-log"
+      );
     }
 
     // Optional auto-log: open threads detected in the conversation.
     if (this.cfg.autoLog && openThreads.length > 0) {
-      await letheFetch(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/events`, {
-        event_type: "log",
-        content: `threads: ${openThreads.join(" | ")}`,
-        tags: ["auto", "thread"],
-      }).catch(() => {});
+      await bestEffortPost(
+        endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/events`,
+        {
+          event_type: "log",
+          content: `threads: ${openThreads.join(" | ")}`,
+          tags: ["auto", "thread"],
+        },
+        "thread auto-log"
+      );
     }
   }
 
@@ -296,7 +467,7 @@ export class LetheContextEngine implements ContextEngine {
     const { sessionKey, messages, tokenBudget } = params;
     if (!sessionKey) return { messages: messages as any[], estimatedTokens: 0 };
 
-    const { endpoint, apiKey } = this.cfg;
+    const { endpoint, apiKey, agentId, projectId } = this.cfg;
 
     // Safety: hard cap of 5 recent events prevents unbounded accumulation.
     // This is the primary guard against /new overflow.
@@ -325,9 +496,53 @@ export class LetheContextEngine implements ContextEngine {
           summaryTokens = estimateTokens(summaryText);
         }
         sessionEventCount = summaryData.event_count ?? 0;
+      } else {
+        warnLetheResponse("session summary", res);
       }
-    } catch {
-      // Proceed without summary.
+    } catch (err: any) {
+      warnLetheFailure("session summary", err?.message || "network error");
+    }
+
+    // OpenLethe's default path is session/event memory only. Memory Git context
+    // belongs to Charon; this adapter remains opt-in for migration experiments.
+    let memoryContext: MemoryContextResponse | null = null;
+    let acceptedText = "";
+    let acceptedTokens = 0;
+    const conversationTokens = estimateTokens(JSON.stringify(messages));
+    if (this.cfg.memoryGitContext) {
+      const acceptedBudget = tokenBudget
+        ? Math.max(0, tokenBudget - summaryTokens - conversationTokens - 300)
+        : 2000;
+      const acceptedLimit = tokenBudget && tokenBudget < 1000 ? 5 : 12;
+      try {
+        const contextRes = await letheFetch(
+          endpoint,
+          apiKey,
+          `/api/memory/${encodeURIComponent(projectId)}/context`,
+          {
+            ref_name: "refs/shared/main",
+            query: params.prompt || latestUserText(messages),
+            limit: acceptedLimit,
+            create_manifest: false,
+          }
+        );
+        if (contextRes.ok) {
+          const projected = (await contextRes.json()) as MemoryContextResponse;
+          const fitted = fitMemoryContextToBudget(projected, acceptedBudget);
+          const manifest = await pinMemoryContext(
+            endpoint, apiKey, fitted.context, sessionKey, agentId, fitted.droppedMemoryIDs
+          );
+          if (manifest) {
+            memoryContext = { ...fitted.context, manifest_id: manifest.manifest_id };
+            acceptedText = fitted.promptFits ? acceptedMemoryPrompt(memoryContext) : "";
+            acceptedTokens = estimateTokens(acceptedText);
+          }
+        } else {
+          warnLetheResponse("accepted memory context", contextRes);
+        }
+      } catch (err: any) {
+        warnLetheFailure("accepted memory context", err?.message || "network error");
+      }
     }
 
     // Compute session-age heuristic now that we have event timestamps.
@@ -348,7 +563,7 @@ export class LetheContextEngine implements ContextEngine {
     if (!shouldSkipRecentEvents && sessionEventCount > 0) {
       // Token budget path: reserve headroom for summary + messages.
       const budgetForRecent = tokenBudget
-        ? Math.max(0, tokenBudget - summaryTokens - 200 - estimateTokens(JSON.stringify(messages)))
+        ? Math.max(0, tokenBudget - acceptedTokens - summaryTokens - 200 - conversationTokens)
         : undefined;
 
       const effectiveLimit = budgetForRecent && budgetForRecent < 200 ? 3 : HARD_LIMIT;
@@ -369,8 +584,14 @@ export class LetheContextEngine implements ContextEngine {
       }
     }
 
-    const systemPromptAddition = buildSystemPromptAddition(summaryText, recentTokens);
+    const systemPromptAddition = buildSystemPromptAddition(
+      acceptedText,
+      memoryContext,
+      summaryText,
+      recentTokens
+    );
     const assembledMessages: any[] = [
+      ...(acceptedText ? [makeAcceptedMemoryMessage(acceptedText)] : []),
       ...(summaryText ? [makeSummaryMessage(summaryText)] : []),
       ...recentEvents,
       ...(messages as any[]),
@@ -381,9 +602,12 @@ export class LetheContextEngine implements ContextEngine {
       sessionKey,
       summaryText,
       recentEvents,
+      acceptedText,
+      memoryContext,
       messages: messages as any[],
       summaryTokens,
       recentTokens,
+      acceptedTokens,
       tokenBudget,
       shouldSkipRecentEvents,
     });
@@ -391,7 +615,7 @@ export class LetheContextEngine implements ContextEngine {
     return {
       messages: assembledMessages,
       estimatedTokens:
-        summaryTokens + recentTokens + estimateTokens(JSON.stringify(messages)),
+        acceptedTokens + summaryTokens + recentTokens + conversationTokens,
       systemPromptAddition,
       assemblyId: assemblyReport?.assembly_id,
     };
@@ -416,7 +640,10 @@ export class LetheContextEngine implements ContextEngine {
         { token_budget: tokenBudget, force }
       );
 
-      if (!res.ok) return delegateCompactionToRuntime(params);
+      if (!res.ok) {
+        warnLetheResponse("compaction", res);
+        return delegateCompactionToRuntime(params);
+      }
 
       const data = await res.json();
       return {
@@ -428,7 +655,8 @@ export class LetheContextEngine implements ContextEngine {
           tokensAfter: data.tokens_after,
         },
       };
-    } catch {
+    } catch (err: any) {
+      warnLetheFailure("compaction", err?.message || "network error");
       return delegateCompactionToRuntime(params);
     }
   }
@@ -443,9 +671,12 @@ export class LetheContextEngine implements ContextEngine {
     sessionKey: string;
     summaryText: string;
     recentEvents: AgentMessage[];
+    acceptedText: string;
+    memoryContext: MemoryContextResponse | null;
     messages: AgentMessage[];
     summaryTokens: number;
     recentTokens: number;
+    acceptedTokens: number;
     tokenBudget?: number;
     shouldSkipRecentEvents: boolean;
   }): Promise<{ assembly_id: string } | null> {
@@ -492,25 +723,30 @@ export class LetheContextEngine implements ContextEngine {
     // as items (no prompt / message content in telemetry per section 11.5).
     const convoText = JSON.stringify(params.messages);
 
-    const totalBytes = items.reduce((sum, i) => sum + i.packed_bytes, 0);
-    const totalTokens = params.summaryTokens + params.recentTokens + estimateTokens(convoText);
+    const acceptedBytes = new TextEncoder().encode(params.acceptedText).length;
+    const totalBytes = items.reduce((sum, i) => sum + i.packed_bytes, 0) + acceptedBytes;
+    const totalTokens =
+      params.acceptedTokens + params.summaryTokens + params.recentTokens + estimateTokens(convoText);
 
     const report: AssemblyReport = {
       assembly_id: assemblyId,
       source: "openclaw-plugin",
       plugin_version: this.info.version ?? "0.4.0",
-      assembler_version: "openclaw-recent-v1",
+      assembler_version: "openclaw-memory-git-v1",
       message_count: params.messages.length,
       provided_token_budget: params.tokenBudget,
       estimator_id: "js-utf16-length-div-4-v1",
       summary_estimated_tokens: params.summaryTokens || undefined,
       recent_estimated_tokens: params.recentTokens || undefined,
+      accepted_estimated_tokens: params.acceptedTokens || undefined,
       conversation_estimated_tokens: estimateTokens(convoText),
       total_estimated_tokens: totalTokens,
       packed_bytes: totalBytes,
       recent_skipped: params.shouldSkipRecentEvents,
       skip_reason: params.shouldSkipRecentEvents ? "session-age-heuristic" : undefined,
-      notes: `items: ${items.length}`,
+      memory_manifest_id: params.memoryContext?.manifest_id,
+      memory_head_changeset_id: params.memoryContext?.head_changeset_id,
+      notes: `items: ${items.length}; accepted_memories: ${params.memoryContext?.memories.length ?? 0}`,
       items,
     };
 
@@ -524,6 +760,7 @@ export class LetheContextEngine implements ContextEngine {
       if (res.ok) {
         return { assembly_id: assemblyId };
       }
+      warnLetheResponse("assembly report", res);
     } catch (err: any) {
       if (assemblyWarnCount < ASSEMBLY_WARN_MAX) {
         assemblyWarnCount++;
@@ -551,9 +788,143 @@ function summaryPrompt(summary: { summary?: string; updated_at?: string }): stri
   );
 }
 
-function buildSystemPromptAddition(summaryText: string, recentTokens: number): string {
-  if (!summaryText && recentTokens === 0) return "";
+function fitMemoryContextToBudget(
+  context: MemoryContextResponse,
+  maxTokens: number
+): { context: MemoryContextResponse; droppedMemoryIDs: string[]; promptFits: boolean } {
+  const memories = Array.isArray(context.memories) ? [...context.memories] : [];
+  const droppedMemoryIDs: string[] = [];
+  while (memories.length > 0) {
+    const probe: MemoryContextResponse = {
+      ...context,
+      manifest_id: "m".repeat(128),
+      memories,
+    };
+    if (estimateTokens(acceptedMemoryPrompt(probe)) <= maxTokens) break;
+    const dropped = memories.pop();
+    if (dropped) droppedMemoryIDs.push(dropped.memory_id);
+  }
+  const exclusionReasons = { ...(context.exclusion_reasons ?? {}) };
+  for (const id of droppedMemoryIDs) {
+    exclusionReasons[id] = "excluded by OpenClaw accepted-memory token budget";
+  }
+  const fittedContext: MemoryContextResponse = {
+    ...context,
+    manifest_id: undefined,
+    memories,
+    exclusion_reasons: exclusionReasons,
+  };
+  const budgetProbe = { ...fittedContext, manifest_id: "m".repeat(128) };
+  return {
+    context: fittedContext,
+    droppedMemoryIDs,
+    promptFits: estimateTokens(acceptedMemoryPrompt(budgetProbe)) <= maxTokens,
+  };
+}
+
+async function pinMemoryContext(
+  endpoint: string,
+  apiKey: string,
+  context: MemoryContextResponse,
+  sessionID: string,
+  actorID: string,
+  droppedMemoryIDs: string[]
+): Promise<{ manifest_id: string } | null> {
+  const selectedMemoryIDs = context.memories.map((memory) => memory.memory_id);
+  const selected = new Set(selectedMemoryIDs);
+  const inclusionReasons = Object.fromEntries(
+    Object.entries(context.inclusion_reasons ?? {}).filter(([id]) => selected.has(id))
+  );
+  for (const memory of context.memories) {
+    if (!inclusionReasons[memory.memory_id]) {
+      inclusionReasons[memory.memory_id] = "selected within OpenClaw token budget";
+    }
+  }
+  const exclusionReasons = { ...(context.exclusion_reasons ?? {}) };
+  for (const id of droppedMemoryIDs) {
+    exclusionReasons[id] = "excluded by OpenClaw accepted-memory token budget";
+  }
+  try {
+    const response = await letheFetch(endpoint, apiKey, "/api/memory/manifests", {
+      direction: "input",
+      project_id: context.project_id,
+      ref_name: context.ref_name,
+      head_changeset_id: context.head_changeset_id,
+      selected_memory_ids: selectedMemoryIDs,
+      inclusion_reasons: inclusionReasons,
+      exclusion_reasons: exclusionReasons,
+      unresolved_conflicts: context.unresolved_conflicts ?? [],
+      session_id: sessionID,
+      actor_id: actorID,
+    });
+    if (!response.ok) {
+      warnLetheResponse("accepted memory manifest", response);
+      return null;
+    }
+    const manifest = await response.json();
+    if (!manifest?.manifest_id) {
+      warnLetheFailure("accepted memory manifest", "response missing manifest_id");
+      return null;
+    }
+    return { manifest_id: manifest.manifest_id };
+  } catch (err: any) {
+    warnLetheFailure("accepted memory manifest", err?.message || "network error");
+    return null;
+  }
+}
+
+function acceptedMemoryPrompt(context: MemoryContextResponse): string {
+  const memories = Array.isArray(context.memories) ? context.memories : [];
+  const conflictIDs = context.unresolved_conflicts ?? [];
+  if (memories.length === 0 && conflictIDs.length === 0) return "";
+  const manifest = context.manifest_id ? `Manifest: ${context.manifest_id}\n` : "";
+  if (memories.length === 0) {
+    const shown = conflictIDs.slice(0, 5);
+    const remainder = conflictIDs.length - shown.length;
+    return (
+      "## Accepted Memory Conflict Warning\n\n" +
+      manifest +
+      `Head: ${context.head_changeset_id}\n` +
+      `Unresolved conflicts (${conflictIDs.length}): ${shown.join(", ")}` +
+      (remainder > 0 ? ` (+${remainder} more in manifest)` : "") +
+      "\nReview these conflicts before treating project memory as canonical."
+    );
+  }
+  const lines = memories.map((memory) => {
+    const label = memory.kind || memory.event_type || "memory";
+    const scope = memory.scope ? `/${memory.scope}` : "";
+    return `- [${label}${scope}] ${memory.content}`;
+  });
+  const conflicts =
+    context.unresolved_conflicts && context.unresolved_conflicts.length > 0
+      ? `Unresolved conflicts requiring review: ${context.unresolved_conflicts.join(", ")}\n`
+      : "";
+  return (
+    "## Accepted Project Memory\n\n" +
+    `Ref: ${context.ref_name} @ ${context.head_changeset_id}\n` +
+    manifest +
+    `Projection: ${context.projection_version}\n` +
+    conflicts +
+    "\n" +
+    lines.join("\n")
+  );
+}
+
+function buildSystemPromptAddition(
+  acceptedText: string,
+  context: MemoryContextResponse | null,
+  summaryText: string,
+  recentTokens: number
+): string {
+  if (!acceptedText && !summaryText && recentTokens === 0) return "";
   const parts: string[] = [];
+  if (acceptedText) {
+    parts.push(
+      `Accepted project memory is pinned to manifest ${context?.manifest_id ?? "unavailable"} ` +
+        `at ${context?.ref_name ?? "refs/shared/main"} @ ${context?.head_changeset_id ?? "unknown"}. ` +
+        "Treat it as canonical; unresolved conflicts are review items, not facts."
+    );
+  }
   if (summaryText) {
     parts.push(
       `Previous session summary (${estimateTokens(summaryText)} tokens):\n${summaryText}`
@@ -561,7 +932,7 @@ function buildSystemPromptAddition(summaryText: string, recentTokens: number): s
   }
   if (recentTokens > 0) {
     parts.push(
-      `Recent memory events (~${recentTokens} tokens). Full history available in context.`
+      `Recent session events (~${recentTokens} tokens). Full history is available through Lethe.`
     );
   }
   return parts.join("\n\n");
@@ -653,6 +1024,30 @@ function eventToMessage(event: any): AgentMessage {
     timestamp: event.created_at
       ? new Date(event.created_at).getTime()
       : Date.now(),
+  } as AgentMessage;
+}
+
+function latestUserText(messages: AgentMessage[]): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") return extractText(messages[i]);
+  }
+  return "";
+}
+
+function makeAcceptedMemoryMessage(text: string): AgentMessage {
+  return {
+    id: "lethe-accepted-memory",
+    role: "assistant",
+    content: [{ type: "text", text }],
+    api: "unknown",
+    provider: "unknown",
+    model: "unknown",
+    usage: {
+      input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop",
+    timestamp: Date.now(),
   } as AgentMessage;
 }
 

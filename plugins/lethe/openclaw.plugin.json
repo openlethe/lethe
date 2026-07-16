@@ -4,6 +4,15 @@
   "description": "Persistent memory layer for AI agents — the antidote to the river Lethe.",
   "version": "0.4.0",
   "kind": "context-engine",
+  "contracts": {
+    "tools": [
+      "lethe.record",
+      "lethe.log",
+      "lethe.flag",
+      "lethe.task",
+      "lethe_search"
+    ]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
@@ -27,6 +36,11 @@
       "autoLog": {
         "type": "boolean",
         "description": "Enable diagnostic automatic event logs for tool calls/thread markers. Checkpoints are always written. Default: false.",
+        "default": false
+      },
+      "memoryGitContext": {
+        "type": "boolean",
+        "description": "Opt in to the experimental Memory Git context adapter. Charon is the default owner of versioned memory.",
         "default": false
       }
     }

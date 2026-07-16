@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -23,15 +25,53 @@ type DB struct {
 	*sql.DB
 }
 
+// ErrDatabaseBusy is returned when SQLite lock contention persists after the
+// bounded busy retry policy is exhausted. API handlers map it to HTTP 503.
+var ErrDatabaseBusy = errors.New("database busy: lock contention exhausted retries")
+
 // Open opens or creates a SQLite database.
 func Open(dbPath string) (*DB, error) {
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
-		return nil, fmt.Errorf("mkdir: %w", err)
+	if dbPath != ":memory:" && !strings.HasPrefix(dbPath, "file::memory:") {
+		// Memory data is private: the database directory must not be traversable
+		// and the database file must not be readable by other OS users. SQLite
+		// derives WAL/SHM file modes from the main database file, and the
+		// container entrypoint sets umask 077 as defense in depth.
+		dir := filepath.Dir(dbPath)
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			return nil, fmt.Errorf("mkdir: %w", err)
+		}
+		if dir != "." {
+			// #nosec G302 -- 0700 is owner-only; execute bit is required to traverse.
+			if err := chmodOwnerOnly(dir, 0700); err != nil {
+				return nil, fmt.Errorf("chmod dir: %w", err)
+			}
+		}
+		// #nosec G304 -- dbPath is operator-supplied configuration, not untrusted request input.
+		dbFile, err := os.OpenFile(dbPath, os.O_CREATE|os.O_RDWR, 0600)
+		if err != nil {
+			if errors.Is(err, os.ErrPermission) {
+				return nil, fmt.Errorf("precreate db: %w (directory %s is not writable by this process; in containers, chown the host data directory to the service UID, e.g. `sudo chown -R 1000:1000 <dir>`)", err, dir)
+			}
+			return nil, fmt.Errorf("precreate db: %w", err)
+		}
+		if err := dbFile.Close(); err != nil {
+			return nil, fmt.Errorf("close precreated db: %w", err)
+		}
+		if err := chmodOwnerOnly(dbPath, 0600); err != nil {
+			return nil, fmt.Errorf("chmod db: %w", err)
+		}
 	}
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
 	}
+	// SQLite permits a single writer at a time; WAL lets readers proceed during
+	// writes. Bound the pool so bursts cannot open unbounded connections and
+	// thrash the write lock; busy_timeout plus withBusyRetry absorb ordinary
+	// contention instead of surfacing SQLITE_BUSY to callers.
+	db.SetMaxOpenConns(4)
+	db.SetMaxIdleConns(4)
 	ret := &DB{DB: db}
 	if err := db.PingContext(context.Background()); err != nil {
 		return nil, fmt.Errorf("ping: %w", err)
@@ -39,7 +79,86 @@ func Open(dbPath string) (*DB, error) {
 	if err := ret.Migrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if dbPath != ":memory:" && !strings.HasPrefix(dbPath, "file::memory:") {
+		// Migrations performed the first writes, so WAL/SHM now exist. Enforce
+		// owner-only modes explicitly instead of relying on driver defaults.
+		for _, suffix := range []string{"-wal", "-shm"} {
+			sidecar := dbPath + suffix
+			if _, err := os.Stat(sidecar); err == nil {
+				if err := chmodOwnerOnly(sidecar, 0600); err != nil {
+					return nil, fmt.Errorf("chmod %s: %w", suffix, err)
+				}
+			}
+		}
+	}
 	return ret, nil
+}
+
+// chmodOwnerOnly tightens path to mode and tolerates EPERM on targets the
+// process does not own — common for host bind mounts in containers — when the
+// target is already owner-only. A broader target fails closed with remediation
+// guidance rather than silently running with group/other-accessible memory
+// data.
+func chmodOwnerOnly(path string, mode os.FileMode) error {
+	err := os.Chmod(path, mode)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, os.ErrPermission) {
+		return err
+	}
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		return err
+	}
+	if info.Mode().Perm()&0077 != 0 {
+		return fmt.Errorf("%w (mode is %#o and not owned by this process; chown it to the service user or tighten it to %#o manually)", err, info.Mode().Perm(), mode)
+	}
+	return nil
+}
+
+// busyRetryAttempts bounds how often a short, idempotent write transaction is
+// retried when SQLite reports lock contention (SQLITE_BUSY).
+const busyRetryAttempts = 5
+
+// withBusyRetry runs op with bounded exponential backoff and jitter while op
+// fails with a SQLite lock-contention error. Non-busy errors return
+// immediately. When attempts are exhausted the error wraps ErrDatabaseBusy so
+// handlers can return 503 instead of misclassifying contention as a client
+// error.
+func withBusyRetry(ctx context.Context, op func() error) error {
+	for attempt := 0; ; attempt++ {
+		err := op()
+		if !IsBusyError(err) {
+			return err
+		}
+		if attempt == busyRetryAttempts-1 {
+			return fmt.Errorf("%w after %d attempts: %v", ErrDatabaseBusy, busyRetryAttempts, err)
+		}
+		backoff := time.Duration(25*(1<<attempt)) * time.Millisecond
+		// #nosec G404 -- backoff jitter does not require cryptographic randomness.
+		jitter := time.Duration(rand.Int64N(int64(backoff)/2 + 1))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff + jitter):
+		}
+	}
+}
+
+// IsBusyError reports whether err is a SQLite lock-contention error, including
+// errors that wrap ErrDatabaseBusy after the retry policy was exhausted.
+func IsBusyError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, ErrDatabaseBusy) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "database is locked") ||
+		strings.Contains(msg, "database table is locked") ||
+		strings.Contains(msg, "sqlite_busy")
 }
 
 // Migrate runs all embedded SQL migrations.
@@ -87,6 +206,11 @@ func (db *DB) Migrate() error {
 			return fmt.Errorf("migration %s: %w", name, err)
 		}
 		log.Printf("migrations: applied %s", name)
+	}
+	// Go-side data migration: upgrade changeset integrity digests to the
+	// order-preserving v2 algorithm (see store_memory_git.go).
+	if err := migrateChangesetDigestsV2(db); err != nil {
+		return fmt.Errorf("migration 011_changeset_digests_v2: %w", err)
 	}
 	return nil
 }

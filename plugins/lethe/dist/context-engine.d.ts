@@ -11,6 +11,11 @@ export interface LetheContextEngineConfig {
      * checkpoints but does not turn every tool call/thread marker into events.
      */
     autoLog?: boolean;
+    /**
+     * Optional compatibility adapter for Memory Git context. Disabled by
+     * default: Charon owns the versioned-memory path.
+     */
+    memoryGitContext?: boolean;
 }
 interface AssembleParams {
     sessionId: string;
@@ -40,6 +45,7 @@ interface CompactParams {
     currentTokenCount?: number;
     runtimeContext?: ContextEngineRuntimeContext;
 }
+export declare function letheFetch(endpoint: string, apiKey: string, path: string, body?: unknown, signal?: AbortSignal): Promise<Response>;
 export declare class LetheContextEngine implements ContextEngine {
     private cfg;
     readonly info: ContextEngineInfo;

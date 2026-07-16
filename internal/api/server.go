@@ -29,6 +29,7 @@ type Server struct {
 	authToken      string
 	charonMergeKey []byte
 	trustMode      TrustMode
+	mode           Mode
 }
 
 // broadcaster manages SSE client connections.
@@ -144,6 +145,7 @@ func NewServer(store *db.Store, sessMgr *session.Manager, opts ...Option) *Serve
 		store:       store,
 		sessMgr:     sessMgr,
 		broadcaster: newBroadcaster(),
+		mode:        ModeLegacy,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -180,69 +182,73 @@ func (s *Server) registerRoutes() {
 		api.Get("/health", s.handleHealth)
 		api.Get("/stats", s.handleStats)
 
-		// Sessions.
-		api.Route("/sessions", func(r chi.Router) {
-			r.Post("/", s.handleCreateSession)
-			r.Get("/", s.handleListSessions)
-			r.Get("/{sessionID}", s.handleGetSession)
-			r.Get("/{sessionID}/summary", s.handleGetSessionSummary)
-			r.Post("/{sessionID}/compact", s.handleCompact)
-			r.Post("/{sessionID}/heartbeat", s.handleHeartbeat)
-			r.Post("/{sessionID}/interrupt", s.handleInterruptSession)
-			r.Post("/{sessionID}/resume", s.handleResumeSession)
-			r.Post("/{sessionID}/complete", s.handleCompleteSession)
-		})
+		if s.mode.LegacyEnabled() {
+			// Sessions.
+			api.Route("/sessions", func(r chi.Router) {
+				r.Post("/", s.handleCreateSession)
+				r.Get("/", s.handleListSessions)
+				r.Get("/{sessionID}", s.handleGetSession)
+				r.Get("/{sessionID}/summary", s.handleGetSessionSummary)
+				r.Post("/{sessionID}/compact", s.handleCompact)
+				r.Post("/{sessionID}/heartbeat", s.handleHeartbeat)
+				r.Post("/{sessionID}/interrupt", s.handleInterruptSession)
+				r.Post("/{sessionID}/resume", s.handleResumeSession)
+				r.Post("/{sessionID}/complete", s.handleCompleteSession)
+			})
 
-		// Events.
-		api.Route("/sessions/{sessionID}/events", func(r chi.Router) {
-			r.Post("/", s.handleCreateEvent)
-			r.Get("/", s.handleGetSessionEvents)
-		})
+			// Events.
+			api.Route("/sessions/{sessionID}/events", func(r chi.Router) {
+				r.Post("/", s.handleCreateEvent)
+				r.Get("/", s.handleGetSessionEvents)
+			})
 
-		// Checkpoints.
-		api.Route("/sessions/{sessionID}/checkpoints", func(r chi.Router) {
-			r.Post("/", s.handleCreateCheckpoint)
-			r.Get("/", s.handleGetCheckpoints)
-		})
+			// Checkpoints.
+			api.Route("/sessions/{sessionID}/checkpoints", func(r chi.Router) {
+				r.Post("/", s.handleCreateCheckpoint)
+				r.Get("/", s.handleGetCheckpoints)
+			})
 
-		// Threads (session-scoped).
-		api.Route("/sessions/{sessionID}/threads", func(r chi.Router) {
-			r.Get("/", s.handleGetThreads)
-		})
+			// Threads (session-scoped).
+			api.Route("/sessions/{sessionID}/threads", func(r chi.Router) {
+				r.Get("/", s.handleGetThreads)
+			})
 
-		// Threads (standalone).
-		api.Route("/threads", func(r chi.Router) {
-			r.Post("/", s.handleCreateThread)
-			r.Get("/{threadID}", s.handleGetThread)
-			r.Patch("/{threadID}", s.handleUpdateThread)
-			r.Get("/{threadID}/events", s.handleGetThreadEvents)
-		})
+			// Threads (standalone).
+			api.Route("/threads", func(r chi.Router) {
+				r.Post("/", s.handleCreateThread)
+				r.Get("/{threadID}", s.handleGetThread)
+				r.Patch("/{threadID}", s.handleUpdateThread)
+				r.Get("/{threadID}/events", s.handleGetThreadEvents)
+			})
 
-		// Flag review.
-		api.Get("/flags", s.handleGetFlags)
-		api.Put("/flags/{eventID}/review", s.handleReviewFlag)
+			// Flag review.
+			api.Get("/flags", s.handleGetFlags)
+			api.Put("/flags/{eventID}/review", s.handleReviewFlag)
 
-		// Assemblies (context ledger).
-		api.Route("/sessions/{sessionID}/assemblies", func(r chi.Router) {
-			r.Post("/", s.handleCreateAssembly)
-			r.Get("/", s.handleListAssemblies)
-		})
-		api.Route("/assemblies/{assemblyID}", func(r chi.Router) {
-			r.Get("/", s.handleGetAssembly)
-			r.Post("/feedback", s.handleCreateFeedback)
-		})
+			// Assemblies (context ledger).
+			api.Route("/sessions/{sessionID}/assemblies", func(r chi.Router) {
+				r.Post("/", s.handleCreateAssembly)
+				r.Get("/", s.handleListAssemblies)
+			})
+			api.Route("/assemblies/{assemblyID}", func(r chi.Router) {
+				r.Get("/", s.handleGetAssembly)
+				r.Post("/feedback", s.handleCreateFeedback)
+			})
 
-		// SSE live stream.
-		api.Get("/live", s.handleSSE)
+			// SSE live stream.
+			api.Get("/live", s.handleSSE)
 
-		// Event search.
-		api.Get("/events/search", s.handleSearchEvents)
+			// Event search.
+			api.Get("/events/search", s.handleSearchEvents)
 
-		// Project-level event write (no session required).
-		api.Post("/events", s.handleCreateProjectEvent)
+			// Project-level event write (no session required).
+			api.Post("/events", s.handleCreateProjectEvent)
+		}
 
-		// Memory Git (v1)
-		s.registerMemoryGitRoutes(api)
+		if s.mode.GitEnabled() {
+			// Memory Git (v1).
+			s.registerMemoryGitRoutes(api)
+		}
 	})
 }
 
@@ -281,6 +287,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	// #nosec G104 -- status and headers are already sent; an encode failure cannot be reported to the client.
 	json.NewEncoder(w).Encode(v)
 }
 

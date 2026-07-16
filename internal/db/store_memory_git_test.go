@@ -62,7 +62,8 @@ func TestMemoryGitLegacyRootAndBranchCAS(t *testing.T) {
 		ExpectedHead:    root.ChangesetID,
 		AdvanceRef:      true,
 		Ops: []models.MemorySemanticOp{{
-			OpType: models.OpAddMemory,
+			OpType:           models.OpAddMemory,
+			ResultingEventID: "evt-placeholder-chat",
 			Payload: map[string]any{
 				"content":    "Decision: use OAuth for MCP",
 				"event_type": "record",
@@ -139,7 +140,8 @@ func TestMemoryGitLegacyRootAndBranchCAS(t *testing.T) {
 		Ops: []models.MemorySemanticOp{{
 			OpType: models.OpAttachVerification,
 			Payload: map[string]any{
-				"summary": "human reviewed merge of chatgpt + arch branches",
+				"summary":  "human reviewed merge of chatgpt + arch branches",
+				"reviewer": "principal_arch",
 			},
 		}},
 	})
@@ -204,17 +206,25 @@ func TestMemoryGitLegacyRootAndBranchCAS(t *testing.T) {
 		t.Fatalf("expected temporal correction, got %#v", diff2.Corrections)
 	}
 
-	// Idempotent create
+	// Idempotent create: an identical replay returns the original changeset.
+	// The replay must carry the same normalized request fields — strict
+	// idempotency matching rejects same-key requests with different content.
 	again, err := s.CreateChangeset(context.Background(), CreateChangesetRequest{
 		ProjectID:       "proj-mg",
 		RefName:         chatgptBranch,
 		ParentIDs:       []string{root.ChangesetID},
 		AuthorPrincipal: "principal_chatgpt",
+		ActorID:         "chatgpt",
 		Message:         "chatgpt: note A",
 		IdempotencyKey:  "chat-1",
 		Ops: []models.MemorySemanticOp{{
-			OpType:  models.OpAddMemory,
-			Payload: map[string]any{"content": "Decision: use OAuth for MCP"},
+			OpType:           models.OpAddMemory,
+			ResultingEventID: "evt-placeholder-chat",
+			Payload: map[string]any{
+				"content":    "Decision: use OAuth for MCP",
+				"event_type": "record",
+				"kind":       "decision",
+			},
 		}},
 	})
 	if err != nil {
@@ -232,6 +242,27 @@ func TestMemoryGitLegacyRootAndBranchCAS(t *testing.T) {
 	}
 	if len(refs) != 0 {
 		t.Fatalf("expected no cross-project refs, got %d", len(refs))
+	}
+}
+
+func TestMemoryGitLegacyRootCreatesFreshProject(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+
+	root, ref, err := s.EnsureLegacyRoot(context.Background(), "fresh-memory-git", "system")
+	if err != nil {
+		t.Fatalf("EnsureLegacyRoot: %v", err)
+	}
+	if root == nil || ref == nil || root.ProjectID != "fresh-memory-git" || ref.ProjectID != "fresh-memory-git" {
+		t.Fatalf("unexpected fresh root/ref: root=%#v ref=%#v", root, ref)
+	}
+
+	var name string
+	if err := s.QueryRow("SELECT name FROM projects WHERE project_id = ?", "fresh-memory-git").Scan(&name); err != nil {
+		t.Fatalf("query initialized project: %v", err)
+	}
+	if name != "fresh-memory-git" {
+		t.Fatalf("project name = %q, want fresh-memory-git", name)
 	}
 }
 

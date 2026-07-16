@@ -46,16 +46,20 @@ func (s *Store) CreateContextAssembly(ctx context.Context, assembly *models.Cont
 	q := `INSERT INTO context_assemblies
 	      (assembly_id, session_id, project_id, source, plugin_version, assembler_version,
 	       message_count, provided_token_budget, estimator_id,
-	       summary_estimated_tokens, recent_estimated_tokens, conversation_estimated_tokens,
-	       total_estimated_tokens, packed_bytes, recent_skipped, skip_reason, notes, created_at)
-	      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	       summary_estimated_tokens, recent_estimated_tokens, accepted_estimated_tokens,
+	       conversation_estimated_tokens, total_estimated_tokens,
+	       memory_manifest_id, memory_head_changeset_id,
+	       packed_bytes, recent_skipped, skip_reason, notes, created_at)
+	      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	now := time.Now().UTC()
 	_, err = tx.ExecContext(ctx, q,
 		assembly.AssemblyID, assembly.SessionID, assembly.ProjectID,
 		assembly.Source, nullString(assembly.PluginVersion), assembly.AssemblerVersion,
 		assembly.MessageCount, intOrNull(assembly.ProvidedTokenBudget), nullString(assembly.EstimatorID),
 		intOrNull(assembly.SummaryEstimatedTokens), intOrNull(assembly.RecentEstimatedTokens),
-		intOrNull(assembly.ConversationEstimatedTokens), intOrNull(assembly.TotalEstimatedTokens),
+		intOrNull(assembly.AcceptedEstimatedTokens), intOrNull(assembly.ConversationEstimatedTokens),
+		intOrNull(assembly.TotalEstimatedTokens), nullString(assembly.MemoryManifestID),
+		nullString(assembly.MemoryHeadChangesetID),
 		assembly.PackedBytes, boolInt(assembly.RecentSkipped), nullString(assembly.SkipReason),
 		nullString(assembly.Notes), now,
 	)
@@ -90,8 +94,10 @@ func (s *Store) CreateContextAssembly(ctx context.Context, assembly *models.Cont
 func (s *Store) ListContextAssemblies(ctx context.Context, sessionID string, limit int) ([]*models.ContextAssembly, error) {
 	q := `SELECT assembly_id, session_id, project_id, source, plugin_version, assembler_version,
 	             message_count, provided_token_budget, estimator_id,
-	             summary_estimated_tokens, recent_estimated_tokens, conversation_estimated_tokens,
-	             total_estimated_tokens, packed_bytes, recent_skipped, skip_reason, notes, created_at
+	             summary_estimated_tokens, recent_estimated_tokens, accepted_estimated_tokens,
+	             conversation_estimated_tokens, total_estimated_tokens,
+	             memory_manifest_id, memory_head_changeset_id,
+	             packed_bytes, recent_skipped, skip_reason, notes, created_at
 	      FROM context_assemblies
 	      WHERE session_id=?
 	      ORDER BY created_at DESC LIMIT ?`
@@ -104,13 +110,14 @@ func (s *Store) ListContextAssemblies(ctx context.Context, sessionID string, lim
 	var assemblies []*models.ContextAssembly
 	for rows.Next() {
 		var a models.ContextAssembly
-		var pluginVer, estimator, skipReason, notes sql.NullString
-		var provBudget, summaryTok, recentTok, convTok, totalTok sql.NullInt64
+		var pluginVer, estimator, manifestID, memoryHead, skipReason, notes sql.NullString
+		var provBudget, summaryTok, recentTok, acceptedTok, convTok, totalTok sql.NullInt64
 		var recentSkipped int
 		err := rows.Scan(
 			&a.AssemblyID, &a.SessionID, &a.ProjectID, &a.Source, &pluginVer, &a.AssemblerVersion,
 			&a.MessageCount, &provBudget, &estimator,
-			&summaryTok, &recentTok, &convTok, &totalTok,
+			&summaryTok, &recentTok, &acceptedTok, &convTok, &totalTok,
+			&manifestID, &memoryHead,
 			&a.PackedBytes, &recentSkipped, &skipReason, &notes, &a.CreatedAt,
 		)
 		if err != nil {
@@ -128,6 +135,12 @@ func (s *Store) ListContextAssemblies(ctx context.Context, sessionID string, lim
 		if notes.Valid {
 			a.Notes = notes.String
 		}
+		if manifestID.Valid {
+			a.MemoryManifestID = manifestID.String
+		}
+		if memoryHead.Valid {
+			a.MemoryHeadChangesetID = memoryHead.String
+		}
 		a.RecentSkipped = recentSkipped != 0
 		if provBudget.Valid {
 			v := int(provBudget.Int64)
@@ -140,6 +153,10 @@ func (s *Store) ListContextAssemblies(ctx context.Context, sessionID string, lim
 		if recentTok.Valid {
 			v := int(recentTok.Int64)
 			a.RecentEstimatedTokens = &v
+		}
+		if acceptedTok.Valid {
+			v := int(acceptedTok.Int64)
+			a.AcceptedEstimatedTokens = &v
 		}
 		if convTok.Valid {
 			v := int(convTok.Int64)
@@ -158,18 +175,21 @@ func (s *Store) ListContextAssemblies(ctx context.Context, sessionID string, lim
 func (s *Store) GetContextAssembly(ctx context.Context, assemblyID string) (*models.ContextAssembly, error) {
 	q := `SELECT assembly_id, session_id, project_id, source, plugin_version, assembler_version,
 	             message_count, provided_token_budget, estimator_id,
-	             summary_estimated_tokens, recent_estimated_tokens, conversation_estimated_tokens,
-	             total_estimated_tokens, packed_bytes, recent_skipped, skip_reason, notes, created_at
+	             summary_estimated_tokens, recent_estimated_tokens, accepted_estimated_tokens,
+	             conversation_estimated_tokens, total_estimated_tokens,
+	             memory_manifest_id, memory_head_changeset_id,
+	             packed_bytes, recent_skipped, skip_reason, notes, created_at
 	      FROM context_assemblies
 	      WHERE assembly_id=?`
 	var a models.ContextAssembly
-	var pluginVer, estimator, skipReason, notes sql.NullString
-	var provBudget, summaryTok, recentTok, convTok, totalTok sql.NullInt64
+	var pluginVer, estimator, manifestID, memoryHead, skipReason, notes sql.NullString
+	var provBudget, summaryTok, recentTok, acceptedTok, convTok, totalTok sql.NullInt64
 	var recentSkipped int
 	err := s.QueryRowContext(ctx, q, assemblyID).Scan(
 		&a.AssemblyID, &a.SessionID, &a.ProjectID, &a.Source, &pluginVer, &a.AssemblerVersion,
 		&a.MessageCount, &provBudget, &estimator,
-		&summaryTok, &recentTok, &convTok, &totalTok,
+		&summaryTok, &recentTok, &acceptedTok, &convTok, &totalTok,
+		&manifestID, &memoryHead,
 		&a.PackedBytes, &recentSkipped, &skipReason, &notes, &a.CreatedAt,
 	)
 	if err != nil {
@@ -190,6 +210,12 @@ func (s *Store) GetContextAssembly(ctx context.Context, assemblyID string) (*mod
 	if notes.Valid {
 		a.Notes = notes.String
 	}
+	if manifestID.Valid {
+		a.MemoryManifestID = manifestID.String
+	}
+	if memoryHead.Valid {
+		a.MemoryHeadChangesetID = memoryHead.String
+	}
 	a.RecentSkipped = recentSkipped != 0
 	if provBudget.Valid {
 		v := int(provBudget.Int64)
@@ -202,6 +228,10 @@ func (s *Store) GetContextAssembly(ctx context.Context, assemblyID string) (*mod
 	if recentTok.Valid {
 		v := int(recentTok.Int64)
 		a.RecentEstimatedTokens = &v
+	}
+	if acceptedTok.Valid {
+		v := int(acceptedTok.Int64)
+		a.AcceptedEstimatedTokens = &v
 	}
 	if convTok.Valid {
 		v := int(convTok.Int64)

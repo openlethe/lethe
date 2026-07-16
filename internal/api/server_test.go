@@ -26,15 +26,16 @@ func newTestServer(t *testing.T) *Server {
 		t.Fatalf("UpsertProject: %v", err)
 	}
 	if err := store.CreateSession(ctx, &models.Session{
-		SessionID: "sess-1",
-		AgentID:   "agent-test",
-		ProjectID: "project-test",
-		State:     models.SessionActive,
-		StartedAt: time.Now().UTC(),
+		SessionID:  "sess-1",
+		SessionKey: "stable-session-key",
+		AgentID:    "agent-test",
+		ProjectID:  "project-test",
+		State:      models.SessionActive,
+		StartedAt:  time.Now().UTC(),
 	}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	return NewServer(store, session.NewManager(store), WithAuthToken("test-token"), WithCharonMergeKey("0123456789abcdef0123456789abcdef"))
+	return NewServer(store, session.NewManager(store), WithAuthToken("test-token"), WithCharonMergeKey("0123456789abcdef0123456789abcdef"), WithMode(ModeHybrid))
 }
 
 func authenticatedRequest(method, path string, body interface{}) *http.Request {

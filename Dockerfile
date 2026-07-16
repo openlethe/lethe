@@ -1,40 +1,44 @@
-# Build stage
-FROM golang:1.25-alpine AS builder
+# Build stage — Go toolchain pinned by digest (Go 1.25.12, matches Charon's builder)
+FROM golang:1.25.12-alpine@sha256:56961d79ea8129efddcc0b8643fd8a5416b4e6228cfd477e3fd61deb2672c587 AS builder
 
 WORKDIR /build
 
 # Copy only go.mod and go.sum first — no local source to confuse module resolution.
 # go mod download downloads deps from the proxy; local packages don't exist yet so
-# they don't interfere. We use GOTOOLCHAIN=auto to let Go fetch a newer toolchain
-# if the go.mod says so (e.g. go 1.25.0 with deps requiring 1.25+).
-ENV GOTOOLCHAIN=auto
+# they don't interfere. GOTOOLCHAIN=local forces the pinned 1.25.12 builder instead
+# of resolving a toolchain from mutable external state; go.mod pins the same version.
+ENV GOTOOLCHAIN=local
 COPY go.mod go.sum ./
 RUN go mod download
 
 # Now copy source and build
 COPY . .
 RUN go mod tidy -diff
-RUN GOOS=linux go build -ldflags="-s -w" -o lethe ./cmd/lethe
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o lethe ./cmd/lethe
 
-# Runtime stage — minimal alpine image
-FROM alpine:3.19
+# Runtime stage — minimal alpine image, pinned by digest (matches Charon's runtime base)
+FROM alpine:3.23@sha256:fd791d74b68913cbb027c6546007b3f0d3bc45125f797758156952bc2d6daf40
 
-RUN apk add --no-cache ca-certificates
+# Non-root user and data directory for SQLite/WAL files. UID/GID 1000 is kept
+# for compatibility with existing bind-mounted data directories (see
+# docker-compose.yml and start.sh); /data itself is owner-only.
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S -g 1000 appuser \
+    && adduser -S -D -H -u 1000 -G appuser appuser \
+    && install -d -o appuser -g appuser -m 0700 /data \
+    && install -d -o appuser -g appuser -m 0755 /app
 
 WORKDIR /app
 
-# Create non-root user and writable data directory for SQLite/WAL files.
-RUN adduser -D -g '' appuser \
-    && mkdir -p /data \
-    && chown -R appuser:appuser /data
+COPY --from=builder --chown=appuser:appuser /build/lethe /app/lethe
+COPY --chown=appuser:appuser docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod 0555 /app/lethe /app/docker-entrypoint.sh
 
-COPY --from=builder /build/lethe /app/lethe
-
-USER appuser
+USER 1000:1000
 
 EXPOSE 18483
 
-ENTRYPOINT ["/app/lethe"]
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["--db", "/data/lethe.db", "--http", ":18483"]
 
 # Mount volume for persistent data

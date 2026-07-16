@@ -6,6 +6,11 @@ Every AI agent starts from scratch. Same question, same reasoning, same dead end
 
 Lethe is a persistent memory layer for AI agents. It records reasoning chains, decisions, observations, flagged uncertainty, and task history across sessions - so your agent carries context forward instead of rebuilding it from nothing.
 
+The default `legacy` mode is OpenLethe: the existing OpenClaw-compatible
+session/event/checkpoint service. The local `git` mode is a separate,
+Charon-governed versioned-memory service with its own port and database. See
+[the local dual-service topology](docs/local-memory-git.md).
+
 ---
 
 ## What It Records
@@ -49,7 +54,7 @@ Records carry confidence scores (0.0-1.0). Flags persist across sessions until e
 4. **Compaction** - When a session grows long, events are synthesized into a narrative summary, preserving the full history in compressed form.
 5. **Threads** - Flags and uncertainty can be grouped into named threads for tracking open questions across sessions.
 
-On session resume, the plugin assembles context: session summary + recent events, prepended to the LLM prompt. The agent picks up exactly where it left off.
+In the default OpenLethe path, the plugin assembles only session summaries and bounded recent events. Memory Git context is owned by Charon and is not queried by the plugin unless the experimental `memoryGitContext` compatibility switch is explicitly enabled.
 
 ---
 
@@ -72,6 +77,9 @@ Lethe 0.4 makes the current memory path easier to trust.
 
 - **Context correctness** - The OpenClaw plugin now injects the newest bounded session events, not the oldest. Selection uses the summary endpoint's `recent_events`, eliminating the recency bug.
 - **Assembly observability** - The plugin reports exactly what Lethe summary and event references were injected on each turn. The UI shows "What Lethe added" with assembly history, summary snapshots, and event ordering.
+- **Memory Git subsystem** - In `git` mode, accepted semantic history at `refs/shared/main` is reconstructed at an exact head and can be pinned in an input manifest. Corrections, supersedes, duplicates, historical heads, and unresolved conflicts remain explicit. Charon is the intended client.
+- **Frozen legacy baseline** - Pre-Memory-Git event IDs are captured once at the synthetic root; later direct event writes do not silently become accepted shared memory.
+- **Visible failures** - Authentication and transport failures now emit throttled warnings instead of silently dropping context and checkpoints.
 - **Feedback labels** - Users can mark assemblies as good, stale, missing memory, too large, irrelevant, or other. Feedback is additive and never mutates memory.
 - **Security hardening** - Strict Bearer parsing, explicit trust modes (`private`/`loopback`), no forwarded-header trust, SSE same-origin removal, session/project consistency checks, and event/task validation.
 - **Project-scoped search** - Plugin search is limited to its configured project.
@@ -92,6 +100,12 @@ docker pull ghcr.io/openlethe/lethe:latest
 ### Docker
 
 ```bash
+# The image runs as UID 1000 and keeps state in /data. On Linux, Docker
+# creates a missing bind-mount directory as root-owned, so create it first
+# with the right ownership (one-time):
+install -d -o 1000 -g 1000 "$PWD/lethe-data" 2>/dev/null || {
+  mkdir -p "$PWD/lethe-data" && sudo chown 1000:1000 "$PWD/lethe-data"; }
+
 docker run -d \
   --name lethe \
   -v "$PWD/lethe-data:/data" \
@@ -106,7 +120,10 @@ go build ./cmd/lethe
 ./lethe --db ./lethe.db --http localhost:18483
 ```
 
-The server starts on port 18483 with a built-in UI at `http://localhost:18483/ui/`.
+The server starts in `legacy` mode on port 18483 with a built-in UI at
+`http://localhost:18483/ui/`. To run the isolated local Memory Git service on
+port 18485, use `docker-compose.git.yml` and a fresh `lethe-git-data`
+directory; do not reuse the OpenLethe database.
 
 ### Security / Auth
 
@@ -226,7 +243,7 @@ Full API reference at [docs.openlethe.ai](https://docs.openlethe.ai).
 
 ### OpenClaw Plugin
 
-The Lethe plugin for OpenClaw handles bootstrap and context assembly automatically. Install the plugin and configure your endpoint:
+The Lethe plugin for OpenClaw handles bootstrap and context assembly automatically. It reads accepted project memory from `refs/shared/main`, creates an exact input manifest, and combines that view with the session summary and recent session events. Install the plugin and configure your endpoint:
 
 ```json
 {
@@ -256,8 +273,10 @@ internal/session/        - session lifecycle state machine and manager
 internal/ui/             — embedded UI (Go templates, HTMX)
 ```
 
-## Future Direction
+## Memory Git and Future Direction
 
-The Context OS architecture — lifecycle governance, manifests, FTS, hybrid retrieval, and other advanced capabilities — remains a destination design. It is evidence-gated and not part of v0.4. These capabilities will be reconsidered only when usage evidence justifies them.
+Memory Git V1 and its manifest-pinned context bridge are implemented locally. See [Memory Git V1](docs/memory-git-v1.md) and [Memory Git Context Bridge](docs/memory-context-bridge.md).
+
+FTS, embeddings, hybrid retrieval, automatic semantic conflict resolution, and offline clone/pull/push remain future work. The current projector and selector are deterministic and intentionally avoid silently resolving substantive conflicts.
 
 

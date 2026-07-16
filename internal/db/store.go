@@ -417,7 +417,9 @@ func (s *Store) GetTaskChain(ctx context.Context, eventID string) ([]*models.Eve
 			return nil, err
 		}
 		events, err := scanEvents(rows)
-		rows.Close()
+		if closeErr := rows.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
 		if err != nil {
 			return nil, err
 		}

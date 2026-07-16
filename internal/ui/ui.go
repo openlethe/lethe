@@ -257,7 +257,7 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 
 	rd := RenderData{
 		Title:        title + " — Lethe",
-		Content:      template.HTML(pageContent),
+		Content:      template.HTML(pageContent), // #nosec G203 -- pageContent is pre-rendered from the server's own trusted templates.
 		Data:         data,
 		Request:      r,
 		CurrentRoute: name,
@@ -510,10 +510,6 @@ func handleFlags(w http.ResponseWriter, r *http.Request) {
 
 func handleSessionStatsData(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
-	result, err := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r), apiBase+"/api/sessions/"+sessionID)
-	if err != nil || result == nil {
-		result = map[string]interface{}{}
-	}
 	eventsResult, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r), apiBase+"/api/sessions/"+sessionID+"/events?limit=1")
 	eventCount := 0
 	if eventsResult != nil {
@@ -885,6 +881,7 @@ func handleAssemblyFeedback(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	w.WriteHeader(resp.StatusCode)
+	// #nosec G104 -- best-effort proxy copy; the status line is already sent, so a copy error cannot be reported.
 	io.Copy(w, resp.Body)
 }
 
@@ -910,6 +907,7 @@ func APIProxy(target string) http.HandlerFunc {
 			w.Header()[k] = v
 		}
 		w.WriteHeader(resp.StatusCode)
+		// #nosec G104 -- best-effort proxy copy; the status line is already sent, so a copy error cannot be reported.
 		io.Copy(w, resp.Body)
 	}
 }

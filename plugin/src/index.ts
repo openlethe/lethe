@@ -40,6 +40,12 @@ export default definePluginEntry({
             "Enable diagnostic automatic event logs for tool calls/thread markers. Checkpoints are always written. Default: false.",
           default: false,
         },
+        memoryGitContext: {
+          type: "boolean",
+          description:
+            "Opt in to the experimental Memory Git context adapter. Charon is the default owner of versioned memory.",
+          default: false,
+        },
       },
       required: [],
     },
@@ -51,6 +57,7 @@ export default definePluginEntry({
       agentId?: string;
       projectId?: string;
       autoLog?: boolean;
+      memoryGitContext?: boolean;
     };
 
     const endpoint = cfg.endpoint ?? "http://localhost:18483";
@@ -58,11 +65,19 @@ export default definePluginEntry({
     const agentId = cfg.agentId ?? "default";
     const projectId = cfg.projectId ?? "default";
     const autoLog = cfg.autoLog ?? false;
+    const memoryGitContext = cfg.memoryGitContext ?? false;
 
     // Register the context engine (owns session context: bootstrap, assemble,
     // afterTurn, compact). Lethe owns compaction so ownsCompaction = true.
     api.registerContextEngine("mentholmike-lethe", () =>
-      new LetheContextEngine({ endpoint, apiKey, agentId, projectId, autoLog })
+      new LetheContextEngine({
+        endpoint,
+        apiKey,
+        agentId,
+        projectId,
+        autoLog,
+        memoryGitContext,
+      })
     );
 
     // Register memory tools: memory.record, memory.log, memory.flag, memory.task, memory_search

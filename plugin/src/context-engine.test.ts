@@ -3,7 +3,7 @@
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert";
-import { LetheContextEngine, type LetheContextEngineConfig } from "./context-engine.js";
+import { letheFetch, LetheContextEngine, type LetheContextEngineConfig } from "./context-engine.js";
 
 // Minimal AgentMessage shape for tests.
 function makeMessage(role = "assistant", text = "x"): any {
@@ -40,10 +40,21 @@ const CFG: LetheContextEngineConfig = {
 describe("LetheContextEngine assemble", () => {
   let originalFetch: typeof fetch;
   let fetches: { url: string; init?: RequestInit }[];
+  let memoryContext: any;
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
     fetches = [];
+    memoryContext = {
+      project_id: "test-project",
+      ref_name: "refs/shared/main",
+      head_changeset_id: "head-1",
+      manifest_id: "manifest-1",
+      projection_version: "memory-context/v1",
+      total_active: 0,
+      memories: [],
+      unresolved_conflicts: [],
+    };
   });
 
   afterEach(() => {
@@ -55,6 +66,19 @@ describe("LetheContextEngine assemble", () => {
     globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       fetches.push({ url, init });
+      if (url.includes("/api/memory/test-project/context")) {
+        return new Response(JSON.stringify(memoryContext), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.includes("/api/memory/manifests")) {
+        const body = JSON.parse((init?.body as string) || "{}");
+        return new Response(
+          JSON.stringify({ ...body, manifest_id: memoryContext.manifest_id || "manifest-pinned" }),
+          { status: 201, headers: { "Content-Type": "application/json" } }
+        );
+      }
       const res = responses[i++];
       return res ?? emptyResponse(404);
     };
@@ -90,6 +114,10 @@ describe("LetheContextEngine assemble", () => {
     // selected newest 5: evt-0, evt-1, evt-2, evt-3, evt-4
     // reversed for chronological: evt-4, evt-3, evt-2, evt-1, evt-0
     assert.deepStrictEqual(ids, [4, 3, 2, 1, 0], "chronological order of newest five");
+    assert.ok(
+      !fetches.some((f) => f.url.includes("/api/memory/")),
+      "default OpenLethe mode must not query Memory Git"
+    );
   });
 
   // ------------------------------------------------------------------
@@ -250,5 +278,302 @@ describe("LetheContextEngine assemble", () => {
     const injected = result.messages.slice(1, 4);
     const texts = injected.map((m: any) => m.content[0].text);
     assert.deepStrictEqual(texts, ["third", "second", "first"], "stable reverse of equal-timestamp events");
+  });
+
+  it("injects accepted Memory Git context only when explicitly enabled", async () => {
+    memoryContext = {
+      project_id: "test-project",
+      ref_name: "refs/shared/main",
+      head_changeset_id: "head-accepted",
+      manifest_id: "manifest-accepted",
+      projection_version: "memory-context/v1",
+      total_active: 1,
+      memories: [
+        {
+          memory_id: "mem-1",
+          content: "Use /healthz for health checks",
+          kind: "decision",
+          scope: "api",
+          status: "active",
+          source: "memory_git",
+        },
+      ],
+      unresolved_conflicts: [],
+    };
+    mockFetch(
+      summaryResponse({ summary: "", eventCount: 0, recentEvents: [] }),
+      emptyResponse(201)
+    );
+
+    const engine = new LetheContextEngine({ ...CFG, memoryGitContext: true });
+    const result = await engine.assemble({
+      sessionId: "s1",
+      sessionKey: "sess-key",
+      messages: [makeMessage("user", "where is the health check?")],
+      prompt: "health check",
+    });
+
+    assert.strictEqual(result.messages.length, 2);
+    assert.match(result.messages[0].content[0].text, /Use \/healthz/);
+    assert.match(result.systemPromptAddition ?? "", /manifest-accepted/);
+
+    const contextCall = fetches.find((f) => f.url.includes("/api/memory/test-project/context"));
+    assert.ok(contextCall?.init?.body);
+    const contextBody = JSON.parse(contextCall!.init!.body as string);
+    assert.strictEqual(contextBody.create_manifest, false);
+    const manifestCall = fetches.find((f) => f.url.includes("/api/memory/manifests"));
+    assert.ok(manifestCall?.init?.body);
+    const manifestBody = JSON.parse(manifestCall!.init!.body as string);
+    assert.strictEqual(manifestBody.session_id, "sess-key");
+    assert.deepStrictEqual(manifestBody.selected_memory_ids, ["mem-1"]);
+
+    const assemblyCall = fetches.find((f) => f.url.includes("/assemblies"));
+    assert.ok(assemblyCall?.init?.body);
+    const report = JSON.parse(assemblyCall!.init!.body as string);
+    assert.strictEqual(report.memory_manifest_id, "manifest-accepted");
+    assert.strictEqual(report.memory_head_changeset_id, "head-accepted");
+    assert.ok(report.accepted_estimated_tokens > 0);
+    assert.strictEqual(report.assembler_version, "openclaw-memory-git-v1");
+  });
+
+  it("drops whole accepted memories before pinning when rendered text exceeds budget", async () => {
+    memoryContext = {
+      project_id: "test-project",
+      ref_name: "refs/shared/main",
+      head_changeset_id: "head-budget",
+      manifest_id: "manifest-budget",
+      projection_version: "memory-context/v1",
+      total_active: 1,
+      memories: [
+        {
+          memory_id: "mem-huge",
+          content: "x".repeat(4000),
+          kind: "decision",
+          status: "active",
+          source: "memory_git",
+        },
+      ],
+      unresolved_conflicts: [],
+    };
+    mockFetch(
+      summaryResponse({ summary: "", eventCount: 0, recentEvents: [] }),
+      emptyResponse(201)
+    );
+
+    const engine = new LetheContextEngine({ ...CFG, memoryGitContext: true });
+    const result = await engine.assemble({
+      sessionId: "s1",
+      sessionKey: "sess-key",
+      messages: [makeMessage("user", "hello")],
+      tokenBudget: 400,
+    });
+
+    assert.strictEqual(result.messages.length, 1, "oversized accepted memory must not be injected");
+    assert.ok(result.estimatedTokens <= 400);
+    const manifestCall = fetches.find((f) => f.url.includes("/api/memory/manifests"));
+    assert.ok(manifestCall?.init?.body);
+    const manifestBody = JSON.parse(manifestCall!.init!.body as string);
+    assert.deepStrictEqual(manifestBody.selected_memory_ids, []);
+    assert.match(manifestBody.exclusion_reasons["mem-huge"], /token budget/);
+  });
+
+  it("injects a compact conflict warning when no memories are selected", async () => {
+    memoryContext = {
+      project_id: "test-project",
+      ref_name: "refs/shared/main",
+      head_changeset_id: "head-conflicted",
+      manifest_id: "manifest-conflicted",
+      projection_version: "memory-context/v1",
+      total_active: 0,
+      memories: [],
+      unresolved_conflicts: ["conflict-1", "conflict-2"],
+    };
+    mockFetch(
+      summaryResponse({ summary: "", eventCount: 0, recentEvents: [] }),
+      emptyResponse(201)
+    );
+
+    const engine = new LetheContextEngine({ ...CFG, memoryGitContext: true });
+    const result = await engine.assemble({
+      sessionId: "s1",
+      sessionKey: "sess-key",
+      messages: [makeMessage("user", "continue")],
+      tokenBudget: 600,
+    });
+
+    assert.strictEqual(result.messages.length, 2);
+    assert.match(result.messages[0].content[0].text, /Accepted Memory Conflict Warning/);
+    assert.match(result.messages[0].content[0].text, /conflict-1/);
+    assert.match(result.systemPromptAddition ?? "", /review items, not facts/);
+    const manifestCall = fetches.find((f) => f.url.includes("/api/memory/manifests"));
+    const manifestBody = JSON.parse(manifestCall!.init!.body as string);
+    assert.deepStrictEqual(manifestBody.selected_memory_ids, []);
+    assert.deepStrictEqual(manifestBody.unresolved_conflicts, ["conflict-1", "conflict-2"]);
+  });
+
+  it("pins but does not inject a conflict warning that exceeds the accepted-memory budget", async () => {
+    memoryContext = {
+      project_id: "test-project",
+      ref_name: "refs/shared/main",
+      head_changeset_id: "head-conflicted-small-budget",
+      manifest_id: "manifest-conflicted-small-budget",
+      projection_version: "memory-context/v1",
+      total_active: 0,
+      memories: [],
+      unresolved_conflicts: ["conflict-with-a-very-long-identifier-that-cannot-fit"],
+    };
+    mockFetch(
+      summaryResponse({ summary: "", eventCount: 0, recentEvents: [] }),
+      emptyResponse(201)
+    );
+
+    const engine = new LetheContextEngine({ ...CFG, memoryGitContext: true });
+    const result = await engine.assemble({
+      sessionId: "s1",
+      sessionKey: "sess-key",
+      messages: [makeMessage("user", "continue")],
+      tokenBudget: 80,
+    });
+
+    assert.strictEqual(result.messages.length, 1, "over-budget conflict warning must not be injected");
+    assert.ok(result.estimatedTokens <= 80);
+    const manifestCall = fetches.find((f) => f.url.includes("/api/memory/manifests"));
+    assert.ok(manifestCall?.init?.body);
+    const manifestBody = JSON.parse(manifestCall!.init!.body as string);
+    assert.deepStrictEqual(manifestBody.selected_memory_ids, []);
+    assert.deepStrictEqual(manifestBody.unresolved_conflicts, memoryContext.unresolved_conflicts);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// letheFetch — request deadline and response body cap
+// ---------------------------------------------------------------------------
+
+describe("letheFetch deadline and body cap", () => {
+  let originalFetch: typeof fetch;
+  let savedEnv: Record<string, string | undefined>;
+
+  const ENV_KEYS = ["LETHE_FETCH_TIMEOUT_MS", "LETHE_FETCH_MAX_BODY_BYTES"];
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    savedEnv = {};
+    for (const key of ENV_KEYS) {
+      savedEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+    // Short deadline so stall tests run fast (floor is 1000ms).
+    process.env.LETHE_FETCH_TIMEOUT_MS = "1000";
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    for (const key of ENV_KEYS) {
+      if (savedEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = savedEnv[key];
+    }
+  });
+
+  // A server that accepts the connection but never sends headers: the fetch
+  // promise stays pending until the AbortSignal fires (undici behavior).
+  function mockStalledHeaders() {
+    globalThis.fetch = ((_input: any, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () =>
+          reject(new DOMException("The operation was aborted", "AbortError"))
+        );
+      })) as any;
+  }
+
+  // A server that sends headers but never completes the body.
+  function mockStalledBody() {
+    globalThis.fetch = (async (_input: any, init?: RequestInit) => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () =>
+            controller.error(new DOMException("The operation was aborted", "AbortError"))
+          );
+        },
+      });
+      return new Response(stream, { status: 200 });
+    }) as any;
+  }
+
+  it("aborts with a clear error when the server never sends headers", async () => {
+    mockStalledHeaders();
+    const start = Date.now();
+    await assert.rejects(
+      letheFetch("http://localhost:1", "k", "/api/sessions/x"),
+      (err: any) => {
+        assert.match(err.message, /timed out after 1000ms/);
+        return true;
+      }
+    );
+    const elapsed = Date.now() - start;
+    assert.ok(elapsed < 5000, `should abort near the deadline, took ${elapsed}ms`);
+  });
+
+  it("aborts when the response body stalls after headers", async () => {
+    mockStalledBody();
+    await assert.rejects(
+      letheFetch("http://localhost:1", "k", "/api/sessions/x"),
+      /timed out after 1000ms/
+    );
+  });
+
+  it("returns a bounded Response for a fast successful request", async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as any;
+    const res = await letheFetch("http://localhost:1", "k", "/api/sessions/x");
+    assert.ok(res.ok);
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(await res.json(), { ok: true });
+  });
+
+  it("rejects a streamed body that exceeds the cap", async () => {
+    process.env.LETHE_FETCH_MAX_BODY_BYTES = "1024";
+    globalThis.fetch = (async () => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(2048));
+          controller.close();
+        },
+      });
+      return new Response(stream, { status: 200 });
+    }) as any;
+    await assert.rejects(
+      letheFetch("http://localhost:1", "k", "/api/sessions/x"),
+      /exceeded cap of 1024 bytes/
+    );
+  });
+
+  it("rejects upfront when content-length exceeds the cap", async () => {
+    process.env.LETHE_FETCH_MAX_BODY_BYTES = "1024";
+    globalThis.fetch = (async () =>
+      new Response("x".repeat(2048), {
+        status: 200,
+        headers: { "Content-Length": "2048" },
+      })) as any;
+    await assert.rejects(
+      letheFetch("http://localhost:1", "k", "/api/sessions/x"),
+      /content-length 2048 exceeds cap of 1024 bytes/
+    );
+  });
+
+  it("respects a caller-provided abort signal", async () => {
+    mockStalledHeaders();
+    const caller = new AbortController();
+    setTimeout(() => caller.abort(), 50);
+    await assert.rejects(
+      letheFetch("http://localhost:1", "k", "/api/sessions/x", undefined, caller.signal),
+      (err: any) => {
+        // Caller cancellation must not be misreported as a timeout.
+        assert.doesNotMatch(err.message, /timed out/);
+        return true;
+      }
+    );
   });
 });

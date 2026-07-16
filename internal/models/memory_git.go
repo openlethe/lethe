@@ -78,7 +78,11 @@ type MemoryRef struct {
 	CreatedByPrincipal string    `json:"created_by_principal,omitempty"`
 }
 
-// MemoryConflict records a reviewable non-auto-resolved conflict.
+// MemoryConflict records a reviewable non-auto-resolved conflict. Identity is
+// deterministic (see db.DeterministicConflictID); Status moves through the
+// explicit lifecycle open → resolved | rejected | superseded | canceled
+// (deferred optional). ProposalID binds the conflict to the proposal or merge
+// attempt that persisted it; pre-lifecycle rows have no binding.
 type MemoryConflict struct {
 	ConflictID       string         `json:"conflict_id"`
 	ProjectID        string         `json:"project_id"`
@@ -90,6 +94,7 @@ type MemoryConflict struct {
 	Summary          string         `json:"summary"`
 	Details          map[string]any `json:"details,omitempty"`
 	Status           string         `json:"status"`
+	ProposalID       string         `json:"proposal_id,omitempty"`
 	CreatedAt        time.Time      `json:"created_at"`
 	ResolvedAt       *time.Time     `json:"resolved_at,omitempty"`
 	ResolutionNote   string         `json:"resolution_note,omitempty"`
@@ -113,6 +118,54 @@ type MemoryManifest struct {
 	SessionID            string            `json:"session_id,omitempty"`
 	ActorID              string            `json:"actor_id,omitempty"`
 	CreatedAt            time.Time         `json:"created_at"`
+}
+
+// MemoryContext is a reproducible projection of semantic memory at one ref/head.
+// Memories contains only active records selected for the caller's context budget.
+type MemoryContext struct {
+	ProjectID           string               `json:"project_id"`
+	RefName             string               `json:"ref_name"`
+	HeadChangesetID     string               `json:"head_changeset_id"`
+	ManifestID          string               `json:"manifest_id,omitempty"`
+	ProjectionVersion   string               `json:"projection_version"`
+	TotalActive         int                  `json:"total_active"`
+	Memories            []AcceptedMemory     `json:"memories"`
+	Relationships       []MemoryRelationship `json:"relationships,omitempty"`
+	UnresolvedConflicts []string             `json:"unresolved_conflicts,omitempty"`
+	InclusionReasons    map[string]string    `json:"inclusion_reasons,omitempty"`
+	ExclusionReasons    map[string]string    `json:"exclusion_reasons,omitempty"`
+}
+
+// AcceptedMemory is one active semantic memory reconstructed from immutable
+// legacy events and accepted Memory Git operations.
+type AcceptedMemory struct {
+	MemoryID              string           `json:"memory_id"`
+	Content               string           `json:"content"`
+	EventType             string           `json:"event_type,omitempty"`
+	Kind                  string           `json:"kind,omitempty"`
+	Scope                 string           `json:"scope,omitempty"`
+	Visibility            string           `json:"visibility,omitempty"`
+	Tags                  []string         `json:"tags,omitempty"`
+	Confidence            *float64         `json:"confidence,omitempty"`
+	Status                string           `json:"status"`
+	Source                string           `json:"source"`
+	SourceEventID         string           `json:"source_event_id,omitempty"`
+	IntroducedChangesetID string           `json:"introduced_changeset_id,omitempty"`
+	LastChangesetID       string           `json:"last_changeset_id,omitempty"`
+	Evidence              []map[string]any `json:"evidence,omitempty"`
+	Verification          []map[string]any `json:"verification,omitempty"`
+	Payload               map[string]any   `json:"payload,omitempty"`
+	Order                 int              `json:"-"`
+	Active                bool             `json:"-"`
+}
+
+// MemoryRelationship is a relationship accepted at the projected head.
+type MemoryRelationship struct {
+	FromMemoryID string         `json:"from_memory_id"`
+	ToMemoryID   string         `json:"to_memory_id"`
+	Kind         string         `json:"kind,omitempty"`
+	Payload      map[string]any `json:"payload,omitempty"`
+	ChangesetID  string         `json:"changeset_id"`
 }
 
 // SemanticDiff is a deterministic report of changes between two changesets.

@@ -4,6 +4,10 @@
 **/vendor
 **/.env
 **/.env.*
+/lethe-data/
+/lethe-git-data/
+/lethe
+/lethe.exe
 tmp/
 *.log
 *.tmp

@@ -28,11 +28,14 @@ export type AssemblyReport = {
   estimator_id: string;
   summary_estimated_tokens?: number;
   recent_estimated_tokens?: number;
+  accepted_estimated_tokens?: number;
   conversation_estimated_tokens?: number;
   total_estimated_tokens?: number;
   packed_bytes: number;
   recent_skipped: boolean;
   skip_reason?: string;
+  memory_manifest_id?: string;
+  memory_head_changeset_id?: string;
   notes?: string;
   items: AssemblyItem[];
 };
@@ -46,6 +49,32 @@ export type AssemblyItem = {
   content_sha256: string;
   packed_bytes: number;
   estimated_tokens?: number;
+};
+
+export type AcceptedMemory = {
+  memory_id: string;
+  content: string;
+  event_type?: string;
+  kind?: string;
+  scope?: string;
+  visibility?: string;
+  tags?: string[];
+  confidence?: number;
+  status: string;
+  source: string;
+};
+
+export type MemoryContextResponse = {
+  project_id: string;
+  ref_name: string;
+  head_changeset_id: string;
+  manifest_id?: string;
+  projection_version: string;
+  total_active: number;
+  memories: AcceptedMemory[];
+  unresolved_conflicts?: string[];
+  inclusion_reasons?: Record<string, string>;
+  exclusion_reasons?: Record<string, string>;
 };
 
 export type CompactResult = {

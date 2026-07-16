@@ -33,11 +33,11 @@ func TestBroadcasterClientReceivesBroadcastAndDoneIsIdempotent(t *testing.T) {
 	b := newBroadcaster()
 	defer b.Stop()
 
-	ch, done := b.AddClient()
+	_, done := b.AddClient()
 	done()
 	done()
 
-	ch, done = b.AddClient()
+	ch, done := b.AddClient()
 	defer done()
 	b.Broadcast("test", map[string]string{"message": "hello"})
 

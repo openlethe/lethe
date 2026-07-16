@@ -1,6 +1,6 @@
 # Memory Git V1 — Local Design
 
-Status: active implementation (local only)  
+Status: implemented and locally verified; live rollout requires container/plugin restart
 Date: 2026-07-14  
 Constraint: no external publish, no production deploy, no history rewrite.
 
@@ -114,9 +114,11 @@ Existing events remain readable. On first Memory Git use for a project:
 - Models cannot set arbitrary ref pointers; only service paths with scope
 - Generic branch creation and changeset/ref advance reject protected refs at the
   store boundary. Protected advances use a separate Charon-signed merge CAS.
-- The protected merge signature uses `CHARON_HMAC_KEY`, separate from
-  `LETHE_API_KEY`; Lethe verifies project, ref, expected/new heads, proposal ID,
-  and reviewer principal before applying CAS.
+- The protected merge signature uses the purpose-specific
+  `CHARON_MERGE_HMAC_KEY`, separate from `LETHE_API_KEY` (legacy
+  `CHARON_HMAC_KEY` is still accepted as a fallback); Lethe verifies project,
+  ref, expected/new heads, proposal ID, and reviewer principal before
+  applying CAS.
 
 ## Semantic diff
 
@@ -237,6 +239,21 @@ ChatGPT default: read + branch + commit(owned) + propose. No self-merge.
 5. Manifest pin/read integration with assemblies
 6. Acceptance test harness (disposable DBs, two principals)
 7. Local CLI thin wrappers
+
+## Implemented context bridge
+
+The `memory-context/v1` projector now freezes the legacy event baseline,
+reconstructs an exact ref/head, applies semantic overlays, rejects heads that
+are not reachable from the named ref, and creates input manifests for selected
+memories. OpenClaw injects the manifest-pinned accepted view and records its
+manifest/head in the assembly ledger. Charon exposes the same operation as
+`memory_context_at` with project and ref-ownership policy.
+
+Conflict detection now evaluates the complete changeset delta from the declared
+base, rather than only the two tip changesets.
+
+Operational details and verification commands are in
+[`memory-context-bridge.md`](memory-context-bridge.md).
 
 ## Acceptance
 

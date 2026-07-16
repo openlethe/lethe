@@ -6,33 +6,113 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
 
-      - name: Build all platforms
+      - name: Verify source
+        run: |
+          go mod verify
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go run honnef.co/go/tools/cmd/staticcheck@v0.6.1 ./...
+          go test -race ./...
+          go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+          go run github.com/securego/gosec/v2/cmd/gosec@v2.22.5 -quiet ./...
+
+      - name: Plugin build and test
+        working-directory: plugin
+        run: |
+          npm ci
+          npm run build
+          npm test
+
+      - name: Validate scripts and workflows
+        run: |
+          while IFS= read -r -d '' script; do
+            case "$(head -n 1 "$script")" in
+              *bash*) bash -n "$script" ;;
+              *) sh -n "$script" ;;
+            esac
+          done < <(find . -type f -name '*.sh' -not -path './.git/*' -print0)
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 .github/workflows/*.yml
+
+      - name: Validate deployment manifests
+        env:
+          LETHE_API_KEY: ci-placeholder
+          CHARON_MERGE_HMAC_KEY: ci-placeholder-0123456789abcdef0123456789
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose -f docker-compose.git.yml config --quiet
+
+      - name: Build and verify hardened container
+        run: |
+          docker build -t lethe-release-check:${{ github.sha }} .
+          test "$(docker image inspect lethe-release-check:${{ github.sha }} --format '{{.Config.User}}')" = '1000:1000'
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build release binaries
         run: make build-all
 
-      - name: Generate checksums
+      - name: Generate source SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          path: .
+          artifact-name: lethe-sbom.spdx.json
+          output-file: dist/lethe-sbom.spdx.json
+          format: spdx-json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Generate checksums and build metadata
         run: |
           cd dist
-          sha256sum * > checksums.txt
+          sha256sum lethe-* > checksums.txt
+          for binary in lethe-darwin-* lethe-linux-* lethe-windows-*; do
+            go version -m "$binary"
+          done > build-info.txt
 
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v1
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
         with:
-          files: dist/*
+          subject-path: dist/lethe-*
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: |
+            dist/lethe-*
+            dist/checksums.txt
+            dist/build-info.txt
           generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          fail_on_unmatched_files: true

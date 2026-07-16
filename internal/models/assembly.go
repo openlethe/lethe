@@ -20,8 +20,12 @@ type ContextAssembly struct {
 
 	SummaryEstimatedTokens      *int `json:"summary_estimated_tokens,omitempty"`
 	RecentEstimatedTokens       *int `json:"recent_estimated_tokens,omitempty"`
+	AcceptedEstimatedTokens     *int `json:"accepted_estimated_tokens,omitempty"`
 	ConversationEstimatedTokens *int `json:"conversation_estimated_tokens,omitempty"`
 	TotalEstimatedTokens        *int `json:"total_estimated_tokens,omitempty"`
+
+	MemoryManifestID      string `json:"memory_manifest_id,omitempty"`
+	MemoryHeadChangesetID string `json:"memory_head_changeset_id,omitempty"`
 
 	PackedBytes   int    `json:"packed_bytes"`
 	RecentSkipped bool   `json:"recent_skipped"`

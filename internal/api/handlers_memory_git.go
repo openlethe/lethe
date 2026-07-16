@@ -14,6 +14,26 @@ import (
 	"github.com/openlethe/lethe/internal/models"
 )
 
+// memoryGitErrorStatus maps store errors to HTTP statuses. Lock contention
+// that survived the bounded retry policy is an infrastructure condition
+// (503), and an idempotency key replayed with a different request is a
+// conflict (409), not a client format error.
+func memoryGitErrorStatus(err error) int {
+	switch {
+	case db.IsBusyError(err):
+		return http.StatusServiceUnavailable
+	case errors.Is(err, db.ErrRefCASConflict), errors.Is(err, db.ErrIdempotencyMismatch),
+		errors.Is(err, db.ErrIdempotencyConflict):
+		return http.StatusConflict
+	case errors.Is(err, db.ErrProtectedRef):
+		return http.StatusForbidden
+	case errors.Is(err, db.ErrChangesetNotFound), errors.Is(err, db.ErrRefNotFound):
+		return http.StatusNotFound
+	default:
+		return http.StatusInternalServerError
+	}
+}
+
 // registerMemoryGitRoutes adds Memory Git V1 API endpoints under /api/memory.
 func (s *Server) registerMemoryGitRoutes(api chi.Router) {
 	api.Route("/memory", func(r chi.Router) {
@@ -28,7 +48,13 @@ func (s *Server) registerMemoryGitRoutes(api chi.Router) {
 			r.Post("/refs/advance", s.handleCASAdvanceRef)
 			r.Post("/refs/merge", s.handleMergeAdvanceRef)
 			r.Get("/changesets", s.handleListChangesets)
+			r.Get("/context", s.handleGetMemoryContext)
+			r.Post("/context", s.handleCreateMemoryContext)
 			r.Post("/conflicts/detect", s.handleDetectConflicts)
+			r.Get("/conflicts", s.handleListConflicts)
+			r.Post("/conflicts/persist", s.handlePersistConflicts)
+			r.Post("/conflicts/retire", s.handleRetireConflicts)
+			r.Post("/conflicts/{id}/resolve", s.handleResolveConflict)
 		})
 		// Changeset by ID (global lookup, project check enforced by DB).
 		r.Get("/changesets/{id}", s.handleGetChangeset)
@@ -47,7 +73,7 @@ func (s *Server) handleEnsureLegacyRoot(w http.ResponseWriter, r *http.Request) 
 	project := chi.URLParam(r, "project")
 	root, ref, err := s.store.EnsureLegacyRoot(r.Context(), project, "system")
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		writeJSON(w, memoryGitErrorStatus(err), ErrorResponse{Error: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -66,15 +92,9 @@ func (s *Server) handleCreateChangeset(w http.ResponseWriter, r *http.Request) {
 	}
 	cs, err := s.store.CreateChangeset(r.Context(), req)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, db.ErrRefCASConflict) {
-			status = http.StatusConflict
-		} else if errors.Is(err, db.ErrIdempotencyConflict) || errors.Is(err, db.ErrEmptyOps) {
+		status := memoryGitErrorStatus(err)
+		if errors.Is(err, db.ErrEmptyOps) || errors.Is(err, db.ErrInvalidSemanticOp) {
 			status = http.StatusBadRequest
-		} else if errors.Is(err, db.ErrProtectedRef) {
-			status = http.StatusForbidden
-		} else if errors.Is(err, db.ErrChangesetNotFound) || errors.Is(err, db.ErrRefNotFound) {
-			status = http.StatusNotFound
 		}
 		writeJSON(w, status, ErrorResponse{Error: err.Error()})
 		return
@@ -131,7 +151,11 @@ func (s *Server) handleCreateBranch(w http.ResponseWriter, r *http.Request) {
 	}
 	ref, err := s.store.CreateMemoryBranch(r.Context(), project, req.RefName, req.HeadChangesetID, req.Principal, req.Protected)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		status := http.StatusBadRequest
+		if db.IsBusyError(err) {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, ErrorResponse{Error: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusCreated, ref)
@@ -201,12 +225,7 @@ func (s *Server) handleCASAdvanceRef(w http.ResponseWriter, r *http.Request) {
 	}
 	ref, err := s.store.CASUpdateRef(r.Context(), project, refName, req.ExpectedHead, req.NewHead)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, db.ErrRefCASConflict) {
-			status = http.StatusConflict
-		} else if errors.Is(err, db.ErrRefNotFound) {
-			status = http.StatusNotFound
-		}
+		status := memoryGitErrorStatus(err)
 		writeJSON(w, status, ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -243,12 +262,7 @@ func (s *Server) handleMergeAdvanceRef(w http.ResponseWriter, r *http.Request) {
 	}
 	ref, err := s.store.CASMergeProtectedRef(r.Context(), project, req.RefName, req.ExpectedHead, req.NewHead)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, db.ErrRefCASConflict) {
-			status = http.StatusConflict
-		} else if errors.Is(err, db.ErrRefNotFound) {
-			status = http.StatusNotFound
-		}
+		status := memoryGitErrorStatus(err)
 		writeJSON(w, status, ErrorResponse{Error: err.Error()})
 		return
 	}
@@ -280,6 +294,9 @@ func (s *Server) handleDetectConflicts(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
 		return
 	}
+	// Conflict analysis is pure: it never writes. Conflicts are persisted only
+	// by an explicit proposal operation (see handlePersistConflicts), so
+	// detection retries are always side-effect-free.
 	conflicts, err := db.NewConflictDetector(s.store).DetectBetween(
 		r.Context(), project, req.BaseChangesetID, req.LeftChangesetID, req.RightChangesetID,
 	)
@@ -287,13 +304,186 @@ func (s *Server) handleDetectConflicts(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: err.Error()})
 		return
 	}
-	for _, conflict := range conflicts {
-		if err := s.store.CreateConflict(r.Context(), conflict); err != nil {
+	writeJSON(w, http.StatusOK, map[string]any{"conflicts": conflicts})
+}
+
+// --- Conflict lifecycle ---
+
+func (s *Server) handlePersistConflicts(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	var req struct {
+		ProposalID string                   `json:"proposal_id"`
+		Conflicts  []*models.MemoryConflict `json:"conflicts"`
+	}
+	if err := readJSON(w, r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
+		return
+	}
+	if req.ProposalID == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "proposal_id required"})
+		return
+	}
+	if err := s.store.PersistConflicts(r.Context(), project, req.ProposalID, req.Conflicts); err != nil {
+		status := http.StatusBadRequest
+		if db.IsBusyError(err) {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, ErrorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"persisted": len(req.Conflicts), "proposal_id": req.ProposalID})
+}
+
+func (s *Server) handleResolveConflict(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	conflictID := chi.URLParam(r, "id")
+	var req struct {
+		ResolutionNote string `json:"resolution_note"`
+	}
+	if err := readJSON(w, r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
+		return
+	}
+	if err := s.store.ResolveConflict(r.Context(), project, conflictID, req.ResolutionNote); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, db.ErrConflictNotFound) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, ErrorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"resolved": conflictID})
+}
+
+func (s *Server) handleRetireConflicts(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	var req struct {
+		ProposalID string `json:"proposal_id"`
+		Status     string `json:"status"`
+	}
+	if err := readJSON(w, r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
+		return
+	}
+	retired, err := s.store.RetireConflictsForProposal(r.Context(), project, req.ProposalID, req.Status)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"retired": retired, "proposal_id": req.ProposalID, "status": req.Status})
+}
+
+func (s *Server) handleListConflicts(w http.ResponseWriter, r *http.Request) {
+	project := chi.URLParam(r, "project")
+	status := r.URL.Query().Get("status")
+	limit := 100
+	if n, _ := strconv.Atoi(r.URL.Query().Get("limit")); n > 0 && n <= 500 {
+		limit = n
+	}
+	conflicts, err := s.store.ListConflicts(r.Context(), project, status, limit)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"conflicts": conflicts, "count": len(conflicts)})
+}
+
+// --- Accepted context projection ---
+
+type memoryContextRequest struct {
+	RefName         string `json:"ref_name,omitempty"`
+	HeadChangesetID string `json:"head_changeset_id,omitempty"`
+	Query           string `json:"query,omitempty"`
+	Limit           int    `json:"limit,omitempty"`
+	SessionID       string `json:"session_id,omitempty"`
+	ActorID         string `json:"actor_id,omitempty"`
+	CreateManifest  bool   `json:"create_manifest,omitempty"`
+}
+
+func (s *Server) handleGetMemoryContext(w http.ResponseWriter, r *http.Request) {
+	req := memoryContextRequest{
+		RefName:         r.URL.Query().Get("ref"),
+		HeadChangesetID: r.URL.Query().Get("head"),
+		Query:           r.URL.Query().Get("query"),
+	}
+	if n, _ := strconv.Atoi(r.URL.Query().Get("limit")); n > 0 {
+		req.Limit = n
+	}
+	s.serveMemoryContext(w, r, req)
+}
+
+func (s *Server) handleCreateMemoryContext(w http.ResponseWriter, r *http.Request) {
+	var req memoryContextRequest
+	if err := readJSON(w, r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
+		return
+	}
+	s.serveMemoryContext(w, r, req)
+}
+
+func (s *Server) serveMemoryContext(w http.ResponseWriter, r *http.Request, req memoryContextRequest) {
+	project := chi.URLParam(r, "project")
+	if req.RefName == "" {
+		req.RefName = models.RefSharedMain
+	}
+	view, err := s.store.BuildMemoryContext(
+		r.Context(), project, req.RefName, req.HeadChangesetID, req.Query, req.Limit,
+	)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, db.ErrRefNotFound) || errors.Is(err, db.ErrChangesetNotFound) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	if req.CreateManifest {
+		// Git mode has no legacy session API, so Charon's MCP session ID is the
+		// canonical attribution value. Hybrid mode retains legacy lookup and
+		// project validation for OpenLethe session keys and IDs.
+		sessionID := req.SessionID
+		if req.SessionID != "" && s.mode.LegacyEnabled() {
+			session, err := s.resolveSession(r.Context(), req.SessionID)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+				return
+			}
+			if session == nil {
+				writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "session not found"})
+				return
+			}
+			if session.ProjectID != project {
+				writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "session project mismatch"})
+				return
+			}
+			sessionID = session.SessionID
+		}
+
+		selectedIDs := make([]string, 0, len(view.Memories))
+		for _, memory := range view.Memories {
+			selectedIDs = append(selectedIDs, memory.MemoryID)
+		}
+		manifest := &models.MemoryManifest{
+			Direction:           "input",
+			ProjectID:           project,
+			RefName:             view.RefName,
+			HeadChangesetID:     view.HeadChangesetID,
+			SelectedMemoryIDs:   selectedIDs,
+			InclusionReasons:    view.InclusionReasons,
+			ExclusionReasons:    view.ExclusionReasons,
+			UnresolvedConflicts: view.UnresolvedConflicts,
+			SessionID:           sessionID,
+			ActorID:             req.ActorID,
+		}
+		if err := s.store.CreateManifest(r.Context(), manifest); err != nil {
 			writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
 			return
 		}
+		view.ManifestID = manifest.ManifestID
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"conflicts": conflicts})
+
+	writeJSON(w, http.StatusOK, view)
 }
 
 // --- Diff ---
@@ -333,8 +523,28 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid request body"})
 		return
 	}
+	if m.SessionID != "" && s.mode.LegacyEnabled() {
+		session, err := s.resolveSession(r.Context(), m.SessionID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+			return
+		}
+		if session == nil {
+			writeJSON(w, http.StatusNotFound, ErrorResponse{Error: "session not found"})
+			return
+		}
+		if session.ProjectID != m.ProjectID {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "session project mismatch"})
+			return
+		}
+		m.SessionID = session.SessionID
+	}
 	if err := s.store.CreateManifest(r.Context(), &m); err != nil {
-		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: err.Error()})
+		status := http.StatusBadRequest
+		if db.IsBusyError(err) {
+			status = http.StatusServiceUnavailable
+		}
+		writeJSON(w, status, ErrorResponse{Error: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusCreated, m)

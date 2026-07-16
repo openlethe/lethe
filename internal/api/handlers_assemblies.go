@@ -36,8 +36,11 @@ func (s *Server) handleCreateAssembly(w http.ResponseWriter, r *http.Request) {
 		EstimatorID                 string `json:"estimator_id"`
 		SummaryEstimatedTokens      *int   `json:"summary_estimated_tokens"`
 		RecentEstimatedTokens       *int   `json:"recent_estimated_tokens"`
+		AcceptedEstimatedTokens     *int   `json:"accepted_estimated_tokens"`
 		ConversationEstimatedTokens *int   `json:"conversation_estimated_tokens"`
 		TotalEstimatedTokens        *int   `json:"total_estimated_tokens"`
+		MemoryManifestID            string `json:"memory_manifest_id"`
+		MemoryHeadChangesetID       string `json:"memory_head_changeset_id"`
 		PackedBytes                 int    `json:"packed_bytes"`
 		RecentSkipped               bool   `json:"recent_skipped"`
 		SkipReason                  string `json:"skip_reason"`
@@ -83,8 +86,11 @@ func (s *Server) handleCreateAssembly(w http.ResponseWriter, r *http.Request) {
 		EstimatorID:                 req.EstimatorID,
 		SummaryEstimatedTokens:      req.SummaryEstimatedTokens,
 		RecentEstimatedTokens:       req.RecentEstimatedTokens,
+		AcceptedEstimatedTokens:     req.AcceptedEstimatedTokens,
 		ConversationEstimatedTokens: req.ConversationEstimatedTokens,
 		TotalEstimatedTokens:        req.TotalEstimatedTokens,
+		MemoryManifestID:            req.MemoryManifestID,
+		MemoryHeadChangesetID:       req.MemoryHeadChangesetID,
 		PackedBytes:                 req.PackedBytes,
 		RecentSkipped:               req.RecentSkipped,
 		SkipReason:                  req.SkipReason,
@@ -142,6 +148,30 @@ func (s *Server) handleCreateAssembly(w http.ResponseWriter, r *http.Request) {
 			PackedBytes:     item.PackedBytes,
 			EstimatedTokens: item.EstimatedTokens,
 		})
+	}
+
+	if req.MemoryManifestID != "" {
+		manifest, err := s.store.GetManifest(r.Context(), req.MemoryManifestID)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+			return
+		}
+		if manifest == nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "memory manifest not found"})
+			return
+		}
+		if manifest.ProjectID != sess.ProjectID || manifest.SessionID != sess.SessionID {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "memory manifest does not belong to session project"})
+			return
+		}
+		if req.MemoryHeadChangesetID == "" {
+			req.MemoryHeadChangesetID = manifest.HeadChangesetID
+			assembly.MemoryHeadChangesetID = manifest.HeadChangesetID
+		}
+		if manifest.HeadChangesetID != req.MemoryHeadChangesetID {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "memory manifest head mismatch"})
+			return
+		}
 	}
 
 	if err := s.store.CreateContextAssembly(r.Context(), assembly); err != nil {

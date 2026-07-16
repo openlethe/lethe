@@ -1,46 +1,91 @@
-# Lethe — Persistent Memory Layer
+---
+name: lethe-memory
+description: "Use Lethe for manifest-pinned accepted project memory, session continuity, explicit recording, flags, and compaction."
+user-invocable: true
+metadata:
+  openclaw:
+    emoji: "🧠"
+    requires:
+      bins: ["curl", "jq"]
+    notes:
+      - "Local API base is http://localhost:18483/api; every route includes /api."
+      - "Keep Lethe bound to loopback and send Authorization: Bearer when LETHE_API_KEY is configured."
+      - "Never put credentials or raw secrets into durable memory."
+---
 
-## Purpose
+# Lethe Memory
 
-Lethe is a persistent memory layer for AI agents. It records session events, checkpoints, and summaries to a Lethe server, enabling continuity across sessions.
+Lethe has two related layers:
 
-## Usage
+1. Session memory: summaries, recent events, checkpoints, tasks, and flags.
+2. Memory Git: attributed semantic changesets and refs. `refs/shared/main` is
+   canonical accepted project memory; agent/session/topic refs are proposed work.
 
-The Lethe plugin activates automatically as a context engine. It intercepts session events and sends them to the configured Lethe endpoint.
+The context engine automatically reconstructs accepted `refs/shared/main`
+memory, pins the exact selected IDs/head in an input manifest, then combines it
+with the session summary and bounded recent events.
 
-### Configuration
+## Startup and continuity
 
-```json
-{
-  "endpoint": "http://localhost:18483",
-  "apiKey": "your-api-key",
-  "agentId": "archimedes",
-  "projectId": "default",
-  "autoLog": false
-}
+The plugin normally bootstraps the stable OpenClaw session key and assembles
+context automatically. For manual diagnosis:
+
+```bash
+curl -sS -H "Authorization: Bearer $LETHE_API_KEY" \
+  "http://localhost:18483/api/sessions/${SESSION_KEY}/summary"
+
+curl -sS -X POST -H "Authorization: Bearer $LETHE_API_KEY" \
+  -H "Content-Type: application/json" \
+  "http://localhost:18483/api/memory/default/context" \
+  -d "{\"ref_name\":\"refs/shared/main\",\"session_id\":\"${SESSION_KEY}\",\"actor_id\":\"archimedes\",\"create_manifest\":true,\"limit\":20}"
 ```
 
-### What Gets Recorded
+Treat returned accepted memories as canonical. Treat unresolved conflicts as
+review items, not facts. Never read an arbitrary unmerged head under the label
+of shared accepted memory.
 
-- **Messages** — conversation turns sent to the agent
-- **Tool calls** — tools used and their outputs
-- **Checkpoints** — periodic session summaries
-- **Heartbeats** — periodic alive signals
-- **Threads** — detected conversation threads
+## Recall
 
-### Key Endpoints
+Search legacy events when the user asks about prior work that may not have been
+migrated or accepted through Memory Git:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | /sessions | Create a new session |
-| POST | /events | Log session events |
-| GET | /sessions/:key/summary | Retrieve session summary |
-| POST | /checkpoints | Save a checkpoint |
-| POST | /heartbeat | Send a heartbeat |
+```bash
+curl -sS -H "Authorization: Bearer $LETHE_API_KEY" \
+  "http://localhost:18483/api/events/search?q=<terms>&projectId=default&limit=10"
+```
 
-## Notes
+Search once narrowly, broaden once, then say the fact is not recorded. Do not
+invent continuity.
 
-- Events are batched and sent at appropriate checkpoints during the session.
-- The plugin uses in-memory buffering to avoid sending every individual event.
-- If the Lethe endpoint is unreachable, the plugin logs a warning but continues without crashing.
-- Session summaries include conversation direction, key topics, and open threads.
+## Durable writes
+
+With `autoLog=false`, ordinary conversation and tool calls are not durable
+events. Checkpoints still record session progress. Record only deliberate,
+future-useful items: decisions, completed work, reusable discoveries, risks,
+and durable tasks.
+
+Use Charon's Memory Git tools for cross-model shared memory:
+
+- `memory_status`, `memory_log`, `memory_show`, `memory_diff`
+- `memory_context_at`
+- `memory_branch_create`, `memory_changeset_create`
+- `memory_merge_propose`, `memory_merge_review`, `memory_merge`
+
+Commit only to owned non-protected refs. Propose reviewed merges into
+`refs/shared/main`; never bypass Charon's policy or protected compare-and-swap
+path.
+
+Use legacy `record`, `log`, `flag`, and `task` events only when the
+original event system is specifically appropriate. Direct post-root events do
+not silently become accepted Memory Git state.
+
+## Compaction and recovery
+
+Compact long sessions through
+`POST /api/sessions/${SESSION_KEY}/compact`. Compaction updates the session
+summary; it does not rewrite Memory Git history.
+
+If Lethe returns 401/403, fix endpoint/API-key configuration before relying on
+memory. If it is unreachable, retry once with a short timeout, continue without
+claiming continuity, and surface the failure. Never suppress authentication
+failures or print secret values.

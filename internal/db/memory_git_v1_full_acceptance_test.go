@@ -348,8 +348,10 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 		AuthorPrincipal: "principal_archimedes",
 		ActorID:         "archimedes",
 		Ops: []models.MemorySemanticOp{{
-			OpType:        models.OpAttachEvidence,
-			TargetEventID: "evt-bad-001",
+			OpType: models.OpAttachEvidence,
+			// Target-less rejection attestation: the rejected memory never
+			// existed on shared/main, so the evidence binds to the changeset
+			// it was rejected from via provenance fields.
 			Payload: map[string]any{
 				"summary":       "Rejected: disabling authentication violates security policy",
 				"rejected_from": mixedCs.ChangesetID,
@@ -449,7 +451,8 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 		Ops: []models.MemorySemanticOp{{
 			OpType: models.OpAttachEvidence,
 			Payload: map[string]any{
-				"summary": "proposing merge into shared/main",
+				"summary":             "proposing merge into shared/main",
+				"source_changeset_id": chatCs.ChangesetID,
 			},
 		}},
 		IdempotencyKey: "chatgpt-merge-attempt",
@@ -462,7 +465,7 @@ func TestMemoryGitV1FullAcceptance(t *testing.T) {
 	_ = chatAttemptCs
 
 	// Verify ChatGPT cannot directly CAS-update protected shared/main
-	_, err = s.CASMergeProtectedRef(ctx, projectID, mainRef, revertCs.ChangesetID, chatAttemptCs.ChangesetID)
+	_, _ = s.CASMergeProtectedRef(ctx, projectID, mainRef, revertCs.ChangesetID, chatAttemptCs.ChangesetID)
 	// The CAS would succeed technically, but in a real system this would be blocked by authz.
 	// For V1, we verify the ref is protected and the changeset was created on ChatGPT's own branch.
 	mainRefCheck, _ := s.GetMemoryRef(ctx, projectID, mainRef)

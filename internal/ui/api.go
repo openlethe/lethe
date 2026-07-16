@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -56,6 +57,7 @@ func (s *APIServer) frag(w http.ResponseWriter, r *http.Request, name string, da
 	}
 	w.Header().Set("Content-Type", "text/html")
 	w.WriteHeader(http.StatusOK)
+	// #nosec G104 -- status and headers are already sent; a write failure cannot be reported to the client.
 	buf.WriteTo(w)
 }
 
@@ -68,6 +70,7 @@ func (s *APIServer) fragList(w http.ResponseWriter, r *http.Request, name string
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	// #nosec G104 -- status and headers are already sent; an encode failure cannot be reported to the client.
 	json.NewEncoder(w).Encode(v)
 }
 
@@ -215,7 +218,9 @@ func (s *APIServer) handleCompact(w http.ResponseWriter, r *http.Request) {
 	evts, _ := s.store.GetRecentSessionEvents(r.Context(), sess.SessionID, 10)
 
 	summaryText := buildSummary(cps, evts)
-	s.store.CompactSession(r.Context(), sess.SessionID, summaryText)
+	if err := s.store.CompactSession(r.Context(), sess.SessionID, summaryText); err != nil {
+		log.Printf("compact session %s: %v", sess.SessionID, err)
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{"summary": summaryText, "status": "ok"})
 }
 
@@ -302,12 +307,4 @@ func firstOrNil(cps []*models.Checkpoint) interface{} {
 
 func buildSummary(cps []*models.Checkpoint, evts []*models.Event) string {
 	return fmt.Sprintf("Session summary: %d checkpoints, %d events", len(cps), len(evts))
-}
-
-// --- Counter stubs (add to db/store if not present) ---
-
-func (s *APIServer) countRows(ctx context.Context, query string) (int, error) {
-	var n int
-	err := s.store.DB.QueryRowContext(ctx, query).Scan(&n)
-	return n, err
 }

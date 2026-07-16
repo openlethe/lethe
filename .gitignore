@@ -1,34 +1,64 @@
-# Binaries
-lethe
-lethe.exe
-*.exe
-
-# Build output
+# Go binaries and release output
+/lethe
+/lethe.exe
 /dist/
+*.test
+*.prof
+*.pprof
+coverage.out
+*.coverprofile
+/coverage/
 
-# SQLite
+# JavaScript dependencies and local compiler output
+node_modules/
+/plugin/dist/
+*.tsbuildinfo
+.npm/
+.pnpm-store/
+
+# The packaged plugins/lethe release bundle is intentionally tracked.
+# Ignore only local test-compiler spillover and duplicate generated copies.
+/plugins/lethe/dist/**/*.test.js
+/plugins/lethe/dist/**/*.test.d.ts
+/plugins/lethe/SKILL.md
+
+# Browser and test artifacts
+/playwright-report/
+/test-results/
+/blob-report/
+/.playwright/
+
+# SQLite and local runtime state
 *.db
 *.db-shm
 *.db-wal
+/lethe-data/
+/lethe-git-data/
+
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+!.env.*.example
+.envrc
+.direnv/
+
+# Superseded local duplicate of .env.git.example
+/lethe-git-config.example
+
+# Logs, temporary files, and caches
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+/tmp/
+/.cache/
 
 # IDE
 .vscode/
 .idea/
 
-# OS
+# OS metadata
 .DS_Store
 Thumbs.db
-
-# Test artifacts
-node_modules/
-playwright-report/
-test-results/
-*.db
-*.db-shm
-*.db-wal
-plugins/lethe/dist/
-plugins/lethe/node_modules/
-
-plugin/dist/
-plugin/node_modules/
-package-lock.json

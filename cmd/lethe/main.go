@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -32,6 +33,7 @@ var (
 	dbPath                = flag.String("db", "./lethe.db", "path to SQLite database")
 	apiKey                = flag.String("api-key", "", "Bearer token required for API/UI/SSE access. Defaults to LETHE_API_KEY if unset; no key keeps trusted localhost mode.")
 	trustMode             = flag.String("trust", "", "Trust mode when no API key is set: private (loopback+private+link-local) or loopback (loopback only). Defaults to LETHE_TRUST or private.")
+	serverMode            = flag.String("mode", "", "API mode: legacy, git, or hybrid. Defaults to LETHE_MODE or legacy.")
 	assemblyRetentionDays = flag.Int("assembly-retention-days", -1, "Delete assemblies older than N days (0 = disable age-based retention, -1 = default 30).")
 	assemblyMaxPerSession = flag.Int("assembly-max-per-session", -1, "Keep at most N assemblies per session (0 = disable count-based retention, -1 = default 500).")
 )
@@ -85,6 +87,15 @@ func main() {
 		log.Fatalf("lethe: invalid trust mode %q; must be 'private' or 'loopback'", modeStr)
 	}
 
+	configuredMode := *serverMode
+	if configuredMode == "" {
+		configuredMode = os.Getenv("LETHE_MODE")
+	}
+	resolvedMode, err := api.ParseMode(configuredMode)
+	if err != nil {
+		log.Fatalf("lethe: %v", err)
+	}
+
 	// Resolve API base URL: use --api-url if set, otherwise derive from --http and --api-port.
 	var apiBase string
 	if *apiURL != "" {
@@ -108,10 +119,18 @@ func main() {
 		apiBase = "http://" + host + ":" + port
 	}
 	r := chi.NewRouter()
+	// CHARON_MERGE_HMAC_KEY is the purpose-specific merge-signing key shared
+	// with Charon; CHARON_HMAC_KEY remains accepted as a legacy fallback for
+	// existing deployments until they migrate.
+	mergeKey := os.Getenv("CHARON_MERGE_HMAC_KEY")
+	if mergeKey == "" {
+		mergeKey = os.Getenv("CHARON_HMAC_KEY")
+	}
 	apiServer := api.NewServer(database, sessMgr,
 		api.WithAuthToken(*apiKey),
-		api.WithCharonMergeKey(os.Getenv("CHARON_HMAC_KEY")),
+		api.WithCharonMergeKey(mergeKey),
 		api.WithTrustMode(resolvedTrust),
+		api.WithMode(resolvedMode),
 	)
 	if *apiKey == "" {
 		log.Printf("lethe: WARNING: no --api-key/LETHE_API_KEY configured; unauthenticated access is allowed from %s peers only", modeStr)
@@ -120,10 +139,12 @@ func main() {
 		log.Println("lethe: bearer authentication enabled for API, UI, and SSE")
 	}
 	r.Mount("/api", apiServer.Router())
-	ui.SetupRoutes(r, apiBase, apiServer.AuthMiddleware())
+	if resolvedMode.LegacyEnabled() {
+		ui.SetupRoutes(r, apiBase, apiServer.AuthMiddleware())
 
-	// SSE endpoint — mounted at root so both /live and /ui/live work.
-	r.With(apiServer.AuthMiddleware()).Get("/live", apiServer.HandleSSE())
+		// SSE endpoint — mounted at root so both /live and /ui/live work.
+		r.With(apiServer.AuthMiddleware()).Get("/live", apiServer.HandleSSE())
+	}
 
 	// Resolve assembly retention settings.
 	retentionDays := *assemblyRetentionDays
@@ -218,12 +239,14 @@ func main() {
 		cancel()
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
-		// Interrupt all active sessions with no snapshot — this transitions
-		// them to 'interrupted' state so they appear as resumable on next startup.
-		if err := sessMgr.InterruptAllActive(shutdownCtx); err != nil {
-			log.Printf("lethe: session checkpoint error: %v", err)
-		} else {
-			log.Println("lethe: all sessions checkpointed")
+		if resolvedMode.LegacyEnabled() {
+			// Interrupt all active sessions with no snapshot — this transitions
+			// them to 'interrupted' state so they appear as resumable on next startup.
+			if err := sessMgr.InterruptAllActive(shutdownCtx); err != nil {
+				log.Printf("lethe: session checkpoint error: %v", err)
+			} else {
+				log.Println("lethe: all sessions checkpointed")
+			}
 		}
 		// Stop the SSE broadcaster goroutine.
 		apiServer.StopBroadcaster()
@@ -232,7 +255,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("lethe: HTTP server starting on %s", *httpAddr)
+	log.Printf("lethe: HTTP server starting on %s (mode=%s)", *httpAddr, resolvedMode)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("HTTP server error: %v", err)
 	}
@@ -284,12 +307,23 @@ func memoryAPIClient() *apiClient {
 	if base == "" {
 		base = "http://localhost:18483"
 	}
-	return &apiClient{baseURL: base, apiKey: key}
+	return &apiClient{
+		baseURL: base,
+		apiKey:  key,
+		http: &http.Client{
+			Timeout: 15 * time.Second,
+		},
+	}
 }
+
+// maxCLIResponseBytes caps API response bodies the CLI will read so a broken
+// or hostile server cannot exhaust local memory.
+const maxCLIResponseBytes = 8 << 20
 
 type apiClient struct {
 	baseURL string
 	apiKey  string
+	http    *http.Client
 }
 
 func (c *apiClient) get(path string) ([]byte, error) {
@@ -300,12 +334,12 @@ func (c *apiClient) get(path string) ([]byte, error) {
 	if c.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxCLIResponseBytes))
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 	}
@@ -322,12 +356,12 @@ func (c *apiClient) post(path string, body any) ([]byte, error) {
 	if c.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	rbody, _ := io.ReadAll(resp.Body)
+	rbody, _ := io.ReadAll(io.LimitReader(resp.Body, maxCLIResponseBytes))
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(rbody))
 	}
@@ -344,7 +378,10 @@ func memoryStatus(args []string) error {
 		refName = args[1]
 	}
 	c := memoryAPIClient()
-	body, err := c.get(fmt.Sprintf("/memory/%s/refs/%s", project, refName))
+	// Ref names contain slashes, so they cannot ride in a Chi path segment;
+	// use the ref-resolution query endpoint with proper encoding.
+	q := url.Values{"name": {refName}}
+	body, err := c.get(fmt.Sprintf("/memory/%s/refs/resolve?%s", url.PathEscape(project), q.Encode()))
 	if err != nil {
 		return err
 	}
@@ -361,7 +398,8 @@ func memoryStatus(args []string) error {
 	fmt.Printf("Protected: %v\n", ref.Protected)
 
 	// Show recent changesets
-	logBody, err := c.get(fmt.Sprintf("/memory/%s/changesets?ref=%s&limit=5", project, refName))
+	logQ := url.Values{"ref": {refName}, "limit": {"5"}}
+	logBody, err := c.get(fmt.Sprintf("/memory/%s/changesets?%s", url.PathEscape(project), logQ.Encode()))
 	if err != nil {
 		return err
 	}
@@ -393,7 +431,8 @@ func memoryLog(args []string) error {
 		refName = args[1]
 	}
 	c := memoryAPIClient()
-	body, err := c.get(fmt.Sprintf("/memory/%s/changesets?ref=%s&limit=50", project, refName))
+	logQ := url.Values{"ref": {refName}, "limit": {"50"}}
+	body, err := c.get(fmt.Sprintf("/memory/%s/changesets?%s", url.PathEscape(project), logQ.Encode()))
 	if err != nil {
 		return err
 	}
