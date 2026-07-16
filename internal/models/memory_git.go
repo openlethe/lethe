@@ -206,6 +206,23 @@ type DiffKindNote struct {
 	Reason       string `json:"reason"`
 }
 
+// ProtectedRefAdvance is the durable record of one authorized protected-ref
+// movement, written atomically with the nonce consumption and the CAS.
+type ProtectedRefAdvance struct {
+	AdvanceID          string    `json:"advance_id"`
+	ProjectID          string    `json:"project_id"`
+	RefName            string    `json:"ref_name"`
+	ExpectedHead       string    `json:"expected_head"`
+	NewHead            string    `json:"new_head"`
+	ProposalID         string    `json:"merge_proposal_id"`
+	ProposalDigest     string    `json:"proposal_digest"`
+	ReviewerPrincipal  string    `json:"reviewer_principal"`
+	MergerPrincipal    string    `json:"merger_principal"`
+	Strategy           string    `json:"strategy"`
+	AuthorizationNonce string    `json:"authorization_nonce"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
 // IsProtectedRef reports whether a ref name is protected by convention.
 func IsProtectedRef(refName string) bool {
 	return len(refName) >= len("refs/shared/") &&

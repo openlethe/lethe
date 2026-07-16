@@ -21,15 +21,15 @@ import (
 
 // Server is the HTTP API server.
 type Server struct {
-	router         *chi.Mux
-	store          *db.Store
-	sessMgr        *session.Manager
-	httpServer     *http.Server
-	broadcaster    *broadcaster
-	authToken      string
-	charonMergeKey []byte
-	trustMode      TrustMode
-	mode           Mode
+	router      *chi.Mux
+	store       *db.Store
+	sessMgr     *session.Manager
+	httpServer  *http.Server
+	broadcaster *broadcaster
+	authToken   string
+	mergeKeys   map[string][]byte
+	trustMode   TrustMode
+	mode        Mode
 }
 
 // broadcaster manages SSE client connections.

@@ -108,7 +108,7 @@ func TestMigrationVersionsRecordedAfterAtomicMigration(t *testing.T) {
 		"008_context_assembly_ledger.sql",
 		"009_memory_git.sql",
 		"010_memory_context_bridge.sql",
-		"011_changeset_digests_v2", "011_memory_conflict_lifecycle.sql",
+		"011_changeset_digests_v2", "011_memory_conflict_lifecycle.sql", "012_merge_authorizations.sql",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("schema_versions = %v, want %v", got, want)

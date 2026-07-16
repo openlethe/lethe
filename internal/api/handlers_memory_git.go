@@ -1,13 +1,10 @@
 package api
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/openlethe/lethe/internal/db"
@@ -255,32 +252,42 @@ func (s *Server) handleMergeAdvanceRef(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "protected ref and signed merge authorization required"})
 		return
 	}
-	if len(s.charonMergeKey) < 32 || !verifyMergeAuthorization(s.charonMergeKey, project, req.RefName,
-		req.ExpectedHead, req.NewHead, req.MergeProposalID, req.ReviewerPrincipal, req.Authorization) {
-		writeJSON(w, http.StatusForbidden, ErrorResponse{Error: "invalid merge authorization"})
+	// Every authorization is a versioned, expiring, single-use envelope bound
+	// to the exact merge fields, the proposal state digest, and the reviewer.
+	envelope, err := verifyMergeAuthorizationV2(s.mergeKeys, project, req.RefName,
+		req.ExpectedHead, req.NewHead, req.MergeProposalID, req.ReviewerPrincipal, req.Authorization, time.Now().UTC())
+	if err != nil {
+		status := http.StatusForbidden
+		if errors.Is(err, errAuthorizationExpired) || errors.Is(err, errAuthorizationMalformed) || errors.Is(err, errAuthorizationFields) {
+			status = http.StatusBadRequest
+		}
+		writeJSON(w, status, ErrorResponse{Error: "invalid merge authorization"})
 		return
 	}
-	ref, err := s.store.CASMergeProtectedRef(r.Context(), project, req.RefName, req.ExpectedHead, req.NewHead)
+	expiresAt, _ := time.Parse(time.RFC3339Nano, envelope.ExpiresAt)
+	ref, err := s.store.CASMergeProtectedRefAuthorized(r.Context(), db.MergeAdvancement{
+		ProjectID:         project,
+		RefName:           req.RefName,
+		ExpectedHead:      req.ExpectedHead,
+		NewHead:           req.NewHead,
+		ProposalID:        envelope.ProposalID,
+		ProposalDigest:    envelope.ProposalDigest,
+		ReviewerPrincipal: envelope.ReviewerPrincipal,
+		MergerPrincipal:   envelope.MergerPrincipal,
+		Strategy:          envelope.Strategy,
+		Nonce:             envelope.Nonce,
+		KeyID:             envelope.KeyID,
+		ExpiresAt:         expiresAt,
+	})
 	if err != nil {
 		status := memoryGitErrorStatus(err)
+		if errors.Is(err, db.ErrAuthorizationReplay) || errors.Is(err, db.ErrMergeShape) || errors.Is(err, db.ErrInvalidStrategy) {
+			status = http.StatusConflict
+		}
 		writeJSON(w, status, ErrorResponse{Error: err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, ref)
-}
-
-func mergeAuthorizationMessage(project, refName, expectedHead, newHead, proposalID, reviewer string) string {
-	return fmt.Sprintf("memory-git-merge/v1\n%s\n%s\n%s\n%s\n%s\n%s", project, refName, expectedHead, newHead, proposalID, reviewer)
-}
-
-func verifyMergeAuthorization(key []byte, project, refName, expectedHead, newHead, proposalID, reviewer, signature string) bool {
-	provided, err := hex.DecodeString(signature)
-	if err != nil {
-		return false
-	}
-	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write([]byte(mergeAuthorizationMessage(project, refName, expectedHead, newHead, proposalID, reviewer)))
-	return hmac.Equal(provided, mac.Sum(nil))
 }
 
 func (s *Server) handleDetectConflicts(w http.ResponseWriter, r *http.Request) {

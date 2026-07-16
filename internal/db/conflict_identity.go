@@ -1,14 +1,10 @@
 package db
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"fmt"
 	"sort"
 	"strings"
 
+	"github.com/openlethe/lethe/internal/canonical"
 	"github.com/openlethe/lethe/internal/models"
 )
 
@@ -33,16 +29,12 @@ func DeterministicConflictID(c *models.MemoryConflict) string {
 		"conflict_type":      c.ConflictType,
 		"identity":           conflictSemanticIdentity(c),
 	}
-	canonical, err := canonicalJSON(payload)
+	id, err := canonical.Digest(conflictIDDomain, payload)
 	if err != nil {
 		// map[string]any of strings cannot fail to encode.
 		panic(err)
 	}
-	h := sha256.New()
-	h.Write([]byte(conflictIDDomain))
-	h.Write([]byte{'\n'})
-	h.Write(canonical)
-	return hex.EncodeToString(h.Sum(nil))
+	return id
 }
 
 // conflictSemanticIdentity extracts the type-specific identity of the affected
@@ -87,21 +79,4 @@ func conflictSemanticIdentity(c *models.MemoryConflict) string {
 		// findings still get distinct identities.
 		return c.Summary
 	}
-}
-
-// canonicalJSON marshals v with sorted map keys and no HTML escaping, matching
-// the Charon canonical package byte for byte. Cross-service digests and
-// signatures depend on both sides producing identical bytes.
-func canonicalJSON(v any) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, fmt.Errorf("canonical encode: %w", err)
-	}
-	out := buf.Bytes()
-	if n := len(out); n > 0 && out[n-1] == '\n' {
-		out = out[:n-1]
-	}
-	return out, nil
 }

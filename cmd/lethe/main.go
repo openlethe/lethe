@@ -119,16 +119,38 @@ func main() {
 		apiBase = "http://" + host + ":" + port
 	}
 	r := chi.NewRouter()
-	// CHARON_MERGE_HMAC_KEY is the purpose-specific merge-signing key shared
-	// with Charon; CHARON_HMAC_KEY remains accepted as a legacy fallback for
-	// existing deployments until they migrate.
-	mergeKey := os.Getenv("CHARON_MERGE_HMAC_KEY")
-	if mergeKey == "" {
-		mergeKey = os.Getenv("CHARON_HMAC_KEY")
+	// CHARON_MERGE_HMAC_KEYS configures purpose-specific merge keys as
+	// "keyid=secret,keyid2=secret2" so rotation keeps an overlap window:
+	// envelopes name their key ID and any configured key verifies.
+	// CHARON_MERGE_HMAC_KEY (single key, empty key ID) remains for existing
+	// deployments. CHARON_HMAC_KEY is the formally deprecated generic fallback:
+	// it is accepted only when no purpose-specific key is set and will be
+	// removed in a future release.
+	mergeKeys := map[string]string{}
+	if keysEnv := os.Getenv("CHARON_MERGE_HMAC_KEYS"); keysEnv != "" {
+		for _, pair := range strings.Split(keysEnv, ",") {
+			id, secret, ok := strings.Cut(strings.TrimSpace(pair), "=")
+			if !ok || id == "" || len(secret) < 32 {
+				log.Fatalf("lethe: invalid CHARON_MERGE_HMAC_KEYS entry %q (want keyid=secret with >= 32 char secret)", pair)
+			}
+			mergeKeys[id] = secret
+		}
+	}
+	if key := os.Getenv("CHARON_MERGE_HMAC_KEY"); key != "" {
+		mergeKeys[""] = key
+	}
+	if len(mergeKeys) == 0 {
+		if legacy := os.Getenv("CHARON_HMAC_KEY"); legacy != "" {
+			log.Println("lethe: WARNING: CHARON_HMAC_KEY generic-key fallback is deprecated; set CHARON_MERGE_HMAC_KEY or CHARON_MERGE_HMAC_KEYS")
+			mergeKeys[""] = legacy
+		}
+	}
+	if len(mergeKeys) == 0 {
+		log.Println("lethe: WARNING: no merge authorization key configured; protected-ref merges are unavailable")
 	}
 	apiServer := api.NewServer(database, sessMgr,
 		api.WithAuthToken(*apiKey),
-		api.WithCharonMergeKey(mergeKey),
+		api.WithCharonMergeKeys(mergeKeys),
 		api.WithTrustMode(resolvedTrust),
 		api.WithMode(resolvedMode),
 	)

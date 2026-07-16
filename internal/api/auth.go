@@ -54,12 +54,17 @@ func WithAuthToken(token string) Option {
 	}
 }
 
-// WithCharonMergeKey configures the separate Charon-held HMAC key used to
-// authorize protected-ref merge operations. The bearer API token alone is not
-// sufficient to move a protected ref.
-func WithCharonMergeKey(key string) Option {
+// WithCharonMergeKeys configures the purpose-specific Charon-held HMAC keys
+// used to authorize protected-ref merge operations, keyed by key ID so
+// rotation keeps an overlap window: envelopes name their key ID and any
+// configured key verifies, while new envelopes use only the current ID. The
+// bearer API token alone is never sufficient to move a protected ref.
+func WithCharonMergeKeys(keys map[string]string) Option {
 	return func(s *Server) {
-		s.charonMergeKey = []byte(strings.TrimSpace(key))
+		s.mergeKeys = make(map[string][]byte, len(keys))
+		for id, key := range keys {
+			s.mergeKeys[id] = []byte(strings.TrimSpace(key))
+		}
 	}
 }
 

@@ -11,9 +11,51 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"time"
+
+	"github.com/openlethe/lethe/internal/canonical"
 	"github.com/openlethe/lethe/internal/db"
 	"github.com/openlethe/lethe/internal/models"
 )
+
+// signTestEnvelope mirrors Charon's merge-authorization signing: HMAC-SHA256
+// over the canonical envelope bytes.
+func signTestEnvelope(t *testing.T, key string, env MergeAuthorizationEnvelope) string {
+	t.Helper()
+	canonicalBytes, err := canonical.JSON(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mac := hmac.New(sha256.New, []byte(key))
+	_, _ = mac.Write(canonicalBytes)
+	signed, err := json.Marshal(map[string]any{
+		"envelope":  env,
+		"signature": hex.EncodeToString(mac.Sum(nil)),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(signed)
+}
+
+func validTestEnvelope(project, refName, expected, newHead, nonce string) MergeAuthorizationEnvelope {
+	return MergeAuthorizationEnvelope{
+		Version:           MergeAuthorizationVersion,
+		ProjectID:         project,
+		RefName:           refName,
+		ExpectedHead:      expected,
+		NewHead:           newHead,
+		ProposalID:        "proposal-1",
+		ProposalDigest:    "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		ReviewerPrincipal: "reviewer",
+		MergerPrincipal:   "merger",
+		Strategy:          "fast_forward",
+		IssuedAt:          time.Now().UTC().Add(-time.Second).Format(time.RFC3339Nano),
+		ExpiresAt:         time.Now().UTC().Add(2 * time.Minute).Format(time.RFC3339Nano),
+		Nonce:             nonce,
+		KeyID:             "",
+	}
+}
 
 func TestMemoryGitConflictAndSlashRefRoutes(t *testing.T) {
 	srv := newTestServer(t)
@@ -65,27 +107,38 @@ func TestMemoryGitConflictAndSlashRefRoutes(t *testing.T) {
 		t.Fatalf("protected direct advance status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
-	mergeMessage := mergeAuthorizationMessage("project-test", "refs/shared/main", root.ChangesetID, left.ChangesetID, "proposal-1", "reviewer")
-	mac := hmac.New(sha256.New, []byte("0123456789abcdef0123456789abcdef"))
-	_, _ = mac.Write([]byte(mergeMessage))
 	body, _ = json.Marshal(map[string]string{"ref_name": "refs/shared/main", "expected_head": root.ChangesetID, "new_head": left.ChangesetID,
 		"merge_proposal_id": "proposal-1", "reviewer_principal": "reviewer", "merge_authorization": "00"})
 	req = httptest.NewRequest(http.MethodPost, "/memory/project-test/refs/merge", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer test-token")
 	rec = httptest.NewRecorder()
 	srv.router.ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
+	if rec.Code != http.StatusBadRequest && rec.Code != http.StatusForbidden {
 		t.Fatalf("forged merge authorization status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
+	envelope := validTestEnvelope("project-test", "refs/shared/main", root.ChangesetID, left.ChangesetID, "0123456789abcdef0123456789abcdef")
 	body, _ = json.Marshal(map[string]string{"ref_name": "refs/shared/main", "expected_head": root.ChangesetID, "new_head": left.ChangesetID,
-		"merge_proposal_id": "proposal-1", "reviewer_principal": "reviewer", "merge_authorization": hex.EncodeToString(mac.Sum(nil))})
+		"merge_proposal_id": "proposal-1", "reviewer_principal": "reviewer",
+		"merge_authorization": signTestEnvelope(t, "0123456789abcdef0123456789abcdef", envelope)})
 	req = httptest.NewRequest(http.MethodPost, "/memory/project-test/refs/merge", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer test-token")
 	rec = httptest.NewRecorder()
 	srv.router.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("merge advance status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	// Immediate replay of the same single-use authorization is rejected.
+	body, _ = json.Marshal(map[string]string{"ref_name": "refs/shared/main", "expected_head": root.ChangesetID, "new_head": left.ChangesetID,
+		"merge_proposal_id": "proposal-1", "reviewer_principal": "reviewer",
+		"merge_authorization": signTestEnvelope(t, "0123456789abcdef0123456789abcdef", envelope)})
+	req = httptest.NewRequest(http.MethodPost, "/memory/project-test/refs/merge", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec = httptest.NewRecorder()
+	srv.router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("replayed authorization status=%d body=%s", rec.Code, rec.Body.String())
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/memory/project-test/refs/resolve?name=refs%2Fshared%2Fmain", nil)
