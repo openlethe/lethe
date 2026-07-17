@@ -64,9 +64,11 @@ func (s *Store) validateSemanticOps(ctx context.Context, projectID string, paren
 		return nil
 	}
 	var active map[string]bool
+	parentID := ""
 	if len(parentIDs) > 0 && parentIDs[0] != "" {
 		var err error
-		active, err = s.activeMemoryStateAt(ctx, projectID, parentIDs[0])
+		parentID = parentIDs[0]
+		active, err = s.activeMemoryStateAt(ctx, projectID, parentID)
 		if err != nil {
 			return fmt.Errorf("project parent state for operation validation: %w", err)
 		}
@@ -78,7 +80,7 @@ func (s *Store) validateSemanticOps(ctx context.Context, projectID string, paren
 		if err := validateOpAgainstState(i, &ops[i], active); err != nil {
 			return err
 		}
-		applyOpStateEffect(active, parentIDs[0], &ops[i])
+		applyOpStateEffect(active, parentID, &ops[i])
 	}
 	return nil
 }

@@ -577,3 +577,42 @@ func TestSemanticValidationCrossProjectRejected(t *testing.T) {
 		t.Fatal("cross-project correction accepted")
 	}
 }
+
+// Regression (autoreview): a parentless changeset carrying an op that needs
+// state validation must not panic — it validates against empty root state.
+func TestRootChangesetWithStatefulOpDoesNotPanic(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	project := "proj-root-stateful"
+	setupAgentProject(t, s, "agent-root", project)
+
+	// add_memory with an explicit resulting identity triggers state validation
+	// even with no parents.
+	cs, err := s.CreateChangeset(ctx, CreateChangesetRequest{
+		ProjectID: project, RefName: "refs/agents/root/main", ParentIDs: nil,
+		AuthorPrincipal: "root", IdempotencyKey: "root-stateful",
+		Ops: []models.MemorySemanticOp{
+			{OpType: models.OpAddMemory, ResultingEventID: "root-mem", Payload: map[string]any{"content": "root memory"}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cs.ChangesetID == "" {
+		t.Fatal("no changeset created")
+	}
+
+	// A parentless changeset referencing a missing target must still fail
+	// validation cleanly (no panic).
+	_, err = s.CreateChangeset(ctx, CreateChangesetRequest{
+		ProjectID: project, RefName: "refs/agents/root/main", ParentIDs: []string{},
+		AuthorPrincipal: "root", IdempotencyKey: "root-stateful-2",
+		Ops: []models.MemorySemanticOp{
+			{OpType: models.OpCorrectMemory, TargetEventID: "ghost", Payload: map[string]any{"content": "x"}},
+		},
+	})
+	if err == nil {
+		t.Fatal("missing-target correction on root accepted")
+	}
+}
