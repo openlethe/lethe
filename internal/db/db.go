@@ -84,6 +84,7 @@ func Open(dbPath string) (*DB, error) {
 		return nil, fmt.Errorf("ping: %w", err)
 	}
 	if err := verifyDurabilityPragmas(db, synchronous); err != nil {
+		// #nosec G104 -- startup is failing closed; Close failure is immaterial.
 		db.Close()
 		return nil, fmt.Errorf("durability verification: %w", err)
 	}

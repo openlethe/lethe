@@ -406,15 +406,6 @@ func (s *Store) memoryHistoryAt(ctx context.Context, projectID, headID string) (
 	return graph.order, nil
 }
 
-func (s *Store) memoryHeadReachable(ctx context.Context, projectID, candidateID, currentHeadID string) (bool, error) {
-	graph, err := s.loadMemoryGraph(ctx, projectID, currentHeadID, 0)
-	if err != nil {
-		return false, err
-	}
-	_, ok := graph.nodes[candidateID]
-	return ok, nil
-}
-
 func (s *Store) loadLegacyEvents(ctx context.Context, projectID string, ids []string) ([]*models.Event, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -697,6 +688,7 @@ func (s *Store) resolveSourceEventIDs(ctx context.Context, projectID string, mem
 		for rows.Next() {
 			var id string
 			if err := rows.Scan(&id); err != nil {
+				// #nosec G104 -- already returning the scan error; Close failure is immaterial.
 				rows.Close()
 				return err
 			}
@@ -705,21 +697,13 @@ func (s *Store) resolveSourceEventIDs(ctx context.Context, projectID string, mem
 			}
 		}
 		if err := rows.Err(); err != nil {
+			// #nosec G104 -- already returning the iteration error; Close failure is immaterial.
 			rows.Close()
 			return err
 		}
-		rows.Close()
+		if err := rows.Close(); err != nil {
+			return err
+		}
 	}
 	return nil
-}
-
-func existingEventID(ctx context.Context, store *Store, projectID, eventID string) string {
-	if eventID == "" {
-		return ""
-	}
-	event, err := store.GetEvent(ctx, eventID)
-	if err == nil && event != nil && event.ProjectID == projectID {
-		return eventID
-	}
-	return ""
 }

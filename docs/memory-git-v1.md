@@ -97,6 +97,38 @@ Immutable record:
 Operations reference Lethe event IDs when materializing accepted memory.
 Branch commits may stage ops before merge materializes events on shared.
 
+### Semantic validation (memory_git/v1)
+
+Lethe validates every operation before it can enter immutable,
+integrity-digested history (Charon validates the same structure client-side
+first). Ops apply sequentially: a later op may target memory introduced by an
+earlier op in the same changeset. Contract:
+
+- `add_memory`: non-empty trimmed `content`; `kind` in
+  `observation|fact|decision|task|flag|record` when present; `visibility` in
+  `private|internal|shared|public` when present; `confidence` in [0,1] when
+  present; `tags` is an array of non-empty strings when present; an explicit
+  resulting identity must not collide with an active memory at the parent.
+- `correct_memory`: `target_event_id` required and must exist at the parent
+  state; payload carries at least one correction field; `resulting_event_id`
+  differs from the target when present.
+- `supersede_memory`: target exists; no self-supersede; a lower-trust
+  inference (`source_trust` = `inference`/`model_inference`) cannot replace a
+  `user_approved` target.
+- `mark_duplicate`: duplicate and canonical targets both required, distinct,
+  and existing at the parent.
+- `add_relationship`: from/to required, distinct (self-relations are not
+  allowed), existing; non-empty `kind`.
+- `propose_deprecation`: target exists; non-empty `reason`.
+- `attach_evidence` / `attach_verification`: with a target, the target must
+  exist. Without a target the op is a merge/review attestation marker and
+  requires non-empty `summary` plus one provenance field (`reviewer`,
+  `proposal_id`, `source_changeset_id`, `rejected_from`, `cherrypicked_from`,
+  `left_branch`, `right_branch`).
+
+All identities are project-local by construction; cross-project targets fail.
+
+
 ## Legacy baseline
 
 Existing events remain readable. On first Memory Git use for a project:
@@ -170,6 +202,50 @@ Conflict detectors (V1 minimum):
 7. Project / topic / actor / namespace boundary violations
 
 Never auto-resolve substantive conflicts by "newest wins".
+
+### Conflict detection purity and lifecycle
+
+Conflict **analysis is pure**: `POST /api/memory/{project}/conflicts/detect`
+never writes; repeated analysis returns identical results with no side
+effects. Conflicts persist only as part of an explicit proposal operation
+(`POST /conflicts/persist`), bound to their proposal (`proposal_id`).
+
+Conflict identity is **deterministic** — a SHA-256 digest of project, base,
+left, right, type, and the affected semantic identity — so equivalent
+retries, replays, and re-detections converge on one row instead of
+duplicating. Resolving the canonical row retires every equivalent blocker at
+once (`POST /conflicts/{id}/resolve`).
+
+Lifecycle: `open → resolved | rejected | superseded | canceled`
+(`deferred` optional). Canceling or rejecting a proposal retires its
+conflicts (`POST /conflicts/retire`); a landed merge marks them superseded.
+Accepted-context reconstruction exposes only `open` conflicts relevant to the
+exact requested head — abandoned-proposal conflicts can no longer pollute
+manifests or withhold memory.
+
+### Protected-merge authorization (memory-git-merge/v2)
+
+Every protected-ref movement requires a Charon-signed, **single-use,
+expiring** envelope: version, project, ref, expected head, new head, proposal
+ID, proposal-state digest, reviewer and merger principals, merge strategy
+(`fast_forward` | `merge_commit` | `cherry_pick`), issued-at, expiry (short;
+≤15m enforced), a cryptographic nonce, and a key ID — HMAC-SHA256 over the
+canonical envelope bytes.
+
+Lethe verifies the signature against the key the envelope names (rotation
+overlap via `CHARON_MERGE_HMAC_KEYS`), validates every field against the
+request, enforces expiry and clock tolerance, then **atomically consumes the
+nonce with the protected-ref CAS** in one transaction — a captured
+authorization can never be replayed, even if the ref later cycles back to the
+same head. Lethe independently enforces the merge shape and the new head's
+project, and writes a durable advancement record
+(`memory_protected_ref_advances`) for reconciliation.
+
+Keys: merge HMAC material is purpose-specific (`CHARON_MERGE_HMAC_KEY` /
+`CHARON_MERGE_HMAC_KEYS` with key IDs). The generic `CHARON_HMAC_KEY`
+fallback is formally deprecated (startup warning) and must not be used in
+production.
+
 
 ## Revert / checkout
 
@@ -254,6 +330,25 @@ base, rather than only the two tip changesets.
 
 Operational details and verification commands are in
 [`memory-context-bridge.md`](memory-context-bridge.md).
+
+## Durability and recovery
+
+Durability policy: WAL + `synchronous=FULL` + `foreign_keys=ON` +
+`busy_timeout` + WAL autocheckpoint (env-tunable via `LETHE_SQLITE_*`);
+verified at startup — unsupported storage fails closed. Committed
+transactions survive process and container kills (tested); clean shutdown
+checkpoints the WAL. RPO is the transaction boundary; storage must honor
+fsync.
+
+Coordinated backup/restore: `charon backup` snapshots both databases with a
+manifest; after restore, run in recovery read-only mode
+(`LETHE_RECOVERY_READONLY=1`, `CHARON_RECOVERY_READONLY=1`), then
+`charon reconcile` plus `lethe verify-chain <project>`; only lift read-only
+after a clean report.
+
+Transport: loopback-only trust by default; non-loopback binds require
+`LETHE_API_KEY`; Charon requires HTTPS, a Unix socket, or loopback HTTP for
+its upstream. Network locality is never principal identity.
 
 ## Acceptance
 
