@@ -40,7 +40,7 @@
     "@mariozechner/pi-agent-core": "^0.70.0",
     "@types/node": "^20.0.0",
     "openclaw": "2026.7.1",
-    "typescript": "^5.4.0",
+    "typescript": "^7.0.2",
     "tsc-alias": "^1.8.0"
   }
 }
