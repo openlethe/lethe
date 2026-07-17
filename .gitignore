@@ -2,6 +2,7 @@
 /lethe
 /lethe.exe
 /dist/
+/build/
 *.test
 *.prof
 *.pprof
@@ -32,8 +33,12 @@ node_modules/
 *.db
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
 /lethe-data/
 /lethe-git-data/
+/e2e-output/
+/.local/
 
 # Local secrets and environment overrides
 .env
@@ -42,9 +47,30 @@ node_modules/
 !.env.*.example
 .envrc
 .direnv/
+*.pem
+*.key
+*.crt
 
 # Superseded local duplicate of .env.git.example
 /lethe-git-config.example
+
+# Local backups
+*.bak
+*.backup
+*.bak-*
+docker-compose*.backup
+docker-compose*.bak
+
+# Internal audits and remediation records (kept local)
+/internal-audits/
+/review-artifacts/
+/remediation-handoffs/
+*_AUDIT.md
+*_REMEDIATION_HANDOFF.md
+*_PRODUCTION_REVIEW.md
+
+# Local verification reports (kept local)
+/docs/local-memory-git-verification-*.md
 
 # Logs, temporary files, and caches
 *.log
