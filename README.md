@@ -35,10 +35,16 @@ Lethe OpenClaw Plugin
 
 Charon is the MCP authorization and governance gateway for Lethe: it controls
 project scopes, proposals, review, protected merges, credentials, and audit
-behavior. The Lethe OpenClaw plugin is optional - it automatically retrieves
-and injects accepted memory into OpenClaw conversations and records context
-metadata. Charon and Lethe work without it for clients that call MCP tools
-explicitly.
+behavior.
+
+**Lethe works with any agent, any model.** ChatGPT, Claude, OpenClaw, and
+custom MCP clients all connect through Charon and call the memory tools
+explicitly — no plugin required. The Lethe OpenClaw plugin is an optional,
+OpenClaw-only extra: it automatically retrieves and injects accepted memory
+into OpenClaw conversations (context injection) and records context metadata.
+It is published on ClawHub as the `lethe` plugin and mirrored in
+[`plugins/lethe`](https://github.com/openlethe/lethe/tree/main/plugins/lethe).
+Charon and Lethe work identically without it.
 
 ## Compatibility
 
@@ -100,6 +106,10 @@ Records carry confidence scores (0.0-1.0). Flags persist across sessions until e
 └─────────────────────────────────────────────────────────────┘
 ```
 
+This is the OpenClaw path. Other clients skip the plugin entirely: they
+connect to Charon and call the Memory Git tools directly
+(propose → review → merge), while Lethe stays private behind the gateway.
+
 1. **Sessions** - Each agent session gets a stable key. State: `active`, `interrupted`, or `completed`.
 2. **Events** - Every meaningful agent action is logged: decisions, observations, flags, tasks.
 3. **Checkpoints** - Periodic snapshots so the agent can resume exactly where it left off.
@@ -140,9 +150,9 @@ Lethe 0.4 makes the current memory path easier to trust.
 Recommended image tags:
 
 ```bash
-docker pull ghcr.io/openlethe/lethe:0.4.0
-# or
 docker pull ghcr.io/openlethe/lethe:latest
+# or pin a version
+docker pull ghcr.io/openlethe/lethe:0.4.0-beta.1
 ```
 
 ---
@@ -162,7 +172,7 @@ docker run -d \
   --name lethe \
   -v "$PWD/lethe-data:/data" \
   -p 127.0.0.1:18483:18483 \
-  ghcr.io/openlethe/lethe:0.4.0
+  ghcr.io/openlethe/lethe:latest
 ```
 
 ### Choose a Mode
@@ -238,7 +248,7 @@ docker run -d \
   --name lethe \
   -v "$PWD/lethe-data:/data" \
   -p 127.0.0.1:18483:18483 \
-  ghcr.io/openlethe/lethe:0.4.0
+  ghcr.io/openlethe/lethe:latest
 
 # 4. Verify
 #    - Health endpoint: curl http://localhost:18483/api/health
