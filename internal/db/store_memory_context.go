@@ -154,7 +154,18 @@ func (s *Store) BuildMemoryContext(
 		if cs.IdempotencyKey != "legacy-root" {
 			continue
 		}
-		if err := s.EnsureLegacyBaseline(ctx, cs); err != nil {
+		if s.recoveryReadOnly {
+			// Recovery mode forbids every implicit write, including baseline
+			// capture. A restored/upgraded database lacking the baseline must
+			// have it captured deliberately outside recovery mode.
+			var exists int
+			if err := s.QueryRowContext(ctx, `SELECT COUNT(*) FROM memory_legacy_baselines WHERE project_id = ?`, projectID).Scan(&exists); err != nil {
+				return nil, err
+			}
+			if exists == 0 {
+				return nil, fmt.Errorf("recovery read-only mode: legacy baseline for project %s is not captured; capture it outside recovery mode before reading context", projectID)
+			}
+		} else if err := s.EnsureLegacyBaseline(ctx, cs); err != nil {
 			return nil, fmt.Errorf("ensure legacy baseline: %w", err)
 		}
 		ids, err := s.loadLegacyBaselineIDs(ctx, projectID, cs.ChangesetID)

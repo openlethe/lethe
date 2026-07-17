@@ -91,3 +91,39 @@ func TestRecoveryReadOnlyBlocksImplicitRootCreation(t *testing.T) {
 		t.Fatalf("normal mode context failed: %v", err)
 	}
 }
+
+// Regression (autoreview round 6): recovery mode must also block legacy
+// baseline capture during context reconstruction — a read path must not
+// insert into memory_legacy_baselines.
+func TestRecoveryReadOnlyBlocksBaselineCapture(t *testing.T) {
+	srv := newTestServer(t)
+	ctx := context.Background()
+
+	// Build a project with a legacy root but deliberately no captured baseline
+	// (simulating a restored/upgraded database).
+	if _, _, err := srv.store.EnsureLegacyRoot(ctx, "project-nobaseline", "system"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.store.ExecContext(ctx, `DELETE FROM memory_legacy_baselines WHERE project_id = 'project-nobaseline'`); err != nil {
+		t.Fatal(err)
+	}
+
+	srv.store.SetRecoveryReadOnly(true)
+	_, err := srv.store.BuildMemoryContext(ctx, "project-nobaseline", "refs/shared/main", "", "", 10)
+	if err == nil {
+		t.Fatal("context with missing baseline succeeded in recovery mode")
+	}
+	var n int
+	if err := srv.store.QueryRow(`SELECT COUNT(*) FROM memory_legacy_baselines WHERE project_id = 'project-nobaseline'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("recovery read captured %d baselines", n)
+	}
+
+	// Outside recovery the same call captures the baseline and succeeds.
+	srv.store.SetRecoveryReadOnly(false)
+	if _, err := srv.store.BuildMemoryContext(ctx, "project-nobaseline", "refs/shared/main", "", "", 10); err != nil {
+		t.Fatalf("normal mode context failed: %v", err)
+	}
+}
