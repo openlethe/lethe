@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/openlethe/lethe/internal/metrics"
 	"github.com/openlethe/lethe/internal/models"
 )
 
@@ -106,6 +107,7 @@ func (s *Store) casMergeProtectedRefAuthorizedOnce(ctx context.Context, m MergeA
 		m.ProposalID, m.ProposalDigest, m.ReviewerPrincipal, m.MergerPrincipal,
 		m.Strategy, m.ExpiresAt, now); err != nil {
 		if isUniqueViolation(err) {
+			metrics.Inc(metrics.MergeReplayRejects)
 			return nil, fmt.Errorf("%w: %s", ErrAuthorizationReplay, m.Nonce)
 		}
 		return nil, err
@@ -162,6 +164,7 @@ func (s *Store) casMergeProtectedRefAuthorizedOnce(ctx context.Context, m MergeA
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	metrics.Inc(metrics.MergeAuthorized)
 	return s.GetMemoryRef(ctx, m.ProjectID, m.RefName)
 }
 

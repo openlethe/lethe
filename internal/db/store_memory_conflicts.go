@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/openlethe/lethe/internal/metrics"
 	"github.com/openlethe/lethe/internal/models"
 )
 
@@ -75,6 +76,7 @@ func (s *Store) PersistConflicts(ctx context.Context, projectID, proposalID stri
 				return fmt.Errorf("persist conflict %s: %w", c.ConflictID, err)
 			}
 		}
+		metrics.Add(metrics.ConflictsPersisted, int64(len(conflicts)))
 		return tx.Commit()
 	})
 }
@@ -117,6 +119,7 @@ func (s *Store) ResolveConflict(ctx context.Context, projectID, conflictID, note
 	if n, _ := res.RowsAffected(); n != 1 {
 		return fmt.Errorf("%w or not open: %s", ErrConflictNotFound, conflictID)
 	}
+	metrics.Inc(metrics.ConflictsResolved)
 	return nil
 }
 
@@ -140,6 +143,7 @@ func (s *Store) RetireConflictsForProposal(ctx context.Context, projectID, propo
 		return 0, err
 	}
 	n, _ := res.RowsAffected()
+	metrics.Add(metrics.ConflictsRetired, n)
 	return int(n), nil
 }
 

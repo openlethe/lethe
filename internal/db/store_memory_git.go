@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/openlethe/lethe/internal/metrics"
 	"github.com/openlethe/lethe/internal/models"
 )
 
@@ -246,6 +247,7 @@ func (s *Store) createChangesetOnce(ctx context.Context, req CreateChangesetRequ
 	// Semantic validation is authoritative: malformed operations must never
 	// enter immutable, integrity-digested history.
 	if err := s.validateSemanticOps(ctx, req.ProjectID, req.ParentIDs, req.Ops); err != nil {
+		metrics.Inc(metrics.ChangesetRejected)
 		return nil, err
 	}
 
@@ -286,8 +288,10 @@ func (s *Store) createChangesetOnce(ctx context.Context, req CreateChangesetRequ
 		return nil, err
 	} else if existing != nil {
 		if existing.IntegrityDigest != requestDigest {
+			metrics.Inc(metrics.IdempotencyMismatches)
 			return nil, fmt.Errorf("%w: key %s", ErrIdempotencyMismatch, req.IdempotencyKey)
 		}
+		metrics.Inc(metrics.IdempotentReplays)
 		return existing, nil
 	}
 
@@ -326,6 +330,7 @@ func (s *Store) createChangesetOnce(ctx context.Context, req CreateChangesetRequ
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	metrics.Inc(metrics.ChangesetCreated)
 	return s.GetChangeset(ctx, cs.ChangesetID)
 }
 
@@ -1024,6 +1029,7 @@ func (s *Store) casUpdateRef(ctx context.Context, projectID, refName, expectedHe
 		if cur == nil {
 			return nil, ErrRefNotFound
 		}
+		metrics.Inc(metrics.CASConflicts)
 		return cur, fmt.Errorf("%w: expected %s, current %s", ErrRefCASConflict, expectedHead, cur.HeadChangesetID)
 	}
 	return s.GetMemoryRef(ctx, projectID, refName)

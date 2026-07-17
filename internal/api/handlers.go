@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/openlethe/lethe/internal/metrics"
 	"log"
 	"net/http"
 	"net/url"
@@ -51,9 +52,27 @@ func queryLimit(r *http.Request, name string, defaultValue, maxValue int) int {
 	return defaultValue
 }
 
-// handleHealth returns server health status.
+// handleHealth returns server health status (liveness: the process is up).
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "mode": string(s.mode)})
+}
+
+// handleReadyz reports readiness: the store answers and migrations are
+// current. Distinct from liveness so orchestrators do not route traffic to a
+// process that cannot serve the database.
+func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.PingContext(r.Context()); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: "store unavailable"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready", "mode": string(s.mode)})
+}
+
+// handleMetrics exposes the in-process registry in Prometheus text format.
+// It rides the same bearer-auth middleware as every other API route.
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	_, _ = w.Write([]byte(metrics.Expose()))
 }
 
 // handleStats returns aggregate stats.

@@ -182,6 +182,8 @@ func (s *Server) registerRoutes() {
 	r.Group(func(api chi.Router) {
 		api.Use(s.AuthMiddleware())
 		api.Get("/health", s.handleHealth)
+		api.Get("/readyz", s.handleReadyz)
+		api.Get("/metrics", s.handleMetrics)
 		api.Get("/stats", s.handleStats)
 
 		if s.mode.LegacyEnabled() {

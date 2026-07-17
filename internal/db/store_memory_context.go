@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/openlethe/lethe/internal/metrics"
 	"github.com/openlethe/lethe/internal/models"
 )
 
@@ -92,6 +93,11 @@ func (s *Store) BuildMemoryContext(
 	projectID, refName, headID, query string,
 	limit int,
 ) (*models.MemoryContext, error) {
+	started := time.Now()
+	defer func() {
+		metrics.Inc(metrics.RebuildOps)
+		metrics.Add(metrics.RebuildDurationMS, time.Since(started).Milliseconds())
+	}()
 	if projectID == "" {
 		return nil, errors.New("project_id required")
 	}
@@ -137,6 +143,7 @@ func (s *Store) BuildMemoryContext(
 		graph = sub
 	}
 	history := graph.order
+	metrics.Add(metrics.RebuildChangesets, int64(len(history)))
 
 	memories := make(map[string]*models.AcceptedMemory)
 	relationships := make([]models.MemoryRelationship, 0)

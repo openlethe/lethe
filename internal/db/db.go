@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openlethe/lethe/internal/metrics"
 	_ "modernc.org/sqlite"
 )
 
@@ -142,7 +143,9 @@ func withBusyRetry(ctx context.Context, op func() error) error {
 		if !IsBusyError(err) {
 			return err
 		}
+		metrics.Inc(metrics.BusyRetries)
 		if attempt == busyRetryAttempts-1 {
+			metrics.Inc(metrics.BusyExhausted)
 			return fmt.Errorf("%w after %d attempts: %v", ErrDatabaseBusy, busyRetryAttempts, err)
 		}
 		backoff := time.Duration(25*(1<<attempt)) * time.Millisecond
