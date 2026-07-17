@@ -97,6 +97,20 @@ jobs:
         working-directory: plugin
         run: npm test
 
+      - name: npm full audit (critical/high blocked)
+        working-directory: plugin
+        run: npm audit --audit-level=high
+
+      - name: Verify published package contents
+        working-directory: plugin
+        run: |
+          files="$(npm pack --dry-run --json | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{for(const f of JSON.parse(d)[0].files)console.log(f.path)})")"
+          printf 'tarball contents:\n%s\n' "$files"
+          allowed='^(LICENSE|README\.md|SKILL\.md|openclaw\.plugin\.json|package\.json|dist/[^/]+)$'
+          bad="$(printf '%s\n' "$files" | grep -vE "$allowed" || true)"
+          if [ -n "$bad" ]; then printf 'unexpected files in package tarball:\n%s\n' "$bad"; exit 1; fi
+          if printf '%s\n' "$files" | grep -qE '\.test\.(js|d\.ts)$'; then echo "test files leaked into tarball"; exit 1; fi
+
       - name: npm production audit
         working-directory: plugin
         run: npm audit --omit=dev --audit-level=high
