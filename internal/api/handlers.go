@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/openlethe/lethe/internal/metrics"
 	"log"
 	"net/http"
 	"net/url"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/openlethe/lethe/internal/db"
+	"github.com/openlethe/lethe/internal/metrics"
 	"github.com/openlethe/lethe/internal/models"
 )
 

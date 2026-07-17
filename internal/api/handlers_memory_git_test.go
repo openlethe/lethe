@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
 	"time"
 
 	"github.com/openlethe/lethe/internal/canonical"
