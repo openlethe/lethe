@@ -6,6 +6,17 @@
   "type": "module",
   "main": "index.js",
   "types": "dist/index.d.ts",
+  "files": [
+    "index.js",
+    "tools.js",
+    "context-engine.js",
+    "context-engine-types.js",
+    "dist",
+    "!dist/**/*.test.js",
+    "!dist/**/*.test.d.ts",
+    "skills",
+    "openclaw.plugin.json"
+  ],
   "openclaw": {
     "compat": {
       "pluginApi": "2026.7.1"
@@ -27,12 +38,12 @@
   },
   "peerDependencies": {
     "@mariozechner/pi-agent-core": "^0.70.0",
-    "openclaw": "*"
+    "openclaw": ">=2026.7.1"
   },
   "devDependencies": {
     "@mariozechner/pi-agent-core": "^0.70.0",
     "@types/node": "^20.0.0",
-    "openclaw": "*",
+    "openclaw": "2026.7.1",
     "typescript": "^5.4.0",
     "tsc-alias": "^1.8.0"
   }

@@ -1,9 +1,9 @@
 import { definePluginEntry, emptyPluginConfigSchema } from "openclaw/plugin-sdk/plugin-entry";
-import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
+import type { OpenClawPluginApi, OpenClawPluginDefinition } from "openclaw/plugin-sdk/core";
 import { LetheContextEngine } from "./context-engine.js";
 import { LetheTools } from "./tools.js";
 
-export default definePluginEntry({
+const plugin: OpenClawPluginDefinition = definePluginEntry({
   id: "mentholmike-lethe",
   name: "Lethe",
   description:
@@ -89,3 +89,5 @@ export default definePluginEntry({
     api.registerTool(() => tools.getSearchTool());
   },
 });
+
+export default plugin;
