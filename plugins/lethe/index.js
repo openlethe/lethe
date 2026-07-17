@@ -1,7 +1,7 @@
 import { definePluginEntry, emptyPluginConfigSchema } from "openclaw/plugin-sdk/plugin-entry";
 import { LetheContextEngine } from "./context-engine.js";
 import { LetheTools } from "./tools.js";
-export default definePluginEntry({
+const plugin = definePluginEntry({
     id: "mentholmike-lethe",
     name: "Lethe",
     description: "Persistent memory layer for AI agents — the antidote to the river Lethe.",
@@ -70,3 +70,4 @@ export default definePluginEntry({
         api.registerTool(() => tools.getSearchTool());
     },
 });
+export default plugin;
