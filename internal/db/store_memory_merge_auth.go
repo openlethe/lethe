@@ -60,21 +60,17 @@ type MergeAdvancement struct {
 	ExpiresAt         time.Time
 }
 
-// CASMergeProtectedRefAuthorized atomically consumes the authorization nonce,
-// enforces the merge shape, advances the protected ref, and records the
-// movement — all in one transaction. Exactly one caller can consume a nonce;
-// a CAS conflict or replay aborts everything.
+// CASMergeProtectedRefAuthorized executes one signed merge attempt:
+//  1. the authorization nonce is consumed DURABLY in its own transaction —
+//     every signed-valid attempt burns its nonce, including attempts that
+//     later fail shape checks or lose the CAS. A nonce can therefore never be
+//     replayed even if the ref cycles back to the signed expected head;
+//  2. the merge shape is enforced and the protected ref CAS + durable
+//     advancement record commit atomically in a second transaction.
+//
+// Exactly one caller can consume a nonce; the CAS transaction is idempotent
+// under busy retries so contention never turns into a false replay error.
 func (s *Store) CASMergeProtectedRefAuthorized(ctx context.Context, m MergeAdvancement) (*models.MemoryRef, error) {
-	var ref *models.MemoryRef
-	err := withBusyRetry(ctx, func() error {
-		var err error
-		ref, err = s.casMergeProtectedRefAuthorizedOnce(ctx, m)
-		return err
-	})
-	return ref, err
-}
-
-func (s *Store) casMergeProtectedRefAuthorizedOnce(ctx context.Context, m MergeAdvancement) (*models.MemoryRef, error) {
 	if m.ProjectID == "" || m.RefName == "" || m.ExpectedHead == "" || m.NewHead == "" {
 		return nil, errors.New("project, ref, expected head, and new head are required")
 	}
@@ -88,14 +84,27 @@ func (s *Store) casMergeProtectedRefAuthorizedOnce(ctx context.Context, m MergeA
 		return nil, errors.New("authorization nonce required")
 	}
 
-	tx, err := s.BeginTx(ctx, nil)
-	if err != nil {
+	if err := withBusyRetry(ctx, func() error { return s.consumeMergeNonceOnce(ctx, m) }); err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
 
-	// 1. Consume the nonce. The primary key makes consumption exactly-once
-	// across every concurrent caller.
+	var ref *models.MemoryRef
+	err := withBusyRetry(ctx, func() error {
+		var err error
+		ref, err = s.casProtectedRefWithAdvanceRecord(ctx, m)
+		return err
+	})
+	return ref, err
+}
+
+// consumeMergeNonceOnce burns the authorization nonce in its own committed
+// transaction, independent of the merge outcome.
+func (s *Store) consumeMergeNonceOnce(ctx context.Context, m MergeAdvancement) error {
+	tx, err := s.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
 	now := time.Now().UTC()
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO memory_merge_authorizations (
@@ -108,12 +117,23 @@ func (s *Store) casMergeProtectedRefAuthorizedOnce(ctx context.Context, m MergeA
 		m.Strategy, m.ExpiresAt, now); err != nil {
 		if isUniqueViolation(err) {
 			metrics.Inc(metrics.MergeReplayRejects)
-			return nil, fmt.Errorf("%w: %s", ErrAuthorizationReplay, m.Nonce)
+			return fmt.Errorf("%w: %s", ErrAuthorizationReplay, m.Nonce)
 		}
+		return err
+	}
+	return tx.Commit()
+}
+
+// casProtectedRefWithAdvanceRecord enforces the merge shape, CAS-advances the
+// protected ref, and writes the durable advancement record atomically.
+func (s *Store) casProtectedRefWithAdvanceRecord(ctx context.Context, m MergeAdvancement) (*models.MemoryRef, error) {
+	tx, err := s.BeginTx(ctx, nil)
+	if err != nil {
 		return nil, err
 	}
+	defer tx.Rollback()
 
-	// 2. The ref must exist and be protected.
+	// The ref must exist and be protected.
 	var currentHead string
 	var protected int
 	err = tx.QueryRowContext(ctx, `
@@ -129,13 +149,13 @@ func (s *Store) casMergeProtectedRefAuthorizedOnce(ctx context.Context, m MergeA
 		return nil, errors.New("ref is not protected")
 	}
 
-	// 3. Lethe independently enforces the authorized merge shape and the new
+	// Lethe independently enforces the authorized merge shape and the new
 	// head's project.
 	if err := enforceMergeShape(ctx, tx, m); err != nil {
 		return nil, err
 	}
 
-	// 4. CAS the protected ref.
+	now := time.Now().UTC()
 	res, err := tx.ExecContext(ctx, `
 		UPDATE memory_refs
 		SET head_changeset_id = ?, updated_at = ?
@@ -148,7 +168,7 @@ func (s *Store) casMergeProtectedRefAuthorizedOnce(ctx context.Context, m MergeA
 		return nil, fmt.Errorf("%w: expected %s, current %s", ErrRefCASConflict, m.ExpectedHead, currentHead)
 	}
 
-	// 5. Durable advancement record for reconciliation.
+	// Durable advancement record for reconciliation.
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO memory_protected_ref_advances (
 			advance_id, project_id, ref_name, expected_head, new_head,

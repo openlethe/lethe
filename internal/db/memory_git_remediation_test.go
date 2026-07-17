@@ -527,6 +527,11 @@ func TestSemanticValidationTargetExistence(t *testing.T) {
 		"relationship": {OpType: models.OpAddRelationship, TargetEventID: "mem-a", ResultingEventID: "mem-b", Payload: map[string]any{"kind": "supports"}},
 		"evidence":     {OpType: models.OpAttachEvidence, TargetEventID: "mem-a", Payload: map[string]any{"summary": "ci run", "source": "ci"}},
 		"attestation":  {OpType: models.OpAttachVerification, Payload: map[string]any{"summary": "reviewed", "reviewer": "principal"}},
+		// The exact reviewed-merge marker Charon emits on the merge-commit path.
+		"reviewed-merge": {OpType: models.OpAttachVerification, Payload: map[string]any{
+			"kind": "reviewed_merge", "summary": "reviewed merge proposal p-1",
+			"proposal_id": "p-1", "source_changeset_id": "cs-1",
+		}},
 	}
 	for name, op := range valid {
 		if err := create(op); err != nil {

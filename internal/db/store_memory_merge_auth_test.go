@@ -280,3 +280,36 @@ func TestAuthorizedAdvanceConcurrencyOnlyOneCAS(t *testing.T) {
 		t.Fatalf("successes = %d, want exactly 1", successes)
 	}
 }
+
+// Regression (autoreview round 3): a signed attempt that loses the CAS still
+// burns its nonce — replaying it after the ref cycles back must fail.
+func TestFailedCASAttemptStillBurnsNonce(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	project := "proj-ma-burn"
+	root := setupProtectedMain(t, s, project)
+	tip := addDescendant(t, s, project, "refs/agents/a/main", root.ChangesetID, "ma-burn-1")
+	other := addDescendant(t, s, project, "refs/agents/b/main", root.ChangesetID, "ma-burn-2")
+
+	// Signed attempt against a stale expected head: the CAS cannot succeed
+	// because the ref is already at tip (not root).
+	if _, err := s.CASMergeProtectedRefAuthorized(ctx, advancement(project, models.RefSharedMain, root.ChangesetID, tip.ChangesetID, "nonce-burn-1", StrategyFastForward)); err != nil {
+		t.Fatal(err)
+	}
+	stale := advancement(project, models.RefSharedMain, root.ChangesetID, other.ChangesetID, "nonce-burn-stale", StrategyFastForward)
+	if _, err := s.CASMergeProtectedRefAuthorized(ctx, stale); !errors.Is(err, ErrRefCASConflict) {
+		t.Fatalf("stale attempt err = %v, want ErrRefCASConflict", err)
+	}
+
+	// Cycle the ref back to the signed expected head (operator rollback).
+	if _, err := s.ExecContext(ctx, `UPDATE memory_refs SET head_changeset_id = ? WHERE project_id = ? AND ref_name = ?`,
+		root.ChangesetID, project, models.RefSharedMain); err != nil {
+		t.Fatal(err)
+	}
+	// Replaying the captured stale attempt must still be rejected: the nonce
+	// burned even though its CAS failed.
+	if _, err := s.CASMergeProtectedRefAuthorized(ctx, stale); !errors.Is(err, ErrAuthorizationReplay) {
+		t.Fatalf("replayed failed attempt err = %v, want ErrAuthorizationReplay", err)
+	}
+}

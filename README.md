@@ -110,8 +110,14 @@ docker run -d \
   --name lethe \
   -v "$PWD/lethe-data:/data" \
   -p 127.0.0.1:18483:18483 \
+  -e LETHE_API_KEY="$(openssl rand -hex 32)" \
   ghcr.io/openlethe/lethe:0.4.0
 ```
+
+The container requires `LETHE_API_KEY` for any non-loopback bind (the image
+binds `:18483` by default, which is a wildcard inside the container). For
+local throwaway development you may instead pass
+`-e LETHE_ALLOW_INSECURE_BIND=1` — never in production.
 
 ### From Source
 
@@ -170,6 +176,7 @@ docker run -d \
   --name lethe \
   -v "$PWD/lethe-data:/data" \
   -p 127.0.0.1:18483:18483 \
+  -e LETHE_API_KEY="<same key as before, or a fresh one>" \
   ghcr.io/openlethe/lethe:0.4.0
 
 # 4. Verify
