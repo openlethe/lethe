@@ -17,6 +17,13 @@ for arg in "$@"; do
     if [ "$prev" = "--http" ]; then
         http_addr="$arg"
     fi
+    if [ "$prev" = "--api-key" ]; then
+        api_key="$arg"
+    fi
+    case "$arg" in
+        --http=*) http_addr="${arg#--http=}" ;;
+        --api-key=*) api_key="${arg#--api-key=}" ;;
+    esac
     prev="$arg"
 done
 case "$http_addr" in
@@ -29,8 +36,8 @@ esac
 if [ "$loopback" -eq 0 ] && [ -z "$api_key" ] && [ "${LETHE_ALLOW_INSECURE_BIND:-}" != "1" ]; then
     echo "lethe: refusing to start: binding '$http_addr' without LETHE_API_KEY would expose" >&2
     echo "lethe: unauthenticated memory writes to the network." >&2
-    echo "lethe: set -e LETHE_API_KEY=<openssl rand -hex 32>, bind a loopback address," >&2
-    echo "lethe: or pass LETHE_ALLOW_INSECURE_BIND=1 for local development only." >&2
+    echo "lethe: set -e LETHE_API_KEY=<openssl rand -hex 32>, pass --api-key, bind a loopback" >&2
+    echo "lethe: address, or pass LETHE_ALLOW_INSECURE_BIND=1 for local development only." >&2
     exit 1
 fi
 

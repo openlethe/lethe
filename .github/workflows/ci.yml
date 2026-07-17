@@ -82,6 +82,7 @@ jobs:
       - name: Validate Compose files
         env:
           LETHE_API_KEY: ci-placeholder
+          CHARON_MERGE_HMAC_KEY: ci-placeholder
         run: |
           docker compose -f docker-compose.yml config --quiet
           docker compose -f docker-compose.git.yml config --quiet
