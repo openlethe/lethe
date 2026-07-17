@@ -208,7 +208,8 @@ func TestMemoryGitLegacyRootAndBranchCAS(t *testing.T) {
 
 	// Idempotent create: an identical replay returns the original changeset.
 	// The replay must carry the same normalized request fields — strict
-	// idempotency matching rejects same-key requests with different content.
+	// idempotency matching rejects same-key requests with different content
+	// or different ref-mutation control fields.
 	again, err := s.CreateChangeset(context.Background(), CreateChangesetRequest{
 		ProjectID:       "proj-mg",
 		RefName:         chatgptBranch,
@@ -217,6 +218,8 @@ func TestMemoryGitLegacyRootAndBranchCAS(t *testing.T) {
 		ActorID:         "chatgpt",
 		Message:         "chatgpt: note A",
 		IdempotencyKey:  "chat-1",
+		ExpectedHead:    root.ChangesetID,
+		AdvanceRef:      true,
 		Ops: []models.MemorySemanticOp{{
 			OpType:           models.OpAddMemory,
 			ResultingEventID: "evt-placeholder-chat",

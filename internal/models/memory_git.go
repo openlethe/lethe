@@ -56,6 +56,12 @@ type MemoryChangeset struct {
 	Evidence          []map[string]any   `json:"evidence,omitempty"`
 	Verification      []map[string]any   `json:"verification,omitempty"`
 	IntegrityDigest   string             `json:"integrity_digest"`
+	// RequestDigest binds the complete normalized create request, including
+	// the ref-mutation control fields (expected_head, advance_ref,
+	// create_ref_if_missing, protected), so an idempotent replay with flipped
+	// control fields fails closed instead of returning a false success. It is
+	// stored alongside the changeset but never serialized over the API.
+	RequestDigest string `json:"-"`
 }
 
 // MemorySemanticOp is one ordered operation inside a changeset.

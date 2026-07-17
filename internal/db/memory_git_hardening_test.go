@@ -97,6 +97,109 @@ func TestChangesetIdempotencyMismatchedReplay(t *testing.T) {
 	}
 }
 
+// TestChangesetIdempotencyBindsRefMutationIntent ports the request-digest
+// binding: the replay digest covers the ref-mutation control fields
+// (ExpectedHead, AdvanceRef, CreateRefIfMissing, Protected), so replaying an
+// idempotency key with flipped control fields fails closed instead of
+// returning a false-success replay.
+func TestChangesetIdempotencyBindsRefMutationIntent(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	setupAgentProject(t, s, "agent-1", "proj-idem-controls")
+	root, _, err := s.EnsureLegacyRoot(context.Background(), "proj-idem-controls", "system")
+	if err != nil {
+		t.Fatalf("root: %v", err)
+	}
+	ref := "refs/agents/a/main"
+	if _, err := s.CreateMemoryBranch(context.Background(), "proj-idem-controls", ref, root.ChangesetID, "p1", false); err != nil {
+		t.Fatalf("branch: %v", err)
+	}
+
+	req := idempotentRequest("proj-idem-controls", ref, root.ChangesetID, "p1", "control-key", "alpha")
+	first, err := s.CreateChangeset(context.Background(), req)
+	if err != nil {
+		t.Fatalf("detached create: %v", err)
+	}
+
+	// Byte-identical replay of the stored request still succeeds.
+	again, err := s.CreateChangeset(context.Background(), req)
+	if err != nil {
+		t.Fatalf("identical replay must succeed: %v", err)
+	}
+	if again.ChangesetID != first.ChangesetID {
+		t.Fatalf("identical replay returned %s, want %s", again.ChangesetID, first.ChangesetID)
+	}
+
+	// Same key and same content but flipped ref-mutation intent: rejected, and
+	// the ref must not advance on the back of a false-success replay.
+	flipped := idempotentRequest("proj-idem-controls", ref, root.ChangesetID, "p1", "control-key", "alpha")
+	flipped.AdvanceRef = true
+	flipped.ExpectedHead = root.ChangesetID
+	if _, err := s.CreateChangeset(context.Background(), flipped); !errors.Is(err, ErrIdempotencyMismatch) {
+		t.Fatalf("control-field replay error = %v, want ErrIdempotencyMismatch", err)
+	}
+	gotRef, err := s.GetMemoryRef(context.Background(), "proj-idem-controls", ref)
+	if err != nil {
+		t.Fatalf("GetMemoryRef: %v", err)
+	}
+	if gotRef.HeadChangesetID != root.ChangesetID {
+		t.Fatalf("ref advanced to %s after rejected replay; want %s", gotRef.HeadChangesetID, root.ChangesetID)
+	}
+	stored, err := s.GetChangeset(context.Background(), first.ChangesetID)
+	if err != nil {
+		t.Fatalf("GetChangeset: %v", err)
+	}
+	if stored.RequestDigest == "" {
+		t.Fatal("new changeset did not persist request digest")
+	}
+
+	// A create that advances from the start replays identically as well.
+	advancing := idempotentRequest("proj-idem-controls", ref, root.ChangesetID, "p1", "advancing-key", "beta")
+	advancing.AdvanceRef = true
+	advancing.ExpectedHead = root.ChangesetID
+	advanced, err := s.CreateChangeset(context.Background(), advancing)
+	if err != nil {
+		t.Fatalf("advancing create: %v", err)
+	}
+	replayed, err := s.CreateChangeset(context.Background(), advancing)
+	if err != nil {
+		t.Fatalf("identical advancing replay must succeed even though the ref moved: %v", err)
+	}
+	if replayed.ChangesetID != advanced.ChangesetID {
+		t.Fatalf("advancing replay returned %s, want %s", replayed.ChangesetID, advanced.ChangesetID)
+	}
+}
+
+// Rows written before migration 013 carry no request digest. Their historic
+// ref-mutation intent is unrecoverable, so replaying their idempotency keys
+// fails closed rather than guessing.
+func TestChangesetIdempotencyLegacyRowFailsClosed(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	setupAgentProject(t, s, "agent-1", "proj-idem-legacy")
+	root, _, err := s.EnsureLegacyRoot(context.Background(), "proj-idem-legacy", "system")
+	if err != nil {
+		t.Fatalf("root: %v", err)
+	}
+	ref := "refs/agents/a/main"
+	if _, err := s.CreateMemoryBranch(context.Background(), "proj-idem-legacy", ref, root.ChangesetID, "p1", false); err != nil {
+		t.Fatalf("branch: %v", err)
+	}
+
+	req := idempotentRequest("proj-idem-legacy", ref, root.ChangesetID, "p1", "legacy-key", "alpha")
+	first, err := s.CreateChangeset(context.Background(), req)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// Simulate a pre-013 row: no persisted request digest.
+	if _, err := s.Exec("UPDATE memory_changesets SET request_digest = '' WHERE changeset_id = ?", first.ChangesetID); err != nil {
+		t.Fatalf("clear request digest: %v", err)
+	}
+	if _, err := s.CreateChangeset(context.Background(), req); !errors.Is(err, ErrIdempotencyMismatch) {
+		t.Fatalf("legacy-row replay error = %v, want ErrIdempotencyMismatch", err)
+	}
+}
+
 func TestChangesetIdempotencyConcurrentMismatch(t *testing.T) {
 	s, cleanup := newTestStore(t)
 	defer cleanup()

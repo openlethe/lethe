@@ -182,9 +182,13 @@ func (s *Store) findLegacyRoot(ctx context.Context, projectID string) (*models.M
 // CreateChangeset inserts an immutable changeset. When AdvanceRef is set, the
 // target ref is CAS-updated against ExpectedHead. Idempotent replay is strict:
 // a reused idempotency key returns the original changeset only when the
-// canonical request digest matches; a different request reusing the key is
-// rejected with ErrIdempotencyMismatch. Short lock contention is retried with
-// backoff; persistent contention returns an error wrapping ErrDatabaseBusy.
+// canonical request digest — which binds the ref-mutation control fields
+// (ExpectedHead, AdvanceRef, CreateRefIfMissing, Protected) as well as the
+// immutable content — matches; a different request reusing the key is rejected
+// with ErrIdempotencyMismatch. Changesets written before migration 013 carry
+// no request digest, so replaying their keys fails closed. Short lock
+// contention is retried with backoff; persistent contention returns an error
+// wrapping ErrDatabaseBusy.
 func (s *Store) CreateChangeset(ctx context.Context, req CreateChangesetRequest) (*models.MemoryChangeset, error) {
 	var cs *models.MemoryChangeset
 	err := withBusyRetry(ctx, func() error {
@@ -280,14 +284,22 @@ func (s *Store) createChangesetOnce(ctx context.Context, req CreateChangesetRequ
 		cs.Verification = []map[string]any{}
 	}
 	// Canonical request digest: computed over the normalized request so an
-	// idempotent replay of the same request yields the same digest.
-	requestDigest := ComputeChangesetDigest(cs)
+	// idempotent replay of the same request yields the same digest. Unlike
+	// the immutable integrity digest, it also binds the ref-mutation control
+	// fields: a detached create and an advancing create must never be
+	// interchangeable under one idempotency key.
+	req.ParentIDs = append([]string(nil), cs.ParentIDs...)
+	req.Ops = append([]models.MemorySemanticOp(nil), cs.Ops...)
+	req.Evidence = cs.Evidence
+	req.Verification = cs.Verification
+	requestDigest := ComputeChangesetRequestDigest(req)
+	cs.RequestDigest = requestDigest
 
 	// Idempotent replay: return the original only when request digests match.
 	if existing, err := s.FindChangesetByIdempotency(ctx, req.ProjectID, req.AuthorPrincipal, req.IdempotencyKey); err != nil {
 		return nil, err
 	} else if existing != nil {
-		if existing.IntegrityDigest != requestDigest {
+		if existing.RequestDigest == "" || existing.RequestDigest != requestDigest {
 			metrics.Inc(metrics.IdempotencyMismatches)
 			return nil, fmt.Errorf("%w: key %s", ErrIdempotencyMismatch, req.IdempotencyKey)
 		}
@@ -311,7 +323,7 @@ func (s *Store) createChangesetOnce(ctx context.Context, req CreateChangesetRequ
 				return nil, findErr
 			}
 			if existing != nil {
-				if existing.IntegrityDigest != requestDigest {
+				if existing.RequestDigest == "" || existing.RequestDigest != requestDigest {
 					return nil, fmt.Errorf("%w: key %s", ErrIdempotencyMismatch, req.IdempotencyKey)
 				}
 				return existing, nil
@@ -406,15 +418,15 @@ func (s *Store) insertChangesetTx(ctx context.Context, tx *sql.Tx, cs *models.Me
 			changeset_id, schema_version, project_id, ref_name, parent_ids_json,
 			author_principal, persona_id, actor_id, surface, model, environment,
 			session_id, topic_id, context_manifest_id, message, created_at,
-			idempotency_key, evidence_json, verification_json, integrity_digest
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			idempotency_key, evidence_json, verification_json, integrity_digest, request_digest
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		cs.ChangesetID, cs.SchemaVersion, cs.ProjectID, cs.RefName, string(parentsJSON),
 		cs.AuthorPrincipal, nullString(cs.PersonaID), nullString(cs.ActorID),
 		nullString(cs.Surface), nullString(cs.Model), nullString(cs.Environment),
 		nullString(cs.SessionID), nullString(cs.TopicID), nullString(cs.ContextManifestID),
 		cs.Message, cs.CreatedAt, cs.IdempotencyKey, string(evidenceJSON),
-		string(verificationJSON), cs.IntegrityDigest,
+		string(verificationJSON), cs.IntegrityDigest, cs.RequestDigest,
 	)
 	if err != nil {
 		return nil, err
@@ -448,6 +460,68 @@ func (s *Store) insertChangesetTx(ctx context.Context, tx *sql.Tx, cs *models.Me
 // which is what strict idempotency replay matching relies on.
 func ComputeChangesetDigest(cs *models.MemoryChangeset) string {
 	return computeChangesetDigest(cs)
+}
+
+// ComputeChangesetRequestDigest returns a stable SHA-256 over the complete
+// normalized create request. Unlike the immutable changeset digest, this also
+// binds compare-and-swap and ref-creation intent (expected_head, advance_ref,
+// create_ref_if_missing, protected) so idempotent replay cannot report success
+// for a mutation the original request never performed. It is computed after
+// request normalization (ordinals assigned, nil maps/slices fixed), so a
+// byte-identical replay always produces the same digest.
+func ComputeChangesetRequestDigest(req CreateChangesetRequest) string {
+	parents := append([]string(nil), req.ParentIDs...)
+	if parents == nil {
+		parents = []string{}
+	}
+	ops := append([]models.MemorySemanticOp(nil), req.Ops...)
+	if ops == nil {
+		ops = []models.MemorySemanticOp{}
+	}
+	evidence := req.Evidence
+	if evidence == nil {
+		evidence = []map[string]any{}
+	}
+	verification := req.Verification
+	if verification == nil {
+		verification = []map[string]any{}
+	}
+	payload := struct {
+		SchemaVersion      string                    `json:"schema_version"`
+		ProjectID          string                    `json:"project_id"`
+		RefName            string                    `json:"ref_name"`
+		ParentIDs          []string                  `json:"parent_ids"`
+		AuthorPrincipal    string                    `json:"author_principal"`
+		PersonaID          string                    `json:"persona_id"`
+		ActorID            string                    `json:"actor_id"`
+		Surface            string                    `json:"surface"`
+		Model              string                    `json:"model"`
+		Environment        string                    `json:"environment"`
+		SessionID          string                    `json:"session_id"`
+		TopicID            string                    `json:"topic_id"`
+		ContextManifestID  string                    `json:"context_manifest_id"`
+		Message            string                    `json:"message"`
+		IdempotencyKey     string                    `json:"idempotency_key"`
+		Ops                []models.MemorySemanticOp `json:"ops"`
+		Evidence           []map[string]any          `json:"evidence"`
+		Verification       []map[string]any          `json:"verification"`
+		ExpectedHead       string                    `json:"expected_head"`
+		AdvanceRef         bool                      `json:"advance_ref"`
+		CreateRefIfMissing bool                      `json:"create_ref_if_missing"`
+		Protected          bool                      `json:"protected"`
+	}{
+		SchemaVersion: models.MemoryGitSchemaVersion,
+		ProjectID:     req.ProjectID, RefName: req.RefName, ParentIDs: parents,
+		AuthorPrincipal: req.AuthorPrincipal, PersonaID: req.PersonaID, ActorID: req.ActorID,
+		Surface: req.Surface, Model: req.Model, Environment: req.Environment,
+		SessionID: req.SessionID, TopicID: req.TopicID, ContextManifestID: req.ContextManifestID,
+		Message: req.Message, IdempotencyKey: req.IdempotencyKey, Ops: ops,
+		Evidence: evidence, Verification: verification, ExpectedHead: req.ExpectedHead,
+		AdvanceRef: req.AdvanceRef, CreateRefIfMissing: req.CreateRefIfMissing, Protected: req.Protected,
+	}
+	b, _ := json.Marshal(payload)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 // computeChangesetDigestV1 reproduces the legacy digest: identical to v2 but
@@ -664,7 +738,8 @@ func (s *Store) GetChangeset(ctx context.Context, id string) (*models.MemoryChan
 			author_principal, COALESCE(persona_id,''), COALESCE(actor_id,''),
 			COALESCE(surface,''), COALESCE(model,''), COALESCE(environment,''),
 			COALESCE(session_id,''), COALESCE(topic_id,''), COALESCE(context_manifest_id,''),
-			message, created_at, idempotency_key, evidence_json, verification_json, integrity_digest
+			message, created_at, idempotency_key, evidence_json, verification_json, integrity_digest,
+			COALESCE(request_digest,'')
 		FROM memory_changesets WHERE changeset_id = ?
 	`, id)
 
@@ -676,6 +751,7 @@ func (s *Store) GetChangeset(ctx context.Context, id string) (*models.MemoryChan
 		&cs.AuthorPrincipal, &cs.PersonaID, &cs.ActorID, &cs.Surface, &cs.Model, &cs.Environment,
 		&cs.SessionID, &cs.TopicID, &cs.ContextManifestID, &cs.Message, &createdAt,
 		&cs.IdempotencyKey, &evidenceJSON, &verificationJSON, &cs.IntegrityDigest,
+		&cs.RequestDigest,
 	); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrChangesetNotFound
