@@ -386,9 +386,21 @@ func validateOpAgainstState(index int, op *models.MemorySemanticOp, active map[s
 		if err := requireActive("supersede target", op.TargetEventID); err != nil {
 			return err
 		}
-		if op.ResultingEventID != "" {
-			if err := requireNew("supersede result", op.ResultingEventID); err != nil {
-				return err
+		// The replacement identity must be new under every fallback the
+		// projection uses (resulting_event_id → memory_id → event_id), so a
+		// supersede can never overwrite an unrelated active memory.
+		if payloadString("content") != "" {
+			id := op.ResultingEventID
+			if id == "" {
+				id = payloadString("memory_id")
+			}
+			if id == "" {
+				id = payloadString("event_id")
+			}
+			if id != "" {
+				if err := requireNew("supersede result", id); err != nil {
+					return err
+				}
 			}
 		}
 	case models.OpMarkDuplicate:

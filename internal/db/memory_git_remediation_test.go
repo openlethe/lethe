@@ -621,3 +621,72 @@ func TestRootChangesetWithStatefulOpDoesNotPanic(t *testing.T) {
 		t.Fatal("missing-target correction on root accepted")
 	}
 }
+
+// Regression (autoreview round 7): supersede replacements using payload-based
+// identities must not overwrite an unrelated active memory.
+func TestSupersedePayloadIdentityCollisionRejected(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	project := "proj-supercede-collision"
+	setupAgentProject(t, s, "agent-col", project)
+	root, _, err := s.EnsureLegacyRoot(ctx, project, "system")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateMemoryBranch(ctx, project, "refs/agents/col/main", root.ChangesetID, "col", false); err != nil {
+		t.Fatal(err)
+	}
+	head := root
+	seed := func(id string) {
+		t.Helper()
+		head, err = s.CreateChangeset(ctx, CreateChangesetRequest{
+			ProjectID: project, RefName: "refs/agents/col/main", ParentIDs: []string{head.ChangesetID},
+			AuthorPrincipal: "col", IdempotencyKey: "seed-" + id,
+			Ops: []models.MemorySemanticOp{
+				{OpType: models.OpAddMemory, ResultingEventID: id, Payload: map[string]any{"content": "seed " + id}},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("mem-a")
+	seed("mem-b")
+
+	// Supersede mem-a but name the replacement mem-b via payload memory_id:
+	// must be rejected as a collision with the unrelated active mem-b.
+	_, err = s.CreateChangeset(ctx, CreateChangesetRequest{
+		ProjectID: project, RefName: "refs/agents/col/main", ParentIDs: []string{head.ChangesetID},
+		AuthorPrincipal: "col", IdempotencyKey: "collision-1",
+		Ops: []models.MemorySemanticOp{
+			{OpType: models.OpSupersedeMemory, TargetEventID: "mem-a", Payload: map[string]any{"content": "hijack", "memory_id": "mem-b"}},
+		},
+	})
+	if err == nil {
+		t.Fatal("supersede with colliding payload memory_id accepted")
+	}
+
+	// Same via event_id fallback.
+	_, err = s.CreateChangeset(ctx, CreateChangesetRequest{
+		ProjectID: project, RefName: "refs/agents/col/main", ParentIDs: []string{head.ChangesetID},
+		AuthorPrincipal: "col", IdempotencyKey: "collision-2",
+		Ops: []models.MemorySemanticOp{
+			{OpType: models.OpSupersedeMemory, TargetEventID: "mem-a", Payload: map[string]any{"content": "hijack", "event_id": "mem-b"}},
+		},
+	})
+	if err == nil {
+		t.Fatal("supersede with colliding payload event_id accepted")
+	}
+
+	// A fresh payload identity is accepted.
+	if _, err := s.CreateChangeset(ctx, CreateChangesetRequest{
+		ProjectID: project, RefName: "refs/agents/col/main", ParentIDs: []string{head.ChangesetID},
+		AuthorPrincipal: "col", IdempotencyKey: "collision-ok",
+		Ops: []models.MemorySemanticOp{
+			{OpType: models.OpSupersedeMemory, TargetEventID: "mem-a", Payload: map[string]any{"content": "fresh", "memory_id": "mem-c"}},
+		},
+	}); err != nil {
+		t.Fatalf("valid supersede rejected: %v", err)
+	}
+}
