@@ -19,7 +19,19 @@ var (
 // Store wraps a DB and provides all Lethe read/write operations.
 type Store struct {
 	*DB
+	// recoveryReadOnly gates every implicit write on read paths (for example
+	// legacy-root auto-creation during context reconstruction) so recovery
+	// mode blocks mutations everywhere, not just at the API surface.
+	recoveryReadOnly bool
 }
+
+// SetRecoveryReadOnly enables or disables recovery read-only gating.
+func (s *Store) SetRecoveryReadOnly(enabled bool) {
+	s.recoveryReadOnly = enabled
+}
+
+// RecoveryReadOnly reports whether recovery gating is active.
+func (s *Store) RecoveryReadOnly() bool { return s.recoveryReadOnly }
 
 // NewStore opens a database and returns a Store.
 func NewStore(dbPath string) (*Store, error) {
@@ -27,7 +39,7 @@ func NewStore(dbPath string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{db}, nil
+	return &Store{DB: db}, nil
 }
 
 // --- Agents ---

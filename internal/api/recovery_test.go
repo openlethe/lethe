@@ -57,3 +57,37 @@ func TestRecoveryReadOnlyMode(t *testing.T) {
 		t.Fatalf("GET refs blocked: %d", rec.Code)
 	}
 }
+
+// Regression (autoreview): recovery mode must also block implicit writes on
+// read paths — context reconstruction must not auto-create the legacy root.
+func TestRecoveryReadOnlyBlocksImplicitRootCreation(t *testing.T) {
+	srv := newTestServer(t)
+	srv.recoveryReadOnly = true
+	srv.store.SetRecoveryReadOnly(true)
+
+	_, err := srv.store.BuildMemoryContext(context.Background(), "project-never-created", "refs/shared/main", "", "", 10)
+	if err == nil {
+		t.Fatal("context on unknown project succeeded in recovery mode")
+	}
+	// And it must not have created anything.
+	var n int
+	if err := srv.store.QueryRow(`SELECT COUNT(*) FROM memory_refs WHERE project_id = 'project-never-created'`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("recovery read path created %d refs", n)
+	}
+	var ncs int
+	if err := srv.store.QueryRow(`SELECT COUNT(*) FROM memory_changesets WHERE project_id = 'project-never-created'`).Scan(&ncs); err != nil {
+		t.Fatal(err)
+	}
+	if ncs != 0 {
+		t.Fatalf("recovery read path created %d changesets", ncs)
+	}
+
+	// With recovery off, the same call lazily initializes as before.
+	srv.store.SetRecoveryReadOnly(false)
+	if _, err := srv.store.BuildMemoryContext(context.Background(), "project-never-created", "refs/shared/main", "", "", 10); err != nil {
+		t.Fatalf("normal mode context failed: %v", err)
+	}
+}

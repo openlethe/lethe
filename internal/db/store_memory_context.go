@@ -115,7 +115,7 @@ func (s *Store) BuildMemoryContext(
 	if err != nil {
 		return nil, err
 	}
-	if ref == nil && refName == models.RefSharedMain {
+	if ref == nil && refName == models.RefSharedMain && !s.recoveryReadOnly {
 		_, ref, err = s.EnsureLegacyRoot(ctx, projectID, "system")
 		if err != nil {
 			return nil, err

@@ -265,6 +265,7 @@ func (s *Server) Router() *chi.Mux { return s.router }
 func WithRecoveryReadOnly(enabled bool) Option {
 	return func(s *Server) {
 		s.recoveryReadOnly = enabled
+		s.store.SetRecoveryReadOnly(enabled)
 	}
 }
 
