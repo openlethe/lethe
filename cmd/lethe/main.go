@@ -249,24 +249,30 @@ func main() {
 		}
 	}
 
-	// One cleanup at startup.
-	pruneFn()
+	if recoveryReadOnly {
+		// Retention deletes rows; recovery read-only forbids every mutation
+		// until reconciliation succeeds, including background pruning.
+		log.Println("lethe: assembly retention suspended in recovery read-only mode")
+	} else {
+		// One cleanup at startup.
+		pruneFn()
 
-	// Periodic cleanup.
-	pruneTicker := time.NewTicker(pruneInterval)
-	defer pruneTicker.Stop()
-	go func() {
-		for {
-			select {
-			case <-pruneTicker.C:
-				pruneFn()
-			case <-ctx.Done():
-				return
+		// Periodic cleanup.
+		pruneTicker := time.NewTicker(pruneInterval)
+		defer pruneTicker.Stop()
+		go func() {
+			for {
+				select {
+				case <-pruneTicker.C:
+					pruneFn()
+				case <-ctx.Done():
+					return
+				}
 			}
-		}
-	}()
+		}()
 
-	log.Printf("lethe: assembly retention enabled (days=%d, maxPerSession=%d, interval=%s, batchLimit=%d)", retentionDays, maxPerSession, pruneInterval, deleteLimit)
+		log.Printf("lethe: assembly retention enabled (days=%d, maxPerSession=%d, interval=%s, batchLimit=%d)", retentionDays, maxPerSession, pruneInterval, deleteLimit)
+	}
 
 	srv := &http.Server{
 		Addr:        *httpAddr,
