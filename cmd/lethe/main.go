@@ -54,6 +54,11 @@ func main() {
 				log.Fatalf("memory command failed: %v", err)
 			}
 			return
+		case "verify-chain":
+			if err := runVerifyChain(flag.Args()[1:]); err != nil {
+				log.Fatalf("verify-chain failed: %v", err)
+			}
+			return
 		}
 	}
 
@@ -164,11 +169,16 @@ func main() {
 	if len(mergeKeys) == 0 {
 		log.Println("lethe: WARNING: no merge authorization key configured; protected-ref merges are unavailable")
 	}
+	recoveryReadOnly := os.Getenv("LETHE_RECOVERY_READONLY") == "1"
+	if recoveryReadOnly {
+		log.Println("lethe: RECOVERY READ-ONLY MODE: mutations are disabled until reconciliation succeeds (LETHE_RECOVERY_READONLY=1)")
+	}
 	apiServer := api.NewServer(database, sessMgr,
 		api.WithAuthToken(*apiKey),
 		api.WithCharonMergeKeys(mergeKeys),
 		api.WithTrustMode(resolvedTrust),
 		api.WithMode(resolvedMode),
+		api.WithRecoveryReadOnly(recoveryReadOnly),
 	)
 	if *apiKey == "" {
 		log.Printf("lethe: WARNING: no --api-key/LETHE_API_KEY configured; unauthenticated access is allowed from %s peers only", modeStr)
@@ -298,6 +308,29 @@ func main() {
 		log.Fatalf("HTTP server error: %v", err)
 	}
 	log.Println("lethe: server stopped")
+}
+
+// runVerifyChain verifies the integrity digest of every changeset in a
+// project and every parent reference, offline against the database: it is the
+// restore-drill and tamper-audit tool. Usage: lethe verify-chain <project>.
+func runVerifyChain(args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: lethe verify-chain <project>")
+	}
+	database, err := db.NewStore(*dbPath)
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	defer database.Close()
+	verified, failures := database.VerifyChangesetChain(context.Background(), args[0])
+	for _, failure := range failures {
+		fmt.Fprintf(os.Stderr, "FAIL: %v\n", failure)
+	}
+	if len(failures) > 0 {
+		return fmt.Errorf("%d of %d changesets failed verification", len(failures), verified)
+	}
+	fmt.Printf("verify-chain: %d changesets verified, 0 failures\n", verified)
+	return nil
 }
 
 // runMemoryCLI implements the `lethe memory` subcommand family.

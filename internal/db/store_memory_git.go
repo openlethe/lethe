@@ -650,7 +650,9 @@ func loadChangesetOpsTx(ctx context.Context, tx *sql.Tx, changesetID string) ([]
 	return ops, rows.Err()
 }
 
-// GetChangeset loads a changeset and its ops.
+// GetChangeset loads a changeset and its ops. Every read re-verifies the
+// integrity digest: tampering with a stored row is always detected, never
+// masked by a cache.
 func (s *Store) GetChangeset(ctx context.Context, id string) (*models.MemoryChangeset, error) {
 	row := s.QueryRowContext(ctx, `
 		SELECT changeset_id, schema_version, project_id, ref_name, parent_ids_json,

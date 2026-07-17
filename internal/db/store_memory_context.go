@@ -122,18 +122,21 @@ func (s *Store) BuildMemoryContext(
 		headID = ref.HeadChangesetID
 	}
 
-	reachable, err := s.memoryHeadReachable(ctx, projectID, headID, ref.HeadChangesetID)
+	// One bulk traversal serves both the reachability proof and the
+	// reconstruction: the requested head's history is a subgraph of the ref
+	// head's history, computed in memory without a second database pass.
+	graph, err := s.loadMemoryGraph(ctx, projectID, ref.HeadChangesetID, 0)
 	if err != nil {
 		return nil, err
 	}
-	if !reachable {
-		return nil, fmt.Errorf("head changeset %s is not reachable from ref %s", headID, refName)
+	if headID != ref.HeadChangesetID {
+		sub, ok := graph.subgraph(headID)
+		if !ok {
+			return nil, fmt.Errorf("head changeset %s is not reachable from ref %s", headID, refName)
+		}
+		graph = sub
 	}
-
-	history, err := s.memoryHistoryAt(ctx, projectID, headID)
-	if err != nil {
-		return nil, err
-	}
+	history := graph.order
 
 	memories := make(map[string]*models.AcceptedMemory)
 	relationships := make([]models.MemoryRelationship, 0)
@@ -187,7 +190,6 @@ func (s *Store) BuildMemoryContext(
 						Content:               content,
 						Status:                "active",
 						Source:                "memory_git",
-						SourceEventID:         existingEventID(ctx, s, projectID, id),
 						IntroducedChangesetID: cs.ChangesetID,
 						LastChangesetID:       cs.ChangesetID,
 						Payload:               clonePayload(op.Payload),
@@ -217,7 +219,6 @@ func (s *Store) BuildMemoryContext(
 					replacement.Active = true
 					replacement.Status = "active"
 					replacement.Source = "memory_git"
-					replacement.SourceEventID = existingEventID(ctx, s, projectID, op.ResultingEventID)
 					replacement.IntroducedChangesetID = cs.ChangesetID
 					replacement.LastChangesetID = cs.ChangesetID
 					replacement.Order = order
@@ -243,7 +244,6 @@ func (s *Store) BuildMemoryContext(
 					id := resultingMemoryID(cs.ChangesetID, op)
 					memory := &models.AcceptedMemory{
 						MemoryID: id, Content: content, Status: "active", Source: "memory_git",
-						SourceEventID:         existingEventID(ctx, s, projectID, id),
 						IntroducedChangesetID: cs.ChangesetID, LastChangesetID: cs.ChangesetID,
 						Payload: clonePayload(op.Payload), Order: order, Active: true,
 					}
@@ -308,6 +308,12 @@ func (s *Store) BuildMemoryContext(
 				}
 			}
 		}
+	}
+
+	// Resolve source event IDs for Memory Git memories in one batched pass
+	// instead of a per-memory lookup.
+	if err := s.resolveSourceEventIDs(ctx, projectID, memories); err != nil {
+		return nil, err
 	}
 
 	conflicts, conflictedMemoryIDs, err := s.openConflictsForHistory(ctx, projectID, history)
@@ -386,52 +392,20 @@ func (s *Store) BuildMemoryContext(
 }
 
 func (s *Store) memoryHistoryAt(ctx context.Context, projectID, headID string) ([]*models.MemoryChangeset, error) {
-	visited := make(map[string]bool)
-	visiting := make(map[string]bool)
-	history := make([]*models.MemoryChangeset, 0)
-	var visit func(string) error
-	visit = func(id string) error {
-		if visited[id] {
-			return nil
-		}
-		if visiting[id] {
-			return fmt.Errorf("cycle detected in memory changeset graph at %s", id)
-		}
-		visiting[id] = true
-		cs, err := s.GetChangeset(ctx, id)
-		if err != nil {
-			return err
-		}
-		if cs.ProjectID != projectID {
-			return fmt.Errorf("changeset %s project mismatch", id)
-		}
-		for _, parentID := range cs.ParentIDs {
-			if err := visit(parentID); err != nil {
-				return err
-			}
-		}
-		delete(visiting, id)
-		visited[id] = true
-		history = append(history, cs)
-		return nil
-	}
-	if err := visit(headID); err != nil {
+	graph, err := s.loadMemoryGraph(ctx, projectID, headID, 0)
+	if err != nil {
 		return nil, err
 	}
-	return history, nil
+	return graph.order, nil
 }
 
 func (s *Store) memoryHeadReachable(ctx context.Context, projectID, candidateID, currentHeadID string) (bool, error) {
-	history, err := s.memoryHistoryAt(ctx, projectID, currentHeadID)
+	graph, err := s.loadMemoryGraph(ctx, projectID, currentHeadID, 0)
 	if err != nil {
 		return false, err
 	}
-	for _, cs := range history {
-		if cs.ChangesetID == candidateID {
-			return true, nil
-		}
-	}
-	return false, nil
+	_, ok := graph.nodes[candidateID]
+	return ok, nil
 }
 
 func (s *Store) loadLegacyEvents(ctx context.Context, projectID string, ids []string) ([]*models.Event, error) {
@@ -681,6 +655,55 @@ func memoryQueryScore(memory models.AcceptedMemory, queryTokens map[string]bool)
 		}
 	}
 	return score
+}
+
+// resolveSourceEventIDs backfills SourceEventID for Memory Git memories whose
+// identity also exists as a legacy event, in batched IN queries.
+func (s *Store) resolveSourceEventIDs(ctx context.Context, projectID string, memories map[string]*models.AcceptedMemory) error {
+	ids := make([]string, 0, len(memories))
+	for id, memory := range memories {
+		if memory.Source == "memory_git" {
+			ids = append(ids, id)
+		}
+	}
+	const batchSize = 500
+	for start := 0; start < len(ids); start += batchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		end := min(start+batchSize, len(ids))
+		batch := ids[start:end]
+		placeholders := make([]string, len(batch))
+		args := make([]any, 0, len(batch)+1)
+		args = append(args, projectID)
+		for i, id := range batch {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		rows, err := s.QueryContext(ctx, `
+			SELECT event_id FROM events
+			WHERE project_id = ? AND event_id IN (`+strings.Join(placeholders, ",")+`)
+		`, args...)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return err
+			}
+			if memory, ok := memories[id]; ok {
+				memory.SourceEventID = id
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+	}
+	return nil
 }
 
 func existingEventID(ctx context.Context, store *Store, projectID, eventID string) string {

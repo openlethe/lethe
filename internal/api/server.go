@@ -21,15 +21,16 @@ import (
 
 // Server is the HTTP API server.
 type Server struct {
-	router      *chi.Mux
-	store       *db.Store
-	sessMgr     *session.Manager
-	httpServer  *http.Server
-	broadcaster *broadcaster
-	authToken   string
-	mergeKeys   map[string][]byte
-	trustMode   TrustMode
-	mode        Mode
+	router           *chi.Mux
+	store            *db.Store
+	sessMgr          *session.Manager
+	httpServer       *http.Server
+	broadcaster      *broadcaster
+	authToken        string
+	mergeKeys        map[string][]byte
+	trustMode        TrustMode
+	mode             Mode
+	recoveryReadOnly bool
 }
 
 // broadcaster manages SSE client connections.
@@ -135,11 +136,6 @@ func (b *broadcaster) Stop() {
 func NewServer(store *db.Store, sessMgr *session.Manager, opts ...Option) *Server {
 	r := chi.NewRouter()
 
-	r.Use(middleware.RequestID)
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
-	r.Use(skipTimeoutForSSE(30 * time.Second))
-
 	s := &Server{
 		router:      r,
 		store:       store,
@@ -150,6 +146,12 @@ func NewServer(store *db.Store, sessMgr *session.Manager, opts ...Option) *Serve
 	for _, opt := range opts {
 		opt(s)
 	}
+
+	r.Use(middleware.RequestID)
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
+	r.Use(skipTimeoutForSSE(30 * time.Second))
+	r.Use(s.recoveryReadOnlyMiddleware)
 
 	s.registerRoutes()
 	return s
@@ -254,6 +256,34 @@ func (s *Server) registerRoutes() {
 
 // Router returns the underlying chi router for mounting.
 func (s *Server) Router() *chi.Mux { return s.router }
+
+// WithRecoveryReadOnly enables recovery read-only mode: every write route is
+// rejected with 503 while reads and pure conflict analysis stay available.
+// Use after a restore until cross-database reconciliation succeeds.
+func WithRecoveryReadOnly(enabled bool) Option {
+	return func(s *Server) {
+		s.recoveryReadOnly = enabled
+	}
+}
+
+// recoveryReadOnlyMiddleware rejects mutating requests in recovery mode.
+// Allowed: reads (GET/HEAD/OPTIONS) and pure conflict analysis (POST
+// /conflicts/detect), which has no side effects.
+func (s *Server) recoveryReadOnlyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.recoveryReadOnly {
+			allowed := r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions ||
+				(r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/conflicts/detect"))
+			if !allowed {
+				writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{
+					Error: "recovery read-only mode: mutations are disabled until reconciliation succeeds",
+				})
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // Listen starts the HTTP server.
 func (s *Server) Listen(addr string) error {
