@@ -126,6 +126,20 @@ earlier op in the same changeset. Contract:
   `proposal_id`, `source_changeset_id`, `rejected_from`, `cherrypicked_from`,
   `left_branch`, `right_branch`).
 
+Payloads are additionally bounded and closed:
+
+- Canonical JSON per op payload ≤ 64 KiB; `content` ≤ 16 KiB;
+  `summary`/`reason`/`note` ≤ 4 KiB; other string fields and the op-level ID
+  channels ≤ 1 KiB; ≤ 64 tags of ≤ 128 bytes each.
+- Each op type has a closed payload key set (see `allowedPayloadKeys` in
+  `internal/db/memory_git_validation.go`, derived from the projector, the
+  conflict detector, and the merge/review attestation flow); unknown keys are
+  rejected by name.
+- Identifier channels must agree when more than one names the same identity
+  (e.g. `target_event_id` vs `payload.duplicate_id`, `resulting_event_id` vs
+  `payload.memory_id`/`event_id`, `from_memory_id`/`to_memory_id`). Equal
+  values are normalized; disagreement is rejected.
+
 All identities are project-local by construction; cross-project targets fail.
 
 

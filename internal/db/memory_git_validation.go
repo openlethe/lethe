@@ -44,6 +44,102 @@ var attestationProvenanceKeys = []string{
 	"rejected_from", "cherrypicked_from", "left_branch", "right_branch",
 }
 
+// Payload size caps. The API layer already bounds request bodies at 1 MiB
+// (api.MaxJSONBodySize); these per-op bounds stop a single op from crowding
+// out a changeset and keep free-text fields proportional to how projection,
+// diff, and conflict detection actually use them. Every observed legitimate
+// value in tests, docs, and the Charon merge flow is orders of magnitude
+// below these caps.
+const (
+	// maxOpPayloadBytes bounds the canonical JSON encoding of one op's
+	// payload (Go marshals map keys in sorted order, so this is exact).
+	maxOpPayloadBytes = 64 << 10
+	// maxContentBytes bounds free-text memory content.
+	maxContentBytes = 16 << 10
+	// maxSummaryBytes bounds human-readable summaries, reasons, and notes.
+	maxSummaryBytes = 4 << 10
+	// maxFieldBytes bounds every other payload string (identifiers, kinds,
+	// provenance references, visibility markers); UUIDs and ref names are
+	// far shorter.
+	maxFieldBytes = 1024
+	// maxTagBytes bounds a single tag entry.
+	maxTagBytes = 128
+	// maxTags bounds the tags array of one op.
+	maxTags = 64
+	// maxIDBytes bounds the op-level identifier channels
+	// (target_event_id / resulting_event_id).
+	maxIDBytes = 1024
+)
+
+// commonPayloadKeys have defined semantics for every op type: the diff
+// renderer summarizes any op by its summary; the conflict detector reads
+// boundary (project/topic/actor) and scope-flow metadata from every op; and
+// reviewed-merge/cherry-pick construction annotates copied ops with the
+// attestation provenance markers (e.g. a cherry-picked add_memory records
+// cherrypicked_from), so those keys are legitimate on every op.
+var commonPayloadKeys = append([]string{
+	"summary", "project_id", "topic_id", "actor_id", "from_visibility", "to_visibility",
+}, attestationProvenanceKeys...)
+
+// memoryContentKeys are the fields the projector overlays onto an accepted
+// memory record, plus the fact/decision metadata the conflict detector
+// compares across branches.
+var memoryContentKeys = []string{
+	"content", "kind", "event_type", "scope", "visibility", "tags", "confidence",
+	"fact_key", "subject", "valid_from", "valid_to", "protected", "approval",
+}
+
+// attestationPayloadKeys are the evidence-record fields an attach op may
+// carry in addition to the merge/review provenance markers (status records
+// the review outcome, e.g. a rejection attestation's "rejected").
+var attestationPayloadKeys = []string{"kind", "source", "note", "status"}
+
+// allowedPayloadKeys is the exact payload key contract per op type, derived
+// from the projector (store_memory_context.go), the conflict detector
+// (conflict.go), and the documented attestation flow. Anything outside the
+// set is rejected so immutable history never records fields no consumer
+// understands.
+var allowedPayloadKeys = map[models.SemanticOpType]map[string]bool{
+	models.OpAddMemory:     keySet(commonPayloadKeys, memoryContentKeys, []string{"memory_id", "event_id"}),
+	models.OpCorrectMemory: keySet(commonPayloadKeys, memoryContentKeys, []string{"target_trust", "source_trust"}),
+	models.OpSupersedeMemory: keySet(commonPayloadKeys, memoryContentKeys,
+		[]string{"target_trust", "source_trust", "memory_id", "event_id"}),
+	models.OpMarkDuplicate:      keySet(commonPayloadKeys, []string{"duplicate_id", "duplicate_of"}),
+	models.OpAddRelationship:    keySet(commonPayloadKeys, []string{"kind", "from_memory_id", "to_memory_id"}),
+	models.OpProposeDeprecation: keySet(commonPayloadKeys, []string{"reason"}),
+	models.OpAttachEvidence:     keySet(commonPayloadKeys, attestationPayloadKeys, attestationProvenanceKeys),
+	models.OpAttachVerification: keySet(commonPayloadKeys, attestationPayloadKeys, attestationProvenanceKeys),
+}
+
+func keySet(groups ...[]string) map[string]bool {
+	set := map[string]bool{}
+	for _, group := range groups {
+		for _, key := range group {
+			set[key] = true
+		}
+	}
+	return set
+}
+
+// payloadStringLimit returns the size cap for a free-text payload field.
+func payloadStringLimit(key string) int {
+	switch key {
+	case "content":
+		return maxContentBytes
+	case "summary", "reason", "note":
+		return maxSummaryBytes
+	default:
+		return maxFieldBytes
+	}
+}
+
+// idsDisagree reports whether two identifier channels for the same role are
+// both set but name different identities. Equal values via two channels are
+// fine: the projector's fallback order simply normalizes them.
+func idsDisagree(a, b string) bool {
+	return a != "" && b != "" && a != b
+}
+
 // validateSemanticOps validates every op in a new changeset against the v1
 // semantic contract. Stateless invariants are checked per op. When any op
 // references existing memory, the active memory set at the first parent is
@@ -187,8 +283,30 @@ func validateOpStateless(projectID string, index int, op *models.MemorySemanticO
 	fail := func(format string, args ...any) error {
 		return fmt.Errorf("%w: ops[%d] (%s): %s", ErrInvalidSemanticOp, index, op.OpType, fmt.Sprintf(format, args...))
 	}
-	if _, err := json.Marshal(op.Payload); err != nil {
+	encoded, err := json.Marshal(op.Payload)
+	if err != nil {
 		return fail("payload is not JSON-encodable: %v", err)
+	}
+	if len(encoded) > maxOpPayloadBytes {
+		return fail("payload is %d bytes, exceeding the %d-byte per-op cap", len(encoded), maxOpPayloadBytes)
+	}
+	if len(op.TargetEventID) > maxIDBytes {
+		return fail("target_event_id exceeds the %d-byte identifier cap", maxIDBytes)
+	}
+	if len(op.ResultingEventID) > maxIDBytes {
+		return fail("resulting_event_id exceeds the %d-byte identifier cap", maxIDBytes)
+	}
+	if allowed, ok := allowedPayloadKeys[op.OpType]; ok {
+		for key, value := range op.Payload {
+			if !allowed[key] {
+				return fail("payload field %q is not supported for %s", key, op.OpType)
+			}
+			if text, isString := value.(string); isString {
+				if limit := payloadStringLimit(key); len(text) > limit {
+					return fail("payload.%s exceeds the %d-byte cap", key, limit)
+				}
+			}
+		}
 	}
 	payloadString := func(key string) string {
 		text, _ := op.Payload[key].(string)
@@ -199,6 +317,13 @@ func validateOpStateless(projectID string, index int, op *models.MemorySemanticO
 	case models.OpAddMemory:
 		if strings.TrimSpace(payloadString("content")) == "" {
 			return fail("payload.content is required and must be a non-empty string")
+		}
+		// The resulting identity may arrive over three channels; they must
+		// never disagree about which memory this op creates.
+		if idsDisagree(op.ResultingEventID, payloadString("memory_id")) ||
+			idsDisagree(op.ResultingEventID, payloadString("event_id")) ||
+			idsDisagree(payloadString("memory_id"), payloadString("event_id")) {
+			return fail("ambiguous resulting identity: resulting_event_id, payload.memory_id, and payload.event_id must agree when more than one is set")
 		}
 		if kind, present := op.Payload["kind"]; present {
 			text, ok := kind.(string)
@@ -229,9 +354,16 @@ func validateOpStateless(projectID string, index int, op *models.MemorySemanticO
 			if !ok {
 				return fail("payload.tags must be an array of strings")
 			}
+			if len(list) > maxTags {
+				return fail("payload.tags has %d entries, exceeding the %d-entry cap", len(list), maxTags)
+			}
 			for _, tag := range list {
-				if text, ok := tag.(string); !ok || text == "" {
+				text, ok := tag.(string)
+				if !ok || text == "" {
 					return fail("payload.tags must be an array of non-empty strings")
+				}
+				if len(text) > maxTagBytes {
+					return fail("payload.tags entry exceeds the %d-byte cap", maxTagBytes)
 				}
 			}
 		}
@@ -257,6 +389,13 @@ func validateOpStateless(projectID string, index int, op *models.MemorySemanticO
 		if payloadString("memory_id") == op.TargetEventID && payloadString("memory_id") != "" {
 			return fail("no self-supersede: payload memory_id must differ from target_event_id")
 		}
+		// The replacement identity may arrive over three channels; they must
+		// never disagree about which memory replaces the target.
+		if idsDisagree(op.ResultingEventID, payloadString("memory_id")) ||
+			idsDisagree(op.ResultingEventID, payloadString("event_id")) ||
+			idsDisagree(payloadString("memory_id"), payloadString("event_id")) {
+			return fail("ambiguous replacement identity: resulting_event_id, payload.memory_id, and payload.event_id must agree when more than one is set")
+		}
 		targetTrust := payloadString("target_trust")
 		sourceTrust := payloadString("source_trust")
 		if targetTrust == "user_approved" && (sourceTrust == "inference" || sourceTrust == "model_inference") {
@@ -264,6 +403,14 @@ func validateOpStateless(projectID string, index int, op *models.MemorySemanticO
 		}
 
 	case models.OpMarkDuplicate:
+		// The duplicate and canonical identities each have two channels; a
+		// disagreement would make the recorded lineage ambiguous.
+		if idsDisagree(op.TargetEventID, payloadString("duplicate_id")) {
+			return fail("ambiguous duplicate identity: target_event_id and payload.duplicate_id must agree when both are set")
+		}
+		if idsDisagree(op.ResultingEventID, payloadString("duplicate_of")) {
+			return fail("ambiguous canonical identity: resulting_event_id and payload.duplicate_of must agree when both are set")
+		}
 		duplicate := op.TargetEventID
 		if duplicate == "" {
 			duplicate = payloadString("duplicate_id")
@@ -280,6 +427,12 @@ func validateOpStateless(projectID string, index int, op *models.MemorySemanticO
 		}
 
 	case models.OpAddRelationship:
+		if idsDisagree(op.TargetEventID, payloadString("from_memory_id")) {
+			return fail("ambiguous from identity: target_event_id and payload.from_memory_id must agree when both are set")
+		}
+		if idsDisagree(op.ResultingEventID, payloadString("to_memory_id")) {
+			return fail("ambiguous to identity: resulting_event_id and payload.to_memory_id must agree when both are set")
+		}
 		from := op.TargetEventID
 		if from == "" {
 			from = payloadString("from_memory_id")
