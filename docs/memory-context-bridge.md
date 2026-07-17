@@ -1,6 +1,6 @@
 # Memory Git Context Bridge
 
-Status: implemented and locally tested on `v0.4-local-staging`  
+Status: implemented and locally tested on `v0.4-local-staging`
 Projection contract: `memory-context/v1`
 
 ## Purpose

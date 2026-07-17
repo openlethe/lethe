@@ -26,9 +26,9 @@ if [ -z "$LETHE_API_KEY" ]; then
     echo "║  Lethe API Key Auto-Generation                               ║"
     echo "╚══════════════════════════════════════════════════════════════╝"
     echo ""
-    
+
     NEW_KEY=$(openssl rand -hex 32)
-    
+
     # Write to .env file
     if [ -f "$ENV_FILE" ]; then
         # Update existing .env
@@ -45,9 +45,9 @@ if [ -z "$LETHE_API_KEY" ]; then
     else
         echo "LETHE_API_KEY=${NEW_KEY}" > "$ENV_FILE"
     fi
-    
+
     export LETHE_API_KEY="$NEW_KEY"
-    
+
     echo "Generated LETHE_API_KEY and saved to .env"
     echo ""
     echo "Key: ${NEW_KEY}"

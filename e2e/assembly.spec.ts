@@ -94,7 +94,7 @@ test.describe('Lethe Assembly UI', () => {
   test('assembly list links to detail page', async ({ page }) => {
     await page.goto(`/ui/sessions/${sessionId}`);
     await page.click('button.tab:has-text("Assemblies")');
-    
+
     // Wait for HTMX to load assemblies list
     await page.waitForSelector('a:has-text("View detail →")', { timeout: 10000 });
 
@@ -110,7 +110,7 @@ test.describe('Lethe Assembly UI', () => {
     // First get the assembly ID from the session
     await page.goto(`/ui/sessions/${sessionId}`);
     await page.click('button.tab:has-text("Assemblies")');
-    
+
     // Wait for HTMX to load assemblies list
     await page.waitForSelector('a:has-text("View detail →")', { timeout: 10000 });
 
@@ -130,10 +130,10 @@ test.describe('Lethe Assembly UI', () => {
     // Get assembly ID
     await page.goto(`/ui/sessions/${sessionId}`);
     await page.click('button.tab:has-text("Assemblies")');
-    
+
     // Wait for HTMX to load assemblies list
     await page.waitForSelector('a:has-text("View detail →")', { timeout: 10000 });
-    
+
     const link = await page.locator('a:has-text("View detail →")').first();
     const href = await link.getAttribute('href');
 

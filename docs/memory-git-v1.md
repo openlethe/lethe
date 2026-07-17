@@ -1,7 +1,7 @@
 # Memory Git V1 — Local Design
 
 Status: implemented and locally verified; live rollout requires container/plugin restart
-Date: 2026-07-14  
+Date: 2026-07-14
 Constraint: no external publish, no production deploy, no history rewrite.
 
 ## Goal
