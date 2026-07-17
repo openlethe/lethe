@@ -33,11 +33,11 @@
     "@sinclair/typebox": "^0.34.0"
   },
   "peerDependencies": {
-    "@mariozechner/pi-agent-core": "^0.70.0",
+    "@mariozechner/pi-agent-core": "^0.73.1",
     "openclaw": ">=2026.7.1"
   },
   "devDependencies": {
-    "@mariozechner/pi-agent-core": "^0.70.0",
+    "@mariozechner/pi-agent-core": "^0.73.1",
     "@types/node": "^20.0.0",
     "openclaw": "2026.7.1",
     "typescript": "^5.4.0",
