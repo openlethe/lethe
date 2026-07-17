@@ -61,7 +61,13 @@ func Open(dbPath string) (*DB, error) {
 			return nil, fmt.Errorf("chmod db: %w", err)
 		}
 	}
-	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
+	// Durability policy (WP8): committed transactions are durable across
+	// process and container kills — WAL with synchronous=FULL and foreign_keys
+	// enforced. RPO is the transaction boundary; storage must honor fsync.
+	synchronous := envOr("LETHE_SQLITE_SYNCHRONOUS", "FULL")
+	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(" +
+		envOr("LETHE_SQLITE_BUSY_TIMEOUT_MS", "5000") + ")&_pragma=synchronous(" + synchronous + ")&_pragma=wal_autocheckpoint(" +
+		envOr("LETHE_SQLITE_AUTOCHECKPOINT", "1000") + ")"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open: %w", err)
@@ -75,6 +81,10 @@ func Open(dbPath string) (*DB, error) {
 	ret := &DB{DB: db}
 	if err := db.PingContext(context.Background()); err != nil {
 		return nil, fmt.Errorf("ping: %w", err)
+	}
+	if err := verifyDurabilityPragmas(db, synchronous); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("durability verification: %w", err)
 	}
 	if err := ret.Migrate(); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
@@ -398,6 +408,49 @@ func splitSQLStatements(sqlText string) ([]string, error) {
 		statements = append(statements, stmt)
 	}
 	return statements, nil
+}
+
+// verifyDurabilityPragmas fails closed when the storage engine did not apply
+// the required durability configuration, so an unsupported volume is detected
+// at startup rather than after data loss.
+func verifyDurabilityPragmas(db *sql.DB, wantSynchronous string) error {
+	var journalMode string
+	if err := db.QueryRow("PRAGMA journal_mode").Scan(&journalMode); err != nil {
+		return fmt.Errorf("read journal_mode: %w", err)
+	}
+	if !strings.EqualFold(journalMode, "wal") {
+		return fmt.Errorf("journal_mode = %s, want WAL", journalMode)
+	}
+	var synchronous int
+	if err := db.QueryRow("PRAGMA synchronous").Scan(&synchronous); err != nil {
+		return fmt.Errorf("read synchronous: %w", err)
+	}
+	wantSync := map[string]int{"OFF": 0, "NORMAL": 1, "FULL": 2, "EXTRA": 3}[strings.ToUpper(wantSynchronous)]
+	if synchronous != wantSync {
+		return fmt.Errorf("synchronous = %d, want %d (%s)", synchronous, wantSync, wantSynchronous)
+	}
+	var foreignKeys int
+	if err := db.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeys); err != nil {
+		return fmt.Errorf("read foreign_keys: %w", err)
+	}
+	if foreignKeys != 1 {
+		return fmt.Errorf("foreign_keys not enforced")
+	}
+	return nil
+}
+
+// Close checkpoints the WAL (TRUNCATE) before closing so a clean shutdown
+// leaves a single database file and the next open starts without recovery.
+func (db *DB) Close() error {
+	_, _ = db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+	return db.DB.Close()
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }
 
 var errTestMigrationFailed = errors.New("test migration failed")

@@ -32,7 +32,7 @@ var (
 	apiURL                = flag.String("api-url", "", "Full base URL for the API (e.g. http://192.168.1.10:18483). Overrides --api-port")
 	dbPath                = flag.String("db", "./lethe.db", "path to SQLite database")
 	apiKey                = flag.String("api-key", "", "Bearer token required for API/UI/SSE access. Defaults to LETHE_API_KEY if unset; no key keeps trusted localhost mode.")
-	trustMode             = flag.String("trust", "", "Trust mode when no API key is set: private (loopback+private+link-local) or loopback (loopback only). Defaults to LETHE_TRUST or private.")
+	trustMode             = flag.String("trust", "", "Trust mode when no API key is set: loopback (loopback only, default) or private (loopback+private+link-local). Defaults to LETHE_TRUST or loopback.")
 	serverMode            = flag.String("mode", "", "API mode: legacy, git, or hybrid. Defaults to LETHE_MODE or legacy.")
 	assemblyRetentionDays = flag.Int("assembly-retention-days", -1, "Delete assemblies older than N days (0 = disable age-based retention, -1 = default 30).")
 	assemblyMaxPerSession = flag.Int("assembly-max-per-session", -1, "Keep at most N assemblies per session (0 = disable count-based retention, -1 = default 500).")
@@ -68,13 +68,15 @@ func main() {
 		*apiKey = os.Getenv("LETHE_API_KEY")
 	}
 
-	// Resolve trust mode: --trust flag > LETHE_TRUST env > default private.
+	// Resolve trust mode: --trust flag > LETHE_TRUST env > default loopback.
+	// Loopback-only trust is the safe default: private-network membership is
+	// transport locality, not identity, and must never widen access silently.
 	modeStr := *trustMode
 	if modeStr == "" {
 		modeStr = os.Getenv("LETHE_TRUST")
 	}
 	if modeStr == "" {
-		modeStr = "private"
+		modeStr = "loopback"
 	}
 	modeStr = strings.ToLower(modeStr)
 	var resolvedTrust api.TrustMode
@@ -85,6 +87,20 @@ func main() {
 		resolvedTrust = api.TrustLoopback
 	default:
 		log.Fatalf("lethe: invalid trust mode %q; must be 'private' or 'loopback'", modeStr)
+	}
+
+	// Startup validation for unsafe bind/auth combinations: binding a
+	// non-loopback address without an API key would expose unauthenticated
+	// memory writes to the network. Fail closed unless an explicit
+	// development-only override is set (and loudly logged).
+	if err := validateBindAuth(*httpAddr, *apiKey, os.Getenv("LETHE_ALLOW_INSECURE_BIND") == "1"); err != nil {
+		log.Fatalf("lethe: %v", err)
+	}
+	if unsafePublicBindAddr(*httpAddr) && *apiKey == "" {
+		log.Printf("lethe: WARNING: development override LETHE_ALLOW_INSECURE_BIND=1: serving WITHOUT authentication on non-loopback address %s; never use in production", *httpAddr)
+	}
+	if unsafePublicBindAddr(*httpAddr) && modeStr == "private" {
+		log.Printf("lethe: WARNING: trust=private with a non-loopback bind treats network locality as access; prefer loopback trust with an API key")
 	}
 
 	configuredMode := *serverMode
@@ -650,6 +666,43 @@ func memoryManifest(args []string) error {
 	b, _ := json.MarshalIndent(m, "", "  ")
 	fmt.Println(string(b))
 	return nil
+}
+
+// isLoopbackHost reports whether a bind host is loopback-only.
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// unsafePublicBindAddr reports whether the address binds beyond loopback. An
+// empty host is a wildcard bind: reachable from the network, never loopback.
+func unsafePublicBindAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return true // unparseable: treated unsafe
+	}
+	return !isLoopbackHost(host)
+}
+
+// validateBindAuth enforces safe bind/auth combinations: a non-loopback bind
+// requires an API key unless the development-only insecure override is set.
+func validateBindAuth(addr, apiKey string, allowInsecure bool) error {
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		return fmt.Errorf("invalid --http address %q: %v", addr, err)
+	}
+	if !unsafePublicBindAddr(addr) {
+		return nil
+	}
+	if apiKey != "" {
+		return nil
+	}
+	if allowInsecure {
+		return nil
+	}
+	return fmt.Errorf("refusing to bind %s without an API key; set LETHE_API_KEY or bind a loopback address (LETHE_ALLOW_INSECURE_BIND=1 is a development-only override)", addr)
 }
 
 // runKeygen generates a secure API key for Lethe.
