@@ -41,7 +41,7 @@ Use the results to answer:
 ```bash
 curl -s -X POST "http://localhost:18483/api/sessions" \
   -H "Content-Type: application/json" \
-  -d '{"agent_id": "archimedes", "project_id": "default"}'
+  -d '{"agent_id": "example-agent", "project_id": "default"}'
 ```
 
 Never hardcode session IDs or query routes without `/api`.

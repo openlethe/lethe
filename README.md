@@ -320,7 +320,7 @@ Install the plugin from [ClawHub](https://clawhub.ai) (`mentholmike-lethe`) and 
   "id": "lethe",
   "endpoint": "http://localhost:18483",
   "apiKey": "change-me-if-LETHE_API_KEY-is-set",
-  "agentId": "archimedes",
+  "agentId": "example-agent",
   "projectId": "default",
   "autoLog": false
 }

@@ -316,7 +316,7 @@ are thin clients over the same APIs. Prefer Charon for policy-bound access.
 | `memory.propose` | Create merge/revert proposals |
 | `memory.review` | Attach review findings |
 | `memory.merge` | Approve/apply merges into protected refs |
-| `memory.write` | Trusted direct writes (Archimedes local) |
+| `memory.write` | Trusted direct writes (operators only) |
 
 ChatGPT default: read + branch + commit(owned) + propose. No self-merge.
 

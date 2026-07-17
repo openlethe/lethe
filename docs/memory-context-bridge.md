@@ -82,7 +82,7 @@ Content-Type: application/json
   "query": "current user prompt",
   "limit": 12,
   "session_id": "stable-session-key",
-  "actor_id": "archimedes",
+  "actor_id": "example-agent",
   "create_manifest": true
 }
 ```

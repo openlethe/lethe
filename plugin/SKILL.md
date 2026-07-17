@@ -37,7 +37,7 @@ curl -sS -H "Authorization: Bearer $LETHE_API_KEY" \
 curl -sS -X POST -H "Authorization: Bearer $LETHE_API_KEY" \
   -H "Content-Type: application/json" \
   "http://localhost:18483/api/memory/default/context" \
-  -d "{\"ref_name\":\"refs/shared/main\",\"session_id\":\"${SESSION_KEY}\",\"actor_id\":\"archimedes\",\"create_manifest\":true,\"limit\":20}"
+  -d "{\"ref_name\":\"refs/shared/main\",\"session_id\":\"${SESSION_KEY}\",\"actor_id\":\"example-agent\",\"create_manifest\":true,\"limit\":20}"
 ```
 
 Treat returned accepted memories as canonical. Treat unresolved conflicts as
