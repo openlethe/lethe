@@ -18,6 +18,15 @@ All notable changes to Lethe are documented here. The project follows semantic v
 - Explicit trust modes (`private` default, `loopback`); public-network clients are rejected without a token.
 - Remove forwarded-header trust and SSE cross-origin exposure.
 - Add session/project consistency checks and event/task validation.
+- Bound semantic operation payloads (64 KiB per-op payload, per-field text caps, tag caps), close per-op payload key sets, and reject ambiguous identifier combinations before immutable insertion.
+- Bind changeset idempotency replay to ref-mutation control fields (expected head, advance, create-if-missing, protected) so mismatched replays fail closed.
+- Render accepted memory in the plugin as untrusted reference data with an explicit injection boundary.
+- Block dependency lifecycle scripts during plugin install.
+
+### Dependencies and packaging
+
+- Pin the plugin's OpenClaw development dependency to the tested 2026.7.1 and set the peer range to `>=2026.7.1`; lockfiles regenerated (dev advisories drop from 27 with 1 critical/12 high to 3 moderate, none critical/high).
+- Add a published-files allowlist and ship the license in the plugin packages.
 
 ### Reliability and plugin
 
