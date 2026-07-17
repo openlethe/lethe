@@ -124,3 +124,14 @@ Until the system passes repeated end-to-end and recovery testing:
 - do not reuse the OpenLethe data directory;
 - do not expose port 18485 outside loopback;
 - do not let a proposal originator act as its reviewer or merger; use a separate reviewer/merger principal.
+
+## Combined deployment walkthrough
+
+This document covers the Lethe side of the boundary. For the complete
+operator walkthrough across both services — bootstrap, credential generation
+for Lethe and Charon (including exactly which credentials persist across a
+container restart and which regenerate), the three agent roles (maintainer,
+proposer, reviewer), a full propose → review → merge run, and the restart,
+rotation, and backup drills — see `docs/full-run.md` in the Charon
+repository, with per-role playbooks in its `skills/` directory
+(`charon-maintainer`, `charon-proposer`, `charon-reviewer`).
