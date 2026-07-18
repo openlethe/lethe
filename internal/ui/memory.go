@@ -54,10 +54,11 @@ func memoryRef(r *http.Request) string {
 }
 
 // memoryChrome gathers the repo-bar data every memory page needs: the ref
-// list for the branch dropdown, the changeset log for counts/latest, and the
-// context head for the identity strip. The context map is always non-nil so
-// templates never see "<no value>" placeholders.
-func memoryChrome(r *http.Request, project, ref string) (refs []interface{}, changesets []interface{}, ctx map[string]interface{}) {
+// list for the branch dropdown, the changeset log for counts/latest, the
+// context head for the identity strip, and the project list for the project
+// dropdown. The context map is always non-nil so templates never see
+// "<no value>" placeholders.
+func memoryChrome(r *http.Request, project, ref string) (refs []interface{}, changesets []interface{}, ctx map[string]interface{}, projects []interface{}) {
 	refs, _ = httpGetJSON[[]interface{}](r.Context(), authTokenFromRequest(r),
 		apiBase+"/api/memory/"+url.PathEscape(project)+"/refs")
 	res, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
@@ -72,7 +73,14 @@ func memoryChrome(r *http.Request, project, ref string) (refs []interface{}, cha
 	if ctx == nil {
 		ctx = map[string]interface{}{"head_changeset_id": "", "total_active": 0}
 	}
-	return refs, changesets, ctx
+	pres, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
+		apiBase+"/api/memory/projects")
+	if pres != nil {
+		if p, ok := pres["projects"].([]interface{}); ok {
+			projects = p
+		}
+	}
+	return refs, changesets, ctx, projects
 }
 
 // handleMemoryHome renders the Treehouse flagship: folder rails, file rows,
@@ -80,7 +88,7 @@ func memoryChrome(r *http.Request, project, ref string) (refs []interface{}, cha
 func handleMemoryHome(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
 	ref := memoryRef(r)
-	refs, changesets, _ := memoryChrome(r, project, ref)
+	refs, changesets, _, projects := memoryChrome(r, project, ref)
 	ctxRes, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
 		apiBase+"/api/memory/"+url.PathEscape(project)+"/context?ref="+url.QueryEscape(ref)+"&limit=200")
 	if ctxRes == nil {
@@ -195,6 +203,7 @@ func handleMemoryHome(w http.ResponseWriter, r *http.Request) {
 		"refs":        refs,
 		"changesets":  changesets,
 		"ctx":         ctxRes,
+		"projects":    projects,
 		"latest":      latest,
 		"fileRows":    fileRows,
 		"composition": composition,
@@ -209,7 +218,7 @@ func handleMemoryHome(w http.ResponseWriter, r *http.Request) {
 func handleMemoryMemories(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
 	ref := memoryRef(r)
-	refs, changesets, _ := memoryChrome(r, project, ref)
+	refs, changesets, _, projects := memoryChrome(r, project, ref)
 	ctxRes, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
 		apiBase+"/api/memory/"+url.PathEscape(project)+"/context?ref="+url.QueryEscape(ref)+"&limit=200")
 	if ctxRes == nil {
@@ -295,6 +304,7 @@ func handleMemoryMemories(w http.ResponseWriter, r *http.Request) {
 		"refs":       refs,
 		"changesets": changesets,
 		"ctx":        ctxRes,
+		"projects":   projects,
 		"groups":     groups,
 		"q":          r.URL.Query().Get("q"),
 		"page":       "memory",
@@ -319,7 +329,7 @@ func toStrings(v interface{}) []string {
 func handleMemoryChangesets(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
 	ref := memoryRef(r)
-	refs, changesets, ctx := memoryChrome(r, project, ref)
+	refs, changesets, ctx, projects := memoryChrome(r, project, ref)
 	var own, ancestry []interface{}
 	for _, c := range changesets {
 		cm, _ := c.(map[string]interface{})
@@ -337,6 +347,7 @@ func handleMemoryChangesets(w http.ResponseWriter, r *http.Request) {
 		"own":        own,
 		"ancestry":   ancestry,
 		"ctx":        ctx,
+		"projects":   projects,
 		"page":       "changesets",
 	})
 }
@@ -353,13 +364,14 @@ func handleMemoryChangesetDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "changeset not found", http.StatusNotFound)
 		return
 	}
-	refs, changesets, ctx := memoryChrome(r, project, ref)
+	refs, changesets, ctx, projects := memoryChrome(r, project, ref)
 	Render(w, r, "memory_changeset_detail", map[string]interface{}{
 		"project":    project,
 		"ref":        ref,
 		"refs":       refs,
 		"changesets": changesets,
 		"ctx":        ctx,
+		"projects":   projects,
 		"cs":         cs,
 		"page":       "changesets",
 	})
@@ -369,13 +381,14 @@ func handleMemoryChangesetDetail(w http.ResponseWriter, r *http.Request) {
 func handleMemoryRefs(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
 	ref := memoryRef(r)
-	refs, changesets, ctx := memoryChrome(r, project, ref)
+	refs, changesets, ctx, projects := memoryChrome(r, project, ref)
 	Render(w, r, "memory_refs", map[string]interface{}{
 		"project":    project,
 		"ref":        ref,
 		"refs":       refs,
 		"changesets": changesets,
 		"ctx":        ctx,
+		"projects":   projects,
 		"page":       "refs",
 	})
 }

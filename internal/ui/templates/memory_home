@@ -102,10 +102,10 @@ docker exec charon-charon-1 charon ledger verify</code>
     </div>
   </main>
 
-  {{/* sidebar */}}
-  <aside>
-    <section style="padding:2px 0 17px;border-bottom:1px solid var(--border2);">
-      <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">About</h3>
+  {{/* sidebar — aligned to the headbar's top line */}}
+  <aside style="margin-top:-4px;">
+    <section style="padding:0 0 17px;border-bottom:1px solid var(--border2);">
+      <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;line-height:1;">About</h3>
       <p style="font-size:12px;color:var(--muted);line-height:1.7;">Reviewed shared memory for the {{.project}} collective. Mutable workspaces live on owned refs; this tree is the protected result of Charon review.</p>
     </section>
     <section style="padding:15px 0 17px;border-bottom:1px solid var(--border2);">
