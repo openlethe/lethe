@@ -20,9 +20,19 @@
         <span style="color:var(--accent);font-weight:600;">memory</span>
       </div>
       <div style="display:flex;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap;">
-        <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;line-height:17px;padding:0 8px;border-radius:999px;color:var(--water-deep);border:1px solid rgba(18,136,165,.35);background:var(--water-tint);font-family:var(--mono);white-space:nowrap;">🔒 protected · shared/main</span>
-        <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;line-height:17px;padding:0 8px;border-radius:999px;color:var(--water-deep);border:1px solid rgba(18,136,165,.35);background:var(--water-tint);font-family:var(--mono);font-weight:600;white-space:nowrap;">chain ✓ {{len .changesets}}/{{len .changesets}}</span>
+        {{$cur := findRef .refs .ref}}
+        {{if and $cur (index $cur "protected")}}
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;line-height:17px;padding:0 8px;border-radius:999px;color:var(--water-deep);border:1px solid rgba(18,136,165,.35);background:var(--water-tint);font-family:var(--mono);white-space:nowrap;">🔒 protected · {{.ref}}</span>
+        {{else}}
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;line-height:17px;padding:0 8px;border-radius:999px;color:var(--muted);border:1px solid var(--border);font-family:var(--mono);white-space:nowrap;">⎇ {{.ref}}</span>
+        {{end}}
+        {{if .ctxOK}}
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;line-height:17px;padding:0 8px;border-radius:999px;color:var(--water-deep);border:1px solid rgba(18,136,165,.35);background:var(--water-tint);font-family:var(--mono);font-weight:600;white-space:nowrap;">chain ✓ {{len .changesets}}{{if .maybeMore}}+{{end}} changesets</span>
         <span style="font-size:12px;color:var(--muted);">accepted memory at head <span class="mono" style="color:var(--accent);">{{printf "%.8s" (index .ctx "head_changeset_id")}}</span></span>
+        {{else}}
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;line-height:17px;padding:0 8px;border-radius:999px;color:var(--muted);border:1px solid var(--border);font-family:var(--mono);white-space:nowrap;">unverified</span>
+        <span style="font-size:12px;color:var(--muted);">context unavailable — showing history without integrity claims</span>
+        {{end}}
       </div>
     </div>
   </div>

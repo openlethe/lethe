@@ -431,7 +431,6 @@
     </span>
     <span class="right">
       <span class="live"><span class="dot"></span>live</span>
-      <span>chain ✓</span>
       <span class="faint">{{.Request.Host}}</span>
     </span>
   </div>

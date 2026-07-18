@@ -15,7 +15,7 @@
       <div style="display:grid;grid-template-columns:auto 1fr;gap:5px 16px;font-size:12px;">
         <span class="mut">author</span><span class="mono">{{index $cs "author_principal"}}</span>
         <span class="mut">ref</span><span class="mono">{{index $cs "ref_name"}}</span>
-        <span class="mut">parents</span><span class="mono">{{range index $cs "parent_ids"}}<a href="/ui/memory/changesets/{{.}}?project={{$.project}}" style="color:var(--accent);">{{printf "%.10s" .}}</a> {{end}}</span>
+        <span class="mut">parents</span><span class="mono">{{range index $cs "parent_ids"}}<a href="/ui/memory/changesets/{{.}}?project={{$.project}}&ref={{$.ref}}" style="color:var(--accent);">{{printf "%.10s" .}}</a> {{end}}</span>
         <span class="mut">created</span><span>{{index $cs "created_at"}}</span>
         <span class="mut">idempotency</span><span class="mono mut">{{index $cs "idempotency_key"}}</span>
         <span class="mut">schema</span><span class="mono mut">{{index $cs "schema_version"}}</span>

@@ -6,8 +6,8 @@
     <div style="display:flex;align-items:center;gap:10px;background:linear-gradient(120deg,var(--water),#146f86);color:#e8f2f5;border-radius:9px;padding:10px 14px;font-size:12px;box-shadow:0 2px 8px rgba(18,136,165,.22);">
       <span style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);border-radius:5px;padding:2px 8px;color:#fff;font:600 11px var(--mono);flex-shrink:0;">≋ head</span>
       {{with .latest}}
-      <a href="/ui/memory/changesets/{{index . "changeset_id"}}?project={{$.project}}" style="color:#fff;font-weight:600;font-family:var(--mono);font-size:12px;">{{printf "%.8s" (index . "changeset_id")}}</a>
-      <a href="/ui/memory/changesets/{{index . "changeset_id"}}?project={{$.project}}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;color:#e8fbff;font-size:12.5px;min-width:0;">{{index . "message"}}</a>
+      <a href="/ui/memory/changesets/{{index . "changeset_id"}}?project={{$.project}}&ref={{$.ref}}" style="color:#fff;font-weight:600;font-family:var(--mono);font-size:12px;">{{printf "%.8s" (index . "changeset_id")}}</a>
+      <a href="/ui/memory/changesets/{{index . "changeset_id"}}?project={{$.project}}&ref={{$.ref}}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;color:#e8fbff;font-size:12.5px;min-width:0;">{{index . "message"}}</a>
       <span style="flex-shrink:0;display:flex;gap:12px;color:#a9dcea;font-size:11.5px;align-items:center;"><span>{{since (index . "created_at")}}</span><span style="color:#7de8f7;font-weight:600;">chain ✓</span><span>{{len $.changesets}} changesets</span></span>
       {{else}}
       <span style="flex:1;color:#e8fbff;font-size:12.5px;">no changesets on <span class="mono">{{$.ref}}</span> yet — accepted merges will appear here</span>
@@ -79,8 +79,8 @@
             <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec lethe-git-local sh -c 'wget -qO- --header="Authorization: Bearer $LETHE_API_KEY" http://127.0.0.1:18483/api/health'</code>
           </div>
           <div>
-            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># list refs for a project</div>
-            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec lethe-git-local sh -c 'wget -qO- --header="Authorization: Bearer $LETHE_API_KEY" "http://127.0.0.1:18483/api/memory/Archimedes/refs"'</code>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># list refs for the active project</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec lethe-git-local sh -c 'wget -qO- --header="Authorization: Bearer $LETHE_API_KEY" "http://127.0.0.1:18483/api/memory/{{.project}}/refs"'</code>
           </div>
           <div>
             <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># snapshot the database, then verify it</div>
@@ -91,9 +91,9 @@
             <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker compose -f docker-compose.git.yml --env-file .env.git restart</code>
           </div>
           <div>
-            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># the governed path — proposals and audit go through Charon</div>
-            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec charon-charon-1 charon proposal ls
-docker exec charon-charon-1 charon ledger verify</code>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># governed path — only if this deployment runs Charon alongside (container name varies)</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec &lt;charon-container&gt; charon proposal ls
+docker exec &lt;charon-container&gt; charon ledger verify</code>
           </div>
         </div>
 
@@ -109,13 +109,17 @@ docker exec charon-charon-1 charon ledger verify</code>
       <p style="font-size:12px;color:var(--muted);line-height:1.7;">Reviewed shared memory for the {{.project}} collective. Mutable workspaces live on owned refs; this tree is the protected result of Charon review.</p>
     </section>
     <section style="padding:15px 0 17px;border-bottom:1px solid var(--border2);">
-      <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:7px;">Integrity <span style="margin-left:auto;color:var(--water);letter-spacing:.08em;">VERIFIED</span></h3>
+      <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:7px;">Integrity {{if .ctxOK}}<span style="margin-left:auto;color:var(--water);letter-spacing:.08em;">VERIFIED</span>{{else}}<span style="margin-left:auto;color:var(--muted);letter-spacing:.08em;">UNVERIFIED</span>{{end}}</h3>
+      {{if .ctxOK}}
       <div style="display:grid;gap:6px;font:11px var(--mono);color:var(--muted);">
-        <div style="display:flex;justify-content:space-between;"><span>chain</span><b style="color:var(--water);">✓ {{len .changesets}}/{{len .changesets}} changesets</b></div>
+        <div style="display:flex;justify-content:space-between;"><span>chain</span><b style="color:var(--water);">✓ {{len .changesets}}{{if .maybeMore}}+{{end}} changesets loaded</b></div>
         <div style="display:flex;justify-content:space-between;"><span>digest</span><b style="color:var(--text);">{{printf "%.8s" (index .ctx "head_changeset_id")}}</b></div>
         <div style="display:flex;justify-content:space-between;"><span>algorithm</span><b style="color:var(--text);">sha-256, parent-linked</b></div>
         <div style="display:flex;justify-content:space-between;"><span>projection</span><b style="color:var(--water);">reconstructed at head ✓</b></div>
       </div>
+      {{else}}
+      <div style="font-size:12px;color:var(--faint);">context unavailable — integrity not asserted for this view.</div>
+      {{end}}
     </section>
     <section style="padding:15px 0 17px;border-bottom:1px solid var(--border2);">
       <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Composition</h3>

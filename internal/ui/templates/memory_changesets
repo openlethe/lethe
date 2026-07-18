@@ -8,7 +8,7 @@
   {{if .own}}
   <div style="border-top:1px solid var(--border2);">
     {{range $cs := .own}}
-    <a href="/ui/memory/changesets/{{index $cs "changeset_id"}}?project={{$.project}}" style="display:grid;grid-template-columns:110px minmax(0,1fr) 90px;gap:12px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border2);text-decoration:none;">
+    <a href="/ui/memory/changesets/{{index $cs "changeset_id"}}?project={{$.project}}&ref={{$.ref}}" style="display:grid;grid-template-columns:110px minmax(0,1fr) 90px;gap:12px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border2);text-decoration:none;">
       <span class="mono" style="font-size:12px;color:var(--accent);font-weight:600;">{{printf "%.10s" (index $cs "changeset_id")}}</span>
       <div style="min-width:0;">
         <div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{index $cs "message"}}</div>
@@ -27,7 +27,7 @@
   </div>
   <div style="border-top:1px solid var(--border2);opacity:.62;">
     {{range $cs := .ancestry}}
-    <a href="/ui/memory/changesets/{{index $cs "changeset_id"}}?project={{$.project}}" style="display:grid;grid-template-columns:110px minmax(0,1fr) 90px;gap:12px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border2);text-decoration:none;">
+    <a href="/ui/memory/changesets/{{index $cs "changeset_id"}}?project={{$.project}}&ref={{$.ref}}" style="display:grid;grid-template-columns:110px minmax(0,1fr) 90px;gap:12px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border2);text-decoration:none;">
       <span class="mono" style="font-size:12px;color:var(--accent);">{{printf "%.10s" (index $cs "changeset_id")}}</span>
       <div style="min-width:0;">
         <div style="font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{index $cs "message"}}</div>

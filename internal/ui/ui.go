@@ -32,6 +32,14 @@ var apiBase string
 
 func init() {
 	funcMap := template.FuncMap{
+		"findRef": func(refs []interface{}, name string) map[string]interface{} {
+			for _, r := range refs {
+				if rm, ok := r.(map[string]interface{}); ok && rm["ref_name"] == name {
+					return rm
+				}
+			}
+			return nil
+		},
 		"queryEscape": url.QueryEscape,
 		"prettyJSON": func(v interface{}) string {
 			b, err := json.MarshalIndent(v, "", "  ")
@@ -371,6 +379,10 @@ func httpGetJSON[T any](ctx context.Context, authToken string, url string) (T, e
 			return
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			ch <- result{err: fmt.Errorf("api returned %s for %s", resp.Status, url)}
+			return
+		}
 		var val T
 		if err := json.NewDecoder(resp.Body).Decode(&val); err != nil {
 			ch <- result{err: err}
