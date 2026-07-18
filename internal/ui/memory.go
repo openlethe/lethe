@@ -54,8 +54,10 @@ func memoryRef(r *http.Request) string {
 }
 
 // memoryChrome gathers the repo-bar data every memory page needs: the ref
-// list for the branch dropdown and the changeset log for counts/latest.
-func memoryChrome(r *http.Request, project, ref string) (refs []interface{}, changesets []interface{}) {
+// list for the branch dropdown, the changeset log for counts/latest, and the
+// context head for the identity strip. The context map is always non-nil so
+// templates never see "<no value>" placeholders.
+func memoryChrome(r *http.Request, project, ref string) (refs []interface{}, changesets []interface{}, ctx map[string]interface{}) {
 	refs, _ = httpGetJSON[[]interface{}](r.Context(), authTokenFromRequest(r),
 		apiBase+"/api/memory/"+url.PathEscape(project)+"/refs")
 	res, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
@@ -65,7 +67,12 @@ func memoryChrome(r *http.Request, project, ref string) (refs []interface{}, cha
 			changesets = c
 		}
 	}
-	return refs, changesets
+	ctx, _ = httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
+		apiBase+"/api/memory/"+url.PathEscape(project)+"/context?ref="+url.QueryEscape(ref)+"&limit=1")
+	if ctx == nil {
+		ctx = map[string]interface{}{"head_changeset_id": "", "total_active": 0}
+	}
+	return refs, changesets, ctx
 }
 
 // handleMemoryHome renders the Treehouse flagship: folder rails, file rows,
@@ -73,9 +80,12 @@ func memoryChrome(r *http.Request, project, ref string) (refs []interface{}, cha
 func handleMemoryHome(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
 	ref := memoryRef(r)
-	refs, changesets := memoryChrome(r, project, ref)
+	refs, changesets, _ := memoryChrome(r, project, ref)
 	ctxRes, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
 		apiBase+"/api/memory/"+url.PathEscape(project)+"/context?ref="+url.QueryEscape(ref)+"&limit=200")
+	if ctxRes == nil {
+		ctxRes = map[string]interface{}{"head_changeset_id": "", "total_active": 0}
+	}
 	var memories []interface{}
 	if ctxRes != nil {
 		if m, ok := ctxRes["memories"].([]interface{}); ok {
@@ -199,9 +209,12 @@ func handleMemoryHome(w http.ResponseWriter, r *http.Request) {
 func handleMemoryMemories(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
 	ref := memoryRef(r)
-	refs, changesets := memoryChrome(r, project, ref)
+	refs, changesets, _ := memoryChrome(r, project, ref)
 	ctxRes, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
 		apiBase+"/api/memory/"+url.PathEscape(project)+"/context?ref="+url.QueryEscape(ref)+"&limit=200")
+	if ctxRes == nil {
+		ctxRes = map[string]interface{}{"head_changeset_id": "", "total_active": 0}
+	}
 	var memories []interface{}
 	if ctxRes != nil {
 		if m, ok := ctxRes["memories"].([]interface{}); ok {
@@ -305,12 +318,13 @@ func toStrings(v interface{}) []string {
 func handleMemoryChangesets(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
 	ref := memoryRef(r)
-	refs, changesets := memoryChrome(r, project, ref)
+	refs, changesets, ctx := memoryChrome(r, project, ref)
 	Render(w, r, "memory_changesets", map[string]interface{}{
 		"project":    project,
 		"ref":        ref,
 		"refs":       refs,
 		"changesets": changesets,
+		"ctx":        ctx,
 		"page":       "changesets",
 	})
 }
@@ -319,6 +333,7 @@ func handleMemoryChangesets(w http.ResponseWriter, r *http.Request) {
 // plus each semantic operation as a diff-style card.
 func handleMemoryChangesetDetail(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
+	ref := memoryRef(r)
 	id := chi.URLParam(r, "id")
 	cs, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
 		apiBase+"/api/memory/changesets/"+url.PathEscape(id))
@@ -326,13 +341,15 @@ func handleMemoryChangesetDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "changeset not found", http.StatusNotFound)
 		return
 	}
-	refs, _ := httpGetJSON[[]interface{}](r.Context(), authTokenFromRequest(r),
-		apiBase+"/api/memory/"+url.PathEscape(project)+"/refs")
+	refs, changesets, ctx := memoryChrome(r, project, ref)
 	Render(w, r, "memory_changeset_detail", map[string]interface{}{
-		"project": project,
-		"refs":    refs,
-		"cs":      cs,
-		"page":    "changesets",
+		"project":    project,
+		"ref":        ref,
+		"refs":       refs,
+		"changesets": changesets,
+		"ctx":        ctx,
+		"cs":         cs,
+		"page":       "changesets",
 	})
 }
 
@@ -340,12 +357,13 @@ func handleMemoryChangesetDetail(w http.ResponseWriter, r *http.Request) {
 func handleMemoryRefs(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
 	ref := memoryRef(r)
-	refs, _ := httpGetJSON[[]interface{}](r.Context(), authTokenFromRequest(r),
-		apiBase+"/api/memory/"+url.PathEscape(project)+"/refs")
+	refs, changesets, ctx := memoryChrome(r, project, ref)
 	Render(w, r, "memory_refs", map[string]interface{}{
-		"project": project,
-		"ref":     ref,
-		"refs":    refs,
-		"page":    "refs",
+		"project":    project,
+		"ref":        ref,
+		"refs":       refs,
+		"changesets": changesets,
+		"ctx":        ctx,
+		"page":       "refs",
 	})
 }

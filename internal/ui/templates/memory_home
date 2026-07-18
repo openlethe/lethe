@@ -2,15 +2,18 @@
 
 <div style="display:grid;grid-template-columns:minmax(0,1fr) 288px;gap:32px;align-items:start;margin-top:22px;">
   <main>
-    {{/* head bar */}}
-    {{with .latest}}
+    {{/* head bar — always rendered, empty variant when the ref has no changesets */}}
     <div style="display:flex;align-items:center;gap:10px;background:linear-gradient(120deg,var(--water),#146f86);color:#e8f2f5;border-radius:9px;padding:10px 14px;font-size:12px;box-shadow:0 2px 8px rgba(18,136,165,.22);">
       <span style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);border-radius:5px;padding:2px 8px;color:#fff;font:600 11px var(--mono);flex-shrink:0;">≋ head</span>
+      {{with .latest}}
       <a href="/ui/memory/changesets/{{index . "changeset_id"}}?project={{$.project}}" style="color:#fff;font-weight:600;font-family:var(--mono);font-size:12px;">{{printf "%.8s" (index . "changeset_id")}}</a>
       <a href="/ui/memory/changesets/{{index . "changeset_id"}}?project={{$.project}}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;color:#e8fbff;font-size:12.5px;min-width:0;">{{index . "message"}}</a>
       <span style="flex-shrink:0;display:flex;gap:12px;color:#a9dcea;font-size:11.5px;align-items:center;"><span>{{since (index . "created_at")}}</span><span style="color:#7de8f7;font-weight:600;">chain ✓</span><span>{{len $.changesets}} changesets</span></span>
+      {{else}}
+      <span style="flex:1;color:#e8fbff;font-size:12.5px;">no changesets on <span class="mono">{{$.ref}}</span> yet — accepted merges will appear here</span>
+      <span style="flex-shrink:0;color:#a9dcea;font-size:11.5px;">0 changesets</span>
+      {{end}}
     </div>
-    {{end}}
 
     {{/* column head */}}
     <div style="display:grid;grid-template-columns:minmax(0,260px) 86px minmax(0,1fr);gap:12px;padding:16px 14px 7px;font:600 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);">
@@ -25,9 +28,16 @@
       <span style="font:11px var(--mono);color:var(--muted);">{{.count}} rec</span>
       <span style="color:var(--faint);font-size:12px;"></span>
     </a>
+    {{else}}
+    <div style="display:flex;align-items:center;gap:9px;padding:12px 14px;border-top:1px solid var(--border2);color:var(--muted);font-size:13px;">
+      <span style="color:var(--faint);">▸</span> no accepted memory on <span class="mono">{{.ref}}</span> — kinds will appear here after a reviewed merge lands
+    </div>
     {{end}}
 
     {{/* first file rows */}}
+    {{if .composition}}{{if not .fileRows}}
+    <div style="padding:12px 14px;border-top:1px solid var(--border2);color:var(--muted);font-size:13px;">no records at this head.</div>
+    {{end}}{{end}}
     {{range .fileRows}}
     <details style="border-top:1px solid var(--border2);">
       <summary style="display:grid;grid-template-columns:minmax(0,260px) 86px minmax(0,1fr);gap:12px;align-items:center;padding:8px 14px;cursor:pointer;list-style:none;font-size:13px;">
@@ -82,6 +92,7 @@
     </section>
     <section style="padding:15px 0 17px;border-bottom:1px solid var(--border2);">
       <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Composition</h3>
+      {{if .composition}}
       <div style="display:flex;height:10px;border-radius:6px;overflow:hidden;margin:2px 0 10px;">
         {{range .composition}}<span style="width:{{.pct}}%;background:{{.color}};display:block;height:100%;"></span>{{end}}
       </div>
@@ -90,18 +101,29 @@
         <div style="display:flex;align-items:center;gap:7px;"><span style="width:8px;height:8px;border-radius:2px;background:{{.color}};"></span>{{.kind}} <span style="margin-left:auto;font-family:var(--mono);font-size:11px;">{{.pct}}%</span></div>
         {{end}}
       </div>
+      {{else}}
+      <div style="font-size:12px;color:var(--faint);">—</div>
+      {{end}}
     </section>
     <section style="padding:15px 0 17px;border-bottom:1px solid var(--border2);">
       <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Topics</h3>
+      {{if .tags}}
       <div style="display:flex;gap:6px;flex-wrap:wrap;">
         {{range .tags}}<span style="font-size:11px;color:var(--water-deep);background:var(--water-tint);border-radius:999px;padding:2px 10px;">{{.}}</span>{{end}}
       </div>
+      {{else}}
+      <div style="font-size:12px;color:var(--faint);">—</div>
+      {{end}}
     </section>
     <section style="padding:15px 0 2px;">
       <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Principals</h3>
+      {{if .principals}}
       <div style="display:flex;gap:6px;">
         {{range .principals}}<span title="{{.id}}" style="width:26px;height:26px;border-radius:7px;background:{{.color}};color:#fff;display:flex;align-items:center;justify-content:center;font:600 10px var(--mono);">{{.initials}}</span>{{end}}
       </div>
+      {{else}}
+      <div style="font-size:12px;color:var(--faint);">—</div>
+      {{end}}
     </section>
   </aside>
 </div>
