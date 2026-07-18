@@ -44,7 +44,10 @@ curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18485/api/health   # 4
 
 The script generates `LETHE_API_KEY` and `CHARON_MERGE_HMAC_KEY` without
 printing them. Git mode binds `127.0.0.1:18485` and uses its own data
-directory — never point it at an existing OpenLethe data directory.
+directory — never point it at an existing OpenLethe data directory. The
+Compose file **pulls `ghcr.io/openlethe/lethe:latest`** (multi-arch:
+linux/amd64 + linux/arm64), so no local build or toolchain is required;
+uncomment `build: .` in the file to compile from source instead.
 
 ## Hybrid mode (both surfaces in one instance)
 

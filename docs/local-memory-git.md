@@ -115,12 +115,8 @@ end-to-end authoring uses a trusted Obol with `memory.branch`,
 confidential OAuth client is required before model-facing OAuth write scopes are
 enabled.
 
-## Local-only rule
+## Operating rules
 
-Until the system passes repeated end-to-end and recovery testing:
-
-- do not push or publish the `lethe-git` branch;
-- do not publish a Lethe Git image or plugin;
 - do not reuse the OpenLethe data directory;
 - do not expose port 18485 outside loopback;
 - do not let a proposal originator act as its reviewer or merger; use a separate reviewer/merger principal.

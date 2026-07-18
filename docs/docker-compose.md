@@ -30,8 +30,8 @@ Ships in the repo as `docker-compose.git.yml`:
 ```yaml
 services:
   lethe-git:
-    build: .
-    image: openlethe/lethe-git:local
+    image: ghcr.io/openlethe/lethe:latest   # multi-arch; uncomment build: . to compile from source
+    # build: .
     container_name: lethe-git-local
     restart: unless-stopped
     ports:
@@ -82,7 +82,7 @@ stays loopback-only; agents meet Charon, never Lethe.
 ```yaml
 services:
   lethe-git:                        # as Variation B
-    image: openlethe/lethe-git:local
+    image: ghcr.io/openlethe/lethe:latest
     ports: ["127.0.0.1:18485:18483"]
     environment:
       LETHE_MODE: git

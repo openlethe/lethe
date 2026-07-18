@@ -1,7 +1,9 @@
 services:
   lethe-git:
-    build: .
-    image: openlethe/lethe-git:local
+    # Pulls the published multi-arch image (linux/amd64 + linux/arm64).
+    # Uncomment build to compile from source instead.
+    image: ghcr.io/openlethe/lethe:latest
+    # build: .
     container_name: lethe-git-local
     restart: unless-stopped
     init: true
