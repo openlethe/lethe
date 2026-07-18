@@ -255,12 +255,13 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 	}
 
 	type RenderData struct {
-		Title        string
-		Content      template.HTML
-		Layout       string // optional extra CSS class for the page wrapper
-		Data         interface{}
-		Request      *http.Request
-		CurrentRoute string
+		Title         string
+		Content       template.HTML
+		Layout        string // optional extra CSS class for the page wrapper
+		Data          interface{}
+		Request       *http.Request
+		CurrentRoute  string
+		ShowLegacyNav bool
 	}
 
 	// Pre-render page content to a string so each page is independent.
@@ -279,12 +280,13 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 	}
 
 	rd := RenderData{
-		Title:        title + " — Lethe",
-		Content:      template.HTML(pageContent), // #nosec G203 -- pageContent is pre-rendered from the server's own trusted templates.
-		Data:         data,
-		Request:      r,
-		CurrentRoute: name,
-		Layout:       "",
+		Title:         title + " — Lethe",
+		Content:       template.HTML(pageContent), // #nosec G203 -- pageContent is pre-rendered from the server's own trusted templates.
+		Data:          data,
+		Request:       r,
+		CurrentRoute:  name,
+		Layout:        "",
+		ShowLegacyNav: !strings.HasPrefix(name, "memory_"),
 	}
 	if err := templates.ExecuteTemplate(w, "layout", rd); err != nil {
 		log.Printf("Render(%q) layout error: %v", name, err)

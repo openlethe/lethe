@@ -1,52 +1,41 @@
 {{define "memory_tabs"}}
-{{/* Lethe Memory UI chrome — paper editorial skin (concept: Treehouse) */}}
-<style>
-  .lx{--paper:#f4f1ec;--ink:#16130f;--line:#d9d3c8;--mut:#6f675b;--cyan:#39d0e8;--deep:#0f4c5c;--dark:#04141a;--mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
-  .lx,.lx .card{background:var(--paper);color:var(--ink)}
-  .lx .card{border:1px solid var(--line);border-radius:0}
-  .lx a{color:var(--ink);text-decoration:none}
-  .lx a:hover{color:var(--deep)}
-  .lx .mut{color:var(--mut)}
-  .lx .mono{font-family:var(--mono)}
-  .lx .kick{font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--mut)}
-  .lx .rule{height:1px;background:var(--ink)}
-  .lx .gridline{border-left:1px solid var(--line);border-top:1px solid var(--line)}
-  .lx .cellx{border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
-  .lx .pill{font-family:var(--mono);font-size:10.5px;padding:2px 8px;border:1px solid var(--line);color:var(--mut);letter-spacing:.06em}
-  .lx .pillb{font-family:var(--mono);font-size:10.5px;padding:2px 8px;border:1px solid var(--ink);background:var(--ink);color:var(--paper);letter-spacing:.06em}
-  .lx .prot{font-family:var(--mono);font-size:10.5px;padding:2px 8px;border:1px solid var(--deep);color:var(--deep);background:rgba(57,208,232,.10);letter-spacing:.06em}
-  .lx select{background:var(--paper);border:1px solid var(--line);color:var(--ink);font-family:var(--mono);font-size:11.5px;padding:4px 8px;border-radius:0}
-  .lx input[type=text]{background:var(--paper);border:1px solid var(--line);color:var(--ink);font-family:var(--mono);font-size:11.5px;padding:4px 8px;border-radius:0;width:140px}
-  .lx .tab{padding:6px 12px;font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;border-bottom:2px solid transparent;color:var(--mut)}
-  .lx .tab:hover{color:var(--ink)}
-  .lx .tab.on{color:var(--ink);border-bottom-color:var(--cyan)}
-</style>
-<div class="lx">
-  <div style="display:flex;align-items:center;gap:14px;padding:4px 0 12px;flex-wrap:wrap;">
-    <span class="kick">Lethe · memory git</span>
-    <span class="kick" style="color:var(--ink);">{{.project}} / memory</span>
-    <span class="prot">🔒 refs/shared/main</span>
-    <span style="margin-left:auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <select onchange="if(this.value)location.href=this.value">
-        {{$currentURL := "/ui/memory/memories"}}
-        {{if eq .page "changesets"}}{{$currentURL = "/ui/memory/changesets"}}
-        {{else if eq .page "refs"}}{{$currentURL = "/ui/memory/refs"}}{{end}}
-        {{range .refs}}
-        {{$rn := index . "ref_name"}}
-        <option value="{{$currentURL}}?project={{$.project}}&ref={{$rn | queryEscape}}" {{if eq $rn $.ref}}selected{{end}}>⎇ {{$rn}}</option>
-        {{end}}
-      </select>
-      <form method="get" style="display:flex;gap:6px;align-items:center;">
-        <input type="text" name="project" value="{{.project}}" placeholder="project">
-        {{if .ref}}<input type="hidden" name="ref" value="{{.ref}}">{{end}}
-      </form>
-    </span>
+{{/* Treehouse chrome: identity grid + ref/view controls */}}
+<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;padding-bottom:18px;border-bottom:1px solid var(--border);">
+  <div style="display:flex;align-items:center;gap:16px;min-width:0;">
+    <span style="width:52px;height:52px;border-radius:12px;background:linear-gradient(140deg,var(--water),#0f4c5c);color:#e8f2f5;display:flex;align-items:center;justify-content:center;font-size:26px;padding-bottom:6px;flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);">≋</span>
+    <div>
+      <div style="font-size:23px;font-weight:700;letter-spacing:-.02em;line-height:1.15;">
+        {{.project}} <span style="color:var(--faint);font-weight:400;margin:0 4px;">›</span> <span style="color:var(--accent);font-weight:600;">memory</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:7px;flex-wrap:wrap;">
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;line-height:17px;padding:0 8px;border-radius:999px;color:var(--water-deep);border:1px solid rgba(18,136,165,.35);background:var(--water-tint);font-family:var(--mono);white-space:nowrap;">🔒 protected · shared/main</span>
+        <span style="display:inline-flex;align-items:center;gap:5px;font-size:10.5px;line-height:17px;padding:0 8px;border-radius:999px;color:var(--water-deep);border:1px solid rgba(18,136,165,.35);background:var(--water-tint);font-family:var(--mono);font-weight:600;white-space:nowrap;">chain ✓ {{len .changesets}}/{{len .changesets}}</span>
+        <span style="font-size:12px;color:var(--muted);">accepted memory at head <span class="mono" style="color:var(--accent);">{{printf "%.8s" (index .ctx "head_changeset_id")}}</span></span>
+      </div>
+    </div>
   </div>
-  <div style="display:flex;gap:2px;border-bottom:1px solid var(--line);">
-    <a class="tab {{if eq .page "home"}}on{{end}}" href="/ui/memory?project={{.project}}&ref={{.ref | queryEscape}}">Home</a>
-    <a class="tab {{if eq .page "memory"}}on{{end}}" href="/ui/memory/memories?project={{.project}}&ref={{.ref | queryEscape}}">Memories <span class="pill">{{index .ctx "total_active"}}</span></a>
-    <a class="tab {{if eq .page "changesets"}}on{{end}}" href="/ui/memory/changesets?project={{.project}}&ref={{.ref | queryEscape}}">Changesets <span class="pill">{{len .changesets}}</span></a>
-    <a class="tab {{if eq .page "refs"}}on{{end}}" href="/ui/memory/refs?project={{.project}}&ref={{.ref | queryEscape}}">Refs <span class="pill">{{len .refs}}</span></a>
+  <div style="display:flex;gap:7px;flex-shrink:0;">
+    <a href="/ui/memory/refs?project={{.project}}" style="height:32px;display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-weight:600;padding:0 11px;text-decoration:none;">⎇ Branch ref</a>
+    <a href="/ui/memory/changesets?project={{.project}}&ref={{.ref | queryEscape}}" style="height:32px;display:inline-flex;align-items:center;gap:6px;background:var(--water);border:1px solid var(--water-deep);border-radius:6px;color:#fff;font-size:12px;font-weight:600;padding:0 11px;text-decoration:none;box-shadow:0 0 16px rgba(57,208,232,.3);">⟟ Changesets</a>
   </div>
+</div>
+
+<div style="display:flex;align-items:center;gap:14px;margin-top:14px;flex-wrap:wrap;">
+  {{$currentURL := "/ui/memory/memories"}}
+  {{if eq .page "changesets"}}{{$currentURL = "/ui/memory/changesets"}}
+  {{else if eq .page "refs"}}{{$currentURL = "/ui/memory/refs"}}{{end}}
+  <select onchange="if(this.value)location.href=this.value" style="height:34px;background:var(--ink);color:#e8f2f5;border:none;border-radius:7px;padding:0 12px;font:600 12.5px var(--sans);cursor:pointer;box-shadow:0 1px 2px rgba(4,20,26,.2);">
+    {{range .refs}}
+    {{$rn := index . "ref_name"}}
+    <option value="{{$currentURL}}?project={{$.project}}&ref={{$rn | queryEscape}}" {{if eq $rn $.ref}}selected{{end}}>⎇ {{$rn}}</option>
+    {{end}}
+  </select>
+  <nav style="display:inline-flex;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:2px;">
+    <a href="/ui/memory?project={{.project}}&ref={{.ref | queryEscape}}" style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:6px;color:{{if eq .page "home"}}var(--text){{else}}var(--muted){{end}};font-size:12.5px;font-weight:600;text-decoration:none;{{if eq .page "home"}}background:var(--surface);box-shadow:0 1px 3px rgba(4,20,26,.14);{{end}}">≋ Home</a>
+    <a href="/ui/memory/memories?project={{.project}}&ref={{.ref | queryEscape}}" style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:6px;color:{{if eq .page "memory"}}var(--text){{else}}var(--muted){{end}};font-size:12.5px;font-weight:600;text-decoration:none;{{if eq .page "memory"}}background:var(--surface);box-shadow:0 1px 3px rgba(4,20,26,.14);{{end}}">🗂 Memories <span style="font:10px var(--mono);color:var(--water-deep);background:var(--water-tint);border-radius:999px;padding:0 6px;">{{index .ctx "total_active"}}</span></a>
+    <a href="/ui/memory/changesets?project={{.project}}&ref={{.ref | queryEscape}}" style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:6px;color:{{if eq .page "changesets"}}var(--text){{else}}var(--muted){{end}};font-size:12.5px;font-weight:600;text-decoration:none;{{if eq .page "changesets"}}background:var(--surface);box-shadow:0 1px 3px rgba(4,20,26,.14);{{end}}">⟟ Changesets <span style="font:10px var(--mono);color:var(--water-deep);background:var(--water-tint);border-radius:999px;padding:0 6px;">{{len .changesets}}</span></a>
+    <a href="/ui/memory/refs?project={{.project}}&ref={{.ref | queryEscape}}" style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:6px;color:{{if eq .page "refs"}}var(--text){{else}}var(--muted){{end}};font-size:12.5px;font-weight:600;text-decoration:none;{{if eq .page "refs"}}background:var(--surface);box-shadow:0 1px 3px rgba(4,20,26,.14);{{end}}">⎇ Refs <span style="font:10px var(--mono);color:var(--water-deep);background:var(--water-tint);border-radius:999px;padding:0 6px;">{{len .refs}}</span></a>
+  </nav>
+  <span style="margin-left:auto;display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:0 11px;height:34px;color:var(--faint);font-size:12px;min-width:200px;">filter memory… <kbd style="font:10px var(--mono);border:1px solid var(--border);border-radius:4px;padding:0 4px;color:var(--muted);margin-left:auto;">/</kbd></span>
 </div>
 {{end}}
