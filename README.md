@@ -93,7 +93,7 @@ Protocol and deep-dive references:
 
 | Component | Release |
 |---|---|
-| Lethe | `v0.4.0-beta.1` |
+| Lethe | `v0.4.0` |
 | Charon | `v0.1.0-beta.1` |
 | Memory Git schema | `memory_git/v1` |
 | Merge authorization | `memory-git-merge/v2` |

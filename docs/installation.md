@@ -73,7 +73,7 @@ go build -o lethe ./cmd/lethe
 
 - `ghcr.io/openlethe/lethe:latest` — current stable main build (multi-arch,
   non-root UID 1000)
-- `ghcr.io/openlethe/lethe:0.4.0-beta.1` — pinned beta release
+- `ghcr.io/openlethe/lethe:0.4.0` — pinned release
 
 Production deployments should pin an exact version tag and review the
 release notes before upgrading; see [deployment.md](deployment.md) and
