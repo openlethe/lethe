@@ -1,12 +1,55 @@
 {{define "memory_tabs"}}
-<div style="display:flex;gap:2px;margin-bottom:22px;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;">
-  {{$base := printf "?project=%s" .project}}
-  <a href="/ui/memory{{$base}}" style="padding:8px 16px;font-size:13px;text-decoration:none;border-bottom:2px solid {{if eq .page "memory"}}var(--accent){{else}}transparent{{end}};color:{{if eq .page "memory"}}var(--accent){{else}}var(--muted){{end}};">🗂 Memories</a>
-  <a href="/ui/memory/changesets{{$base}}" style="padding:8px 16px;font-size:13px;text-decoration:none;border-bottom:2px solid {{if eq .page "changesets"}}var(--accent){{else}}transparent{{end}};color:{{if eq .page "changesets"}}var(--accent){{else}}var(--muted){{end}};">⟟ Changesets</a>
-  <a href="/ui/memory/refs{{$base}}" style="padding:8px 16px;font-size:13px;text-decoration:none;border-bottom:2px solid {{if eq .page "refs"}}var(--accent){{else}}transparent{{end}};color:{{if eq .page "refs"}}var(--accent){{else}}var(--muted){{end}};">⎇ Refs</a>
-  <form method="get" action="/ui/memory" style="margin-left:auto;display:flex;gap:6px;align-items:center;">
-    <span style="font-size:11px;color:var(--faint,var(--muted));font-family:var(--mono);">project</span>
-    <input name="project" value="{{.project}}" style="background:var(--bg,#05070a);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:4px 8px;border-radius:4px;width:150px;">
-  </form>
+<style>
+  .gh{--gh-bg:#f6f8fa;--gh-surface:#ffffff;--gh-border:#d0d7de;--gh-text:#1f2328;--gh-muted:#57606a;--gh-faint:#8c959f;--gh-link:#0969da;--gh-green:#1a7f37;--gh-amber:#9a6700;--gh-purple:#8250df;--gh-red:#cf222e;--gh-mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace}
+  .gh,.gh .card{background:var(--gh-surface);color:var(--gh-text)}
+  .gh .card{border:1px solid var(--gh-border);border-radius:6px}
+  .gh a{color:var(--gh-link);text-decoration:none}
+  .gh a:hover{text-decoration:underline}
+  .gh .gh-muted{color:var(--gh-muted)}
+  .gh .gh-mono{font-family:var(--gh-mono)}
+  .gh .gh-head{background:var(--gh-bg);border-bottom:1px solid var(--gh-border);padding:9px 16px;display:flex;align-items:center;gap:10px;border-radius:6px 6px 0 0}
+  .gh .gh-row{display:flex;align-items:center;gap:12px;padding:9px 16px;border-top:1px solid var(--gh-border)}
+  .gh .gh-row:first-of-type{border-top:none}
+  .gh .gh-pill{font-family:var(--gh-mono);font-size:11px;padding:1px 8px;border-radius:12px;border:1px solid var(--gh-border);color:var(--gh-muted)}
+  .gh .gh-prot{font-family:var(--gh-mono);font-size:11px;padding:1px 8px;border-radius:12px;border:1px solid rgba(26,127,55,.4);color:var(--gh-green);background:rgba(26,127,55,.08)}
+  .gh select{background:var(--gh-surface);border:1px solid var(--gh-border);border-radius:6px;color:var(--gh-text);font-family:var(--gh-mono);font-size:12px;padding:4px 8px}
+  .gh .gh-tab{padding:7px 14px;font-size:13px;border-bottom:2px solid transparent;color:var(--gh-muted)}
+  .gh .gh-tab:hover{color:var(--gh-text);text-decoration:none}
+  .gh .gh-tab.on{color:var(--gh-text);border-bottom-color:var(--gh-link);font-weight:600}
+</style>
+<div class="gh">
+  {{/* repo header */}}
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+    <span style="font-size:18px;color:var(--gh-muted);">🗂</span>
+    <span style="font-size:18px;">
+      <a href="/ui/memory">{{.project}}</a>
+      <span class="gh-muted">/</span>
+      <b>memory</b>
+    </span>
+    <span class="gh-prot">🔒 refs/shared/main</span>
+    <span class="gh-muted" style="font-size:12px;">accepted memory, reconstructed exactly at head</span>
+  </div>
+
+  {{/* branch bar + tabs */}}
+  {{$currentURL := "/ui/memory"}}
+  {{if eq .page "changesets"}}{{$currentURL = "/ui/memory/changesets"}}
+  {{else if eq .page "refs"}}{{$currentURL = "/ui/memory/refs"}}{{end}}
+  <div style="display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--gh-border);flex-wrap:wrap;">
+    <div style="padding-bottom:6px;">
+      <select onchange="if(this.value)location.href=this.value">
+        {{range .refs}}
+        {{$rn := index . "ref_name"}}
+        <option value="{{$currentURL}}?project={{$.project}}&ref={{$rn | queryEscape}}" {{if eq $rn $.ref}}selected{{end}}>⎇ {{$rn}}</option>
+        {{end}}
+      </select>
+    </div>
+    <a class="gh-tab {{if eq .page "memory"}}on{{end}}" href="/ui/memory?project={{.project}}&ref={{.ref | queryEscape}}">🗂 Memories</a>
+    <a class="gh-tab {{if eq .page "changesets"}}on{{end}}" href="/ui/memory/changesets?project={{.project}}&ref={{.ref | queryEscape}}">⟟ Changesets <span class="gh-pill">{{len .changesets}}</span></a>
+    <a class="gh-tab {{if eq .page "refs"}}on{{end}}" href="/ui/memory/refs?project={{.project}}&ref={{.ref | queryEscape}}">⎇ Refs <span class="gh-pill">{{len .refs}}</span></a>
+    <form method="get" style="margin-left:auto;padding-bottom:6px;">
+      <input name="project" value="{{.project}}" class="gh-mono" style="background:var(--gh-surface);border:1px solid var(--gh-border);border-radius:6px;color:var(--gh-text);font-size:12px;padding:4px 8px;width:140px;" placeholder="project">
+      {{if .ref}}<input type="hidden" name="ref" value="{{.ref}}">{{end}}
+    </form>
+  </div>
 </div>
 {{end}}

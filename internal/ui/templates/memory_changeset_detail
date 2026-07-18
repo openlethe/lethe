@@ -1,58 +1,63 @@
 {{$cs := .cs}}
-<div style="margin-bottom:18px;">
-  <a href="/ui/memory/changesets" style="font-size:12px;color:var(--accent);text-decoration:none;">← changesets</a>
-</div>
+<div class="gh">
+  <div style="margin-bottom:16px;">
+    <a href="/ui/memory/changesets?project={{.project}}" style="font-size:12px;">← changesets</a>
+  </div>
 
-<div class="card" style="margin-bottom:18px;">
-  <div style="padding:16px 18px;">
-    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:10px;">{{index $cs "message"}}</div>
-    <div style="display:grid;grid-template-columns:auto 1fr;gap:5px 16px;font-size:12px;">
-      <span style="color:var(--muted);">changeset</span><span style="font-family:var(--mono);color:var(--accent);">{{index $cs "changeset_id"}}</span>
-      <span style="color:var(--muted);">author</span><span style="font-family:var(--mono);color:var(--text);">{{index $cs "author_principal"}}</span>
-      <span style="color:var(--muted);">ref</span><span style="font-family:var(--mono);color:var(--text);">{{index $cs "ref_name"}}</span>
-      <span style="color:var(--muted);">parents</span><span style="font-family:var(--mono);color:var(--text);">
-        {{range index $cs "parent_ids"}}<a href="/ui/memory/changesets/{{.}}" style="color:var(--accent);">{{printf "%.12s" .}}</a> {{end}}</span>
-      <span style="color:var(--muted);">created</span><span style="color:var(--text);">{{index $cs "created_at"}}</span>
-      <span style="color:var(--muted);">idempotency</span><span style="font-family:var(--mono);color:var(--muted);">{{index $cs "idempotency_key"}}</span>
-      <span style="color:var(--muted);">schema</span><span style="font-family:var(--mono);color:var(--muted);">{{index $cs "schema_version"}}</span>
+  {{/* commit header */}}
+  <div class="card" style="overflow:hidden;margin-bottom:20px;">
+    <div class="gh-head" style="justify-content:space-between;">
+      <span class="gh-mono" style="font-size:12px;color:var(--gh-muted);">commit</span>
+      <span class="gh-mono" style="font-size:12px;color:var(--gh-link);">{{index $cs "changeset_id"}}</span>
+    </div>
+    <div style="padding:16px;">
+      <div style="font-size:16px;font-weight:600;margin-bottom:12px;">{{index $cs "message"}}</div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:5px 16px;font-size:12px;">
+        <span class="gh-muted">author</span><span class="gh-mono">{{index $cs "author_principal"}}</span>
+        <span class="gh-muted">ref</span><span class="gh-mono">{{index $cs "ref_name"}}</span>
+        <span class="gh-muted">parents</span><span class="gh-mono">{{range index $cs "parent_ids"}}<a href="/ui/memory/changesets/{{.}}?project={{$.project}}">{{printf "%.10s" .}}</a> {{end}}</span>
+        <span class="gh-muted">created</span><span>{{index $cs "created_at"}}</span>
+        <span class="gh-muted">idempotency</span><span class="gh-mono gh-muted">{{index $cs "idempotency_key"}}</span>
+        <span class="gh-muted">schema</span><span class="gh-mono gh-muted">{{index $cs "schema_version"}}</span>
+      </div>
     </div>
   </div>
-</div>
 
-<h2 style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:12px;">{{len (index $cs "ops")}} operation{{if ne (len (index $cs "ops")) 1}}s{{end}}</h2>
-
-{{range $op := (index $cs "ops")}}
-{{$t := index $op "op_type"}}
-<div class="card" style="margin-bottom:12px;">
-  <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-    <span style="font-size:10px;font-family:var(--mono);padding:3px 9px;border-radius:10px;border:1px solid;
-      {{if eq $t "add_memory"}}color:#8ae8a8;border-color:rgba(138,232,168,.4);background:rgba(138,232,168,.08);
-      {{else if eq $t "correct_memory"}}color:#e8c98a;border-color:rgba(232,201,138,.4);background:rgba(232,201,138,.08);
-      {{else if eq $t "supersede_memory"}}color:#e87a7a;border-color:rgba(232,122,122,.4);background:rgba(232,122,122,.08);
-      {{else if eq $t "add_relationship"}}color:#7ab8e8;border-color:rgba(122,184,232,.4);background:rgba(122,184,232,.08);
-      {{else if or (eq $t "attach_evidence") (eq $t "attach_verification")}}color:#c792ea;border-color:rgba(199,146,234,.4);background:rgba(199,146,234,.08);
-      {{else}}color:var(--muted);border-color:rgba(138,125,107,.35);background:rgba(138,125,107,.08);{{end}}">
-      {{$t}}
-    </span>
-    <span style="font-size:11px;color:var(--muted);font-family:var(--mono);">#{{index $op "ordinal"}}</span>
-    <span style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-left:auto;">
-      {{with index $op "target_event_id"}}→ {{.}}{{end}}
-      {{with index $op "resulting_event_id"}}{{.}}{{end}}
-    </span>
+  {{/* ops as changed files */}}
+  <div class="gh-muted" style="font-size:12px;margin-bottom:10px;">
+    <b style="color:var(--gh-text);">{{len (index $cs "ops")}}</b> operation{{if ne (len (index $cs "ops")) 1}}s{{end}}
   </div>
-  {{with index $op "payload"}}
-  <div style="padding:14px 18px;">
-    {{with index . "content"}}<div style="font-size:13px;line-height:1.65;color:var(--text);margin-bottom:10px;">{{.}}</div>{{end}}
-    <div style="display:flex;gap:6px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--muted);">
-      {{with index . "kind"}}<span style="padding:1px 7px;border-radius:9px;border:1px solid var(--border);">{{.}}</span>{{end}}
-      {{with index . "event_type"}}<span style="padding:1px 7px;border-radius:9px;border:1px solid var(--border);">{{.}}</span>{{end}}
-      {{with index . "scope"}}<span style="padding:1px 7px;border-radius:9px;border:1px solid var(--border);">{{.}}</span>{{end}}
-      {{with index . "tags"}}{{range .}}<span style="padding:1px 7px;border-radius:9px;background:rgba(138,125,107,.12);border:1px solid rgba(138,125,107,.2);">{{.}}</span>{{end}}{{end}}
+
+  {{range $op := (index $cs "ops")}}
+  {{$t := index $op "op_type"}}
+  <div class="card" style="overflow:hidden;margin-bottom:14px;">
+    <div class="gh-head">
+      <span class="gh-pill" style="font-weight:600;
+        {{if eq $t "add_memory"}}color:var(--gh-green);border-color:rgba(26,127,55,.4);background:rgba(26,127,55,.08);
+        {{else if eq $t "correct_memory"}}color:var(--gh-amber);border-color:rgba(154,103,0,.4);background:rgba(154,103,0,.08);
+        {{else if eq $t "supersede_memory"}}color:var(--gh-red);border-color:rgba(207,34,46,.4);background:rgba(207,34,46,.08);
+        {{else if eq $t "add_relationship"}}color:var(--gh-link);border-color:rgba(9,105,218,.4);background:rgba(9,105,218,.08);
+        {{else if or (eq $t "attach_evidence") (eq $t "attach_verification")}}color:var(--gh-purple);border-color:rgba(130,80,223,.4);background:rgba(130,80,223,.08);
+        {{end}}">{{$t}}</span>
+      <span class="gh-mono gh-muted" style="font-size:11px;">op #{{index $op "ordinal"}}</span>
+      <span class="gh-mono gh-muted" style="font-size:11px;margin-left:auto;">
+        {{with index $op "target_event_id"}}→ {{.}} · {{end}}{{with index $op "resulting_event_id"}}{{.}}{{end}}
+      </span>
     </div>
-    <details style="margin-top:10px;"><summary style="font-size:11px;color:var(--muted);cursor:pointer;">raw payload</summary>
-      <pre style="margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--muted);white-space:pre-wrap;">{{prettyJSON .}}</pre>
-    </details>
+    {{with index $op "payload"}}
+    <div style="padding:14px 16px;">
+      {{with index . "content"}}<div style="font-size:13px;line-height:1.65;margin-bottom:10px;">{{.}}</div>{{end}}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        {{with index . "kind"}}<span class="gh-pill">{{.}}</span>{{end}}
+        {{with index . "event_type"}}<span class="gh-pill">{{.}}</span>{{end}}
+        {{with index . "scope"}}<span class="gh-pill">{{.}}</span>{{end}}
+        {{with index . "tags"}}{{range .}}<span class="gh-pill" style="background:var(--gh-bg);">{{.}}</span>{{end}}{{end}}
+      </div>
+      <details style="margin-top:10px;"><summary class="gh-muted" style="font-size:11px;cursor:pointer;">raw payload</summary>
+        <pre class="gh-mono gh-muted" style="margin-top:8px;font-size:11px;white-space:pre-wrap;background:var(--gh-bg);border:1px solid var(--gh-border);border-radius:6px;padding:10px;">{{prettyJSON .}}</pre>
+      </details>
+    </div>
+    {{end}}
   </div>
   {{end}}
 </div>
-{{end}}

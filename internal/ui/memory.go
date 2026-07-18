@@ -9,6 +9,7 @@ package ui
 import (
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -39,45 +40,88 @@ func memoryProject(r *http.Request) string {
 	return "Archimedes"
 }
 
-// handleMemoryHome renders accepted memory at the head of refs/shared/main —
-// the repository "tree" view.
+func memoryRef(r *http.Request) string {
+	if ref := strings.TrimSpace(r.URL.Query().Get("ref")); ref != "" {
+		return ref
+	}
+	return "refs/shared/main"
+}
+
+// memoryChrome gathers the repo-bar data every memory page needs: the ref
+// list for the branch dropdown and the changeset log for counts/latest.
+func memoryChrome(r *http.Request, project, ref string) (refs []interface{}, changesets []interface{}) {
+	refs, _ = httpGetJSON[[]interface{}](r.Context(), authTokenFromRequest(r),
+		apiBase+"/api/memory/"+url.PathEscape(project)+"/refs")
+	res, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
+		apiBase+"/api/memory/"+url.PathEscape(project)+"/changesets?ref="+url.QueryEscape(ref))
+	if res != nil {
+		if c, ok := res["changesets"].([]interface{}); ok {
+			changesets = c
+		}
+	}
+	return refs, changesets
+}
+
+// handleMemoryHome renders accepted memory at a ref head — the repository
+// "tree" view, defaulting to the protected shared ref.
 func handleMemoryHome(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
+	ref := memoryRef(r)
+	refs, changesets := memoryChrome(r, project, ref)
 	ctxRes, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
-		apiBase+"/api/memory/"+url.PathEscape(project)+"/context?ref=refs/shared/main&limit=200")
+		apiBase+"/api/memory/"+url.PathEscape(project)+"/context?ref="+url.QueryEscape(ref)+"&limit=200")
 	var memories []interface{}
 	if ctxRes != nil {
 		if m, ok := ctxRes["memories"].([]interface{}); ok {
 			memories = m
 		}
 	}
+	tagSet := map[string]bool{}
+	var tags []string
+	for _, m := range memories {
+		mm, _ := m.(map[string]interface{})
+		for _, t := range toStrings(mm["tags"]) {
+			if !tagSet[t] {
+				tagSet[t] = true
+				tags = append(tags, t)
+			}
+		}
+	}
+	sort.Strings(tags)
 	Render(w, r, "memory_home", map[string]interface{}{
-		"project":  project,
-		"ctx":      ctxRes,
-		"memories": memories,
-		"page":     "memory",
+		"project":    project,
+		"ref":        ref,
+		"refs":       refs,
+		"changesets": changesets,
+		"ctx":        ctxRes,
+		"memories":   memories,
+		"tags":       tags,
+		"page":       "memory",
 	})
 }
 
-// handleMemoryChangesets renders the commit log reachable from a ref
-// (defaults to the protected shared ref).
-func handleMemoryChangesets(w http.ResponseWriter, r *http.Request) {
-	project := memoryProject(r)
-	ref := strings.TrimSpace(r.URL.Query().Get("ref"))
-	if ref == "" {
-		ref = "refs/shared/main"
-	}
-	res, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
-		apiBase+"/api/memory/"+url.PathEscape(project)+"/changesets?ref="+url.QueryEscape(ref))
-	var changesets []interface{}
-	if res != nil {
-		if c, ok := res["changesets"].([]interface{}); ok {
-			changesets = c
+// toStrings coerces a decoded JSON array into strings.
+func toStrings(v interface{}) []string {
+	var out []string
+	if arr, ok := v.([]interface{}); ok {
+		for _, item := range arr {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
 		}
 	}
+	return out
+}
+
+// handleMemoryChangesets renders the commit log reachable from a ref.
+func handleMemoryChangesets(w http.ResponseWriter, r *http.Request) {
+	project := memoryProject(r)
+	ref := memoryRef(r)
+	refs, changesets := memoryChrome(r, project, ref)
 	Render(w, r, "memory_changesets", map[string]interface{}{
 		"project":    project,
 		"ref":        ref,
+		"refs":       refs,
 		"changesets": changesets,
 		"page":       "changesets",
 	})
@@ -86,6 +130,7 @@ func handleMemoryChangesets(w http.ResponseWriter, r *http.Request) {
 // handleMemoryChangesetDetail renders one changeset as a commit view: header
 // plus each semantic operation as a diff-style card.
 func handleMemoryChangesetDetail(w http.ResponseWriter, r *http.Request) {
+	project := memoryProject(r)
 	id := chi.URLParam(r, "id")
 	cs, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
 		apiBase+"/api/memory/changesets/"+url.PathEscape(id))
@@ -93,19 +138,25 @@ func handleMemoryChangesetDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "changeset not found", http.StatusNotFound)
 		return
 	}
+	refs, _ := httpGetJSON[[]interface{}](r.Context(), authTokenFromRequest(r),
+		apiBase+"/api/memory/"+url.PathEscape(project)+"/refs")
 	Render(w, r, "memory_changeset_detail", map[string]interface{}{
-		"cs":   cs,
-		"page": "changesets",
+		"project": project,
+		"refs":    refs,
+		"cs":      cs,
+		"page":    "changesets",
 	})
 }
 
 // handleMemoryRefs renders the branch list with heads and protection status.
 func handleMemoryRefs(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
+	ref := memoryRef(r)
 	refs, _ := httpGetJSON[[]interface{}](r.Context(), authTokenFromRequest(r),
 		apiBase+"/api/memory/"+url.PathEscape(project)+"/refs")
 	Render(w, r, "memory_refs", map[string]interface{}{
 		"project": project,
+		"ref":     ref,
 		"refs":    refs,
 		"page":    "refs",
 	})
