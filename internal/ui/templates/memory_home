@@ -1,0 +1,165 @@
+{{template "memory_tabs" .}}
+
+<div style="display:grid;grid-template-columns:minmax(0,1fr) 288px;gap:32px;align-items:start;margin-top:22px;">
+  <main>
+    {{/* head bar — always rendered, empty variant when the ref has no changesets */}}
+    <div style="display:flex;align-items:center;gap:10px;background:linear-gradient(120deg,var(--water),#146f86);color:#e8f2f5;border-radius:9px;padding:10px 14px;font-size:12px;box-shadow:0 2px 8px rgba(18,136,165,.22);">
+      <span style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);border-radius:5px;padding:2px 8px;color:#fff;font:600 11px var(--mono);flex-shrink:0;">≋ head</span>
+      {{with .latest}}
+      <a href="/ui/memory/changesets/{{index . "changeset_id"}}?project={{$.project}}&ref={{$.ref}}" style="color:#fff;font-weight:600;font-family:var(--mono);font-size:12px;">{{printf "%.8s" (index . "changeset_id")}}</a>
+      <a href="/ui/memory/changesets/{{index . "changeset_id"}}?project={{$.project}}&ref={{$.ref}}" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;color:#e8fbff;font-size:12.5px;min-width:0;">{{index . "message"}}</a>
+      <span style="flex-shrink:0;display:flex;gap:12px;color:#a9dcea;font-size:11.5px;align-items:center;"><span>{{since (index . "created_at")}}</span><span style="color:#7de8f7;font-weight:600;">chain ✓</span><span>{{len $.changesets}} changesets</span></span>
+      {{else}}
+      <span style="flex:1;color:#e8fbff;font-size:12.5px;">no changesets on <span class="mono">{{$.ref}}</span> yet — accepted merges will appear here</span>
+      <span style="flex-shrink:0;color:#a9dcea;font-size:11.5px;">0 changesets</span>
+      {{end}}
+    </div>
+
+    {{/* column head */}}
+    <div style="display:grid;grid-template-columns:minmax(0,260px) 86px minmax(0,1fr);gap:12px;padding:16px 14px 7px;font:600 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);">
+      <span>Record</span><span>Kind</span><span>Content</span>
+    </div>
+
+    {{/* kind folder rails */}}
+    {{range .composition}}
+    <a href="/ui/memory/memories?project={{$.project}}&ref={{$.ref}}&kind={{.kind}}" style="display:grid;grid-template-columns:minmax(0,260px) 86px minmax(0,1fr);gap:12px;align-items:center;padding:8px 14px;border-top:1px solid var(--border2);position:relative;text-decoration:none;">
+      <span style="position:absolute;left:0;top:0;bottom:0;width:3px;background:{{.color}};border-radius:0 3px 3px 0;"></span>
+      <span style="display:flex;align-items:center;gap:9px;font-weight:600;color:var(--text);"><span style="color:{{.color}};">▸</span><span style="font-size:13px;">{{.kind}}/</span></span>
+      <span style="font:11px var(--mono);color:var(--muted);">{{.count}} rec</span>
+      <span style="color:var(--faint);font-size:12px;"></span>
+    </a>
+    {{else}}
+    <div style="display:flex;align-items:center;gap:9px;padding:12px 14px;border-top:1px solid var(--border2);color:var(--muted);font-size:13px;">
+      <span style="color:var(--faint);">▸</span> no accepted memory on <span class="mono">{{.ref}}</span> — kinds will appear here after a reviewed merge lands
+    </div>
+    {{end}}
+
+    {{/* first file rows */}}
+    {{if .composition}}{{if not .fileRows}}
+    <div style="padding:12px 14px;border-top:1px solid var(--border2);color:var(--muted);font-size:13px;">no records at this head.</div>
+    {{end}}{{end}}
+    {{range .fileRows}}
+    <details style="border-top:1px solid var(--border2);">
+      <summary style="display:grid;grid-template-columns:minmax(0,260px) 86px minmax(0,1fr);gap:12px;align-items:center;padding:8px 14px;cursor:pointer;list-style:none;font-size:13px;">
+        <span style="display:flex;align-items:center;gap:9px;font-weight:500;color:var(--text);min-width:0;">
+          <span style="color:var(--faint);flex-shrink:0;">≡</span>
+          <span class="mono" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--accent);" title="{{index . "memory_id"}}">{{index . "memory_id"}}</span>
+        </span>
+        <span style="font:600 9px var(--mono);letter-spacing:.1em;padding:2px 0;border-radius:4px;text-align:center;color:var(--water-deep);background:var(--water-tint);">{{index . "kind"}}</span>
+        <span style="color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;min-width:0;">{{index . "content"}}</span>
+      </summary>
+      <div style="padding:12px 18px 14px 43px;border-top:1px solid var(--border2);background:#f2f6f0;border-left:3px solid var(--water);">
+        <div style="font-size:13.5px;line-height:1.7;max-width:66ch;">{{index . "content"}}</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+          {{with index . "tags"}}{{range .}}<span style="font:11px var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:1px 8px;color:var(--muted);">{{.}}</span>{{end}}{{end}}
+          <span style="font:10.5px var(--mono);color:var(--faint);">{{index . "memory_id"}}</span>
+          <a href="/ui/memory/memories?project={{$.project}}&ref={{$.ref}}&kind={{index . "kind"}}" style="font-size:12px;font-weight:600;margin-left:auto;">open in {{index . "kind"}}/ →</a>
+        </div>
+      </div>
+    </details>
+    {{end}}
+
+    {{/* LETHE.md — operator CLI card */}}
+    <div style="margin-top:26px;border:1px solid var(--border);border-radius:9px;background:var(--surface);overflow:hidden;">
+      <div style="border-bottom:1px solid var(--border);padding:8px 14px;font:600 11px var(--mono);letter-spacing:.1em;display:flex;align-items:center;gap:8px;color:var(--water-deep);background:var(--surface2);">≋ LETHE.md · operate from the CLI</div>
+      <div style="padding:18px 22px;font-size:13.5px;line-height:1.7;">
+        <p style="margin-bottom:14px;color:var(--muted);font-size:12.5px;">Everything below works as-is against this deployment. The API key is read from the container's own environment — it is never printed. Inside the container, the service listens on <code style="font:12px var(--mono);background:var(--water-tint);border-radius:5px;padding:1.5px 5px;color:var(--water-deep);">:18483</code>.</p>
+
+        <div style="display:grid;gap:12px;">
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># open a shell inside the memory store</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec -it lethe-git-local sh</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># follow the logs</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker logs -f lethe-git-local</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># health-check (key comes from the container env)</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec lethe-git-local sh -c 'wget -qO- --header="Authorization: Bearer $LETHE_API_KEY" http://127.0.0.1:18483/api/health'</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># list refs for the active project</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec lethe-git-local sh -c 'wget -qO- --header="Authorization: Bearer $LETHE_API_KEY" "http://127.0.0.1:18483/api/memory/{{.project}}/refs"'</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># snapshot the database, then verify it</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker cp lethe-git-local:/data/lethe.db /tmp/lethe-snap.db && sqlite3 /tmp/lethe-snap.db "PRAGMA integrity_check;"</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># restart (from the lethe repo directory)</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker compose -f docker-compose.git.yml --env-file .env.git restart</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># governed path — only if this deployment runs Charon alongside (container name varies)</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec &lt;charon-container&gt; charon proposal ls
+docker exec &lt;charon-container&gt; charon ledger verify</code>
+          </div>
+        </div>
+
+        <p style="margin-top:14px;color:var(--muted);font-size:12px;">Rule of thumb: <strong>read</strong> via the API or this UI, <strong>write</strong> through Charon — never edit the database by hand.</p>
+      </div>
+    </div>
+  </main>
+
+  {{/* sidebar — aligned to the headbar's top line */}}
+  <aside style="margin-top:-4px;">
+    <section style="padding:0 0 17px;border-bottom:1px solid var(--border2);">
+      <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;line-height:1;">About</h3>
+      <p style="font-size:12px;color:var(--muted);line-height:1.7;">Reviewed shared memory for the {{.project}} collective. Mutable workspaces live on owned refs; this tree is the protected result of Charon review.</p>
+    </section>
+    <section style="padding:15px 0 17px;border-bottom:1px solid var(--border2);">
+      <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;display:flex;align-items:center;gap:7px;">Integrity {{if .ctxOK}}<span style="margin-left:auto;color:var(--water);letter-spacing:.08em;">VERIFIED</span>{{else}}<span style="margin-left:auto;color:var(--muted);letter-spacing:.08em;">UNVERIFIED</span>{{end}}</h3>
+      {{if .ctxOK}}
+      <div style="display:grid;gap:6px;font:11px var(--mono);color:var(--muted);">
+        <div style="display:flex;justify-content:space-between;"><span>chain</span><b style="color:var(--water);">✓ {{len .changesets}}{{if .maybeMore}}+{{end}} changesets loaded</b></div>
+        <div style="display:flex;justify-content:space-between;"><span>digest</span><b style="color:var(--text);">{{printf "%.8s" (index .ctx "head_changeset_id")}}</b></div>
+        <div style="display:flex;justify-content:space-between;"><span>algorithm</span><b style="color:var(--text);">sha-256, parent-linked</b></div>
+        <div style="display:flex;justify-content:space-between;"><span>projection</span><b style="color:var(--water);">reconstructed at head ✓</b></div>
+      </div>
+      {{else}}
+      <div style="font-size:12px;color:var(--faint);">context unavailable — integrity not asserted for this view.</div>
+      {{end}}
+    </section>
+    <section style="padding:15px 0 17px;border-bottom:1px solid var(--border2);">
+      <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Composition</h3>
+      {{if .composition}}
+      <div style="display:flex;height:10px;border-radius:6px;overflow:hidden;margin:2px 0 10px;">
+        {{range .composition}}<span style="width:{{.pct}}%;background:{{.color}};display:block;height:100%;"></span>{{end}}
+      </div>
+      <div style="display:grid;gap:6px;font-size:12px;color:var(--muted);">
+        {{range .composition}}
+        <div style="display:flex;align-items:center;gap:7px;"><span style="width:8px;height:8px;border-radius:2px;background:{{.color}};"></span>{{.kind}} <span style="margin-left:auto;font-family:var(--mono);font-size:11px;">{{.pct}}%</span></div>
+        {{end}}
+      </div>
+      {{else}}
+      <div style="font-size:12px;color:var(--faint);">—</div>
+      {{end}}
+    </section>
+    <section style="padding:15px 0 17px;border-bottom:1px solid var(--border2);">
+      <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Topics</h3>
+      {{if .tags}}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        {{range .tags}}<span style="font-size:11px;color:var(--water-deep);background:var(--water-tint);border-radius:999px;padding:2px 10px;">{{.}}</span>{{end}}
+      </div>
+      {{else}}
+      <div style="font-size:12px;color:var(--faint);">—</div>
+      {{end}}
+    </section>
+    <section style="padding:15px 0 2px;">
+      <h3 style="font:600 10.5px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;">Principals</h3>
+      {{if .principals}}
+      <div style="display:flex;gap:6px;">
+        {{range .principals}}<span title="{{.id}}" style="width:26px;height:26px;border-radius:7px;background:{{.color}};color:#fff;display:flex;align-items:center;justify-content:center;font:600 10px var(--mono);">{{.initials}}</span>{{end}}
+      </div>
+      {{else}}
+      <div style="font-size:12px;color:var(--faint);">—</div>
+      {{end}}
+    </section>
+  </aside>
+</div>
+
+<div style="margin-top:34px;padding-top:16px;border-top:1px solid var(--border2);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font:11px var(--mono);color:var(--faint);">
+  <span>≋ lethe — memory reconstructed at exact head {{printf "%.8s" (index .ctx "head_changeset_id")}}</span>
+  <span>{{index .ctx "total_active"}} memories · {{len .changesets}} changesets · {{len .refs}} refs</span>
+</div>

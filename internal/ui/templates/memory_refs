@@ -1,0 +1,34 @@
+{{template "memory_tabs" .}}
+
+<div style="margin-top:22px;">
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:12px;padding:4px 14px 7px;font:600 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);">
+    <span>Ref</span><span style="text-align:right">Head</span>
+  </div>
+
+  {{if .refs}}
+  <div style="border-top:1px solid var(--border2);">
+    {{range $ref := .refs}}
+    <div style="display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:12px;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border2);">
+      <div style="min-width:0;">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span style="color:var(--water);font-size:13px;">⎇</span>
+          <a href="/ui/memory/changesets?project={{$.project}}&ref={{index $ref "ref_name"}}" class="mono" style="font-size:13px;font-weight:600;color:var(--text);">{{index $ref "ref_name"}}</a>
+          {{if index $ref "protected"}}<span style="font:10.5px var(--mono);padding:1px 8px;border-radius:999px;color:var(--water-deep);border:1px solid rgba(18,136,165,.35);background:var(--water-tint);">🔒</span>{{end}}
+          {{if eq (index $ref "ref_name") $.ref}}<span style="font:10.5px var(--mono);padding:1px 8px;border-radius:999px;color:#fff;background:var(--water);">current</span>{{end}}
+        </div>
+        <div class="mono mut" style="font-size:11px;margin-top:2px;">created by {{index $ref "created_by_principal"}} · updated {{since (index $ref "updated_at")}}</div>
+      </div>
+      <div style="text-align:right;">
+        <a href="/ui/memory/changesets/{{index $ref "head_changeset_id"}}?project={{$.project}}&ref={{$.ref}}" class="mono" style="font-size:12px;color:var(--accent);font-weight:600;">{{printf "%.10s" (index $ref "head_changeset_id")}}</a>
+      </div>
+    </div>
+    {{end}}
+  </div>
+  {{else}}
+  <div style="border:1px solid var(--border);border-radius:9px;background:var(--surface);padding:34px;text-align:center;">
+    <div class="mut" style="font-size:13px;">No refs for project {{.project}} — initialize with memory_repo_init via Charon.</div>
+  </div>
+  {{end}}
+</div>
+
+{{template "memory_status" .}}

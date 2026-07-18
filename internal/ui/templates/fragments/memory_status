@@ -1,0 +1,6 @@
+{{define "memory_status"}}
+<div style="margin-top:34px;padding-top:16px;border-top:1px solid var(--border2);display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;font:11px var(--mono);color:var(--faint);">
+  <span>≋ lethe — memory reconstructed at exact head {{printf "%.8s" (index .ctx "head_changeset_id")}}</span>
+  <span>{{index .ctx "total_active"}} memories · {{len .changesets}} changesets · {{len .refs}} refs</span>
+</div>
+{{end}}

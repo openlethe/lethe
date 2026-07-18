@@ -1,0 +1,46 @@
+{{template "memory_tabs" .}}
+
+<div style="margin-top:22px;">
+  {{/* folder rails: one section per kind group */}}
+  {{range $i, $g := .groups}}
+  <div style="margin-top:{{if $i}}18px{{else}}0{{end}};">
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 14px;border-top:1px solid var(--border2);border-bottom:1px solid var(--border2);position:relative;background:var(--surface);">
+      <span style="position:absolute;left:0;top:0;bottom:0;width:3px;background:{{index $g "color"}};border-radius:0 3px 3px 0;"></span>
+      <span style="color:{{index $g "color"}};font-size:13px;">{{index $g "icon"}}</span>
+      <span style="font-size:14px;font-weight:700;letter-spacing:-.01em;">{{index $g "kind"}}/</span>
+      <span style="font:11px var(--mono);color:var(--muted);">{{len (index $g "items")}} rec</span>
+      <a href="/ui/memory/memories?project={{$.project}}&ref={{$.ref}}" class="mut" style="margin-left:auto;font-size:11px;">all kinds</a>
+    </div>
+
+    {{range (index $g "items")}}
+    <details style="border-bottom:1px solid var(--border2);">
+      <summary style="display:grid;grid-template-columns:minmax(0,280px) minmax(0,1fr);gap:12px;align-items:center;padding:8px 14px;cursor:pointer;list-style:none;font-size:13px;">
+        <span style="display:flex;align-items:center;gap:9px;min-width:0;">
+          <span style="color:var(--faint);flex-shrink:0;">≡</span>
+          <span class="mono" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--accent);" title="{{index . "memory_id"}}">{{index . "memory_id"}}</span>
+        </span>
+        <span style="color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:12.5px;min-width:0;">{{index . "content"}}</span>
+      </summary>
+      <div style="padding:12px 18px 14px 43px;border-top:1px solid var(--border2);background:#f2f6f0;border-left:3px solid var(--water);">
+        <div style="font-size:13.5px;line-height:1.7;max-width:66ch;">{{index . "content"}}</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">
+          <span style="font:600 9px var(--mono);letter-spacing:.1em;padding:2px 8px;border-radius:4px;color:var(--water-deep);background:var(--water-tint);">{{index . "kind"}}</span>
+          <span style="font:11px var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:1px 8px;color:var(--muted);">{{index . "event_type"}}</span>
+          {{with index . "scope"}}<span style="font:11px var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:1px 8px;color:var(--muted);">{{.}}</span>{{end}}
+          {{with index . "tags"}}{{range .}}<span style="font:11px var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:1px 8px;color:var(--muted);">{{.}}</span>{{end}}{{end}}
+          <span style="font:10.5px var(--mono);color:var(--faint);margin-left:auto;">{{index . "memory_id"}}</span>
+        </div>
+      </div>
+    </details>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if not .groups}}
+  <div style="border:1px solid var(--border);border-radius:9px;background:var(--surface);padding:34px;text-align:center;">
+    <div class="mut" style="font-size:13px;">No accepted memory at <span class="mono">{{.ref}}</span> — nothing has crossed review yet.</div>
+  </div>
+  {{end}}
+</div>
+
+{{template "memory_status" .}}

@@ -10,35 +10,61 @@
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Syne:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #f5f0e8;
-      --surface: #faf7f2;
-      --surface2: #f0ebe0;
-      --border: #ddd5c4;
-      --border2: #c9bfac;
-      --text: #2c2520;
-      --muted: #8a7d6b;
-      --accent: #3d5a73;
-      --accent2: #2a3f52;
-      --green: #3a7d5e;
-      --amber: #8a6a2e;
-      --red: #b83232;
-      --purple: #4f4a80;
-      --mono: 'JetBrains Mono', monospace;
-      --sans: 'Syne', sans-serif;
+      --bg: #f4f6f2;
+      --surface: #fdfefb;
+      --surface2: #edf1ea;
+      --border: #d7ded3;
+      --border2: #e3e9de;
+      --text: #16221c;
+      --muted: #5c6f64;
+      --faint: #8fa096;
+      --accent: #0e7490;
+      --accent2: #0f4c5c;
+      --water: #1288a5;
+      --water-deep: #0f4c5c;
+      --water-tint: #ddf3f9;
+      --ink: #04141a;
+      --green: #17805a;
+      --amber: #96690a;
+      --blue: #3a6ea8;
+      --red: #c24334;
+      --purple: #7a4fb8;
+      --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
       background-color: var(--bg);
-      background-image:
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='400' height='400' filter='url(%23n)' opacity='0.045'/%3E%3C/svg%3E"),
-        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n2'%3E%3CfeTurbulence type='turbulence' baseFrequency='0.35' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n2)' opacity='0.025'/%3E%3C/svg%3E");
       color: var(--text);
       font-family: var(--sans);
       font-size: 14px;
       min-height: 100vh;
     }
+
+    /* ── INK RAIL ── */
+    .rail {
+      background: var(--ink);
+      color: #7d99a3;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      height: 36px;
+      padding: 0 20px;
+      font: 11px var(--mono);
+      position: sticky;
+      top: 0;
+      z-index: 101;
+    }
+    .rail .mark { display: flex; align-items: center; gap: 7px; color: #fff; font-weight: 700; font-size: 12px; letter-spacing: .05em; }
+    .rail .wave { width: 18px; height: 18px; border-radius: 5px; background: var(--water); color: #e8f2f5; display: flex; align-items: center; justify-content: center; font-size: 12px; padding-bottom: 2px; }
+    .rail .path { color: #cfe0e8; }
+    .rail .path span { color: #41565e; }
+    .rail .right { margin-left: auto; display: flex; gap: 14px; align-items: center; }
+    .rail .live { display: flex; align-items: center; gap: 5px; color: #39d0e8; }
+    .rail .dot { width: 5px; height: 5px; border-radius: 50%; background: #39d0e8; animation: pulse 1.6s ease-in-out infinite; }
+    .rail .faint { color: #41565e; }
 
     /* ── NAV ── */
     nav {
@@ -49,8 +75,8 @@
       align-items: center;
       gap: 32px;
       position: sticky;
-      top: 0;
-      background: rgba(245, 240, 232, 0.92);
+      top: 36px;
+      background: rgba(244, 246, 242, 0.92);
       backdrop-filter: blur(12px);
       z-index: 100;
     }
@@ -397,6 +423,18 @@
   </style>
 </head>
 <body>
+  <div class="rail">
+    <span class="mark"><span class="wave">≋</span>lethe</span>
+    <span style="display:inline-flex;background:rgba(255,255,255,.08);border-radius:999px;padding:2px;gap:2px;margin-left:6px;">
+      <a href="/ui/dashboard" style="padding:3px 12px;border-radius:999px;font-size:11px;text-decoration:none;{{if .ShowLegacyNav}}background:#fff;color:var(--ink);font-weight:700;{{else}}color:#7d99a3;{{end}}">≋ sessions</a>
+      <a href="/ui/memory" style="padding:3px 12px;border-radius:999px;font-size:11px;text-decoration:none;{{if .ShowLegacyNav}}color:#7d99a3;{{else}}background:#fff;color:var(--ink);font-weight:700;{{end}}">🗂 memory git</a>
+    </span>
+    <span class="right">
+      <span class="live"><span class="dot"></span>live</span>
+      <span class="faint">{{.Request.Host}}</span>
+    </span>
+  </div>
+  {{if .ShowLegacyNav}}
   <nav>
     <span class="nav-logo">Lethe</span>
     <div class="nav-links">
@@ -411,6 +449,7 @@
       <span>SSE</span>
     </div>
   </nav>
+  {{end}}
 
   <div class="{{.Layout}} page">
     {{.Content}}

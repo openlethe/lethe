@@ -606,6 +606,26 @@ func (s *Store) ListThreads(ctx context.Context, status *models.ThreadState, lim
 	return threads, rows.Err()
 }
 
+// ListProjects returns all registered projects ordered by ID.
+func (s *Store) ListProjects(ctx context.Context) ([]*models.Project, error) {
+	rows, err := s.QueryContext(ctx,
+		`SELECT project_id, name, created_at, updated_at FROM projects ORDER BY project_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var projects []*models.Project
+	for rows.Next() {
+		var p models.Project
+		if err := rows.Scan(&p.ProjectID, &p.Name, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			return nil, err
+		}
+		projects = append(projects, &p)
+	}
+	return projects, rows.Err()
+}
+
 // UpdateThreadStatus updates a thread's status and resolved_at timestamp.
 func (s *Store) UpdateThreadStatus(ctx context.Context, threadID string, status models.ThreadState) error {
 	var q string

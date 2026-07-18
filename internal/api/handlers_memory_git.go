@@ -34,6 +34,8 @@ func memoryGitErrorStatus(err error) int {
 // registerMemoryGitRoutes adds Memory Git V1 API endpoints under /api/memory.
 func (s *Server) registerMemoryGitRoutes(api chi.Router) {
 	api.Route("/memory", func(r chi.Router) {
+		// Project list (static segment wins over {project}).
+		r.Get("/projects", s.handleListProjects)
 		// Project-scoped routes.
 		r.Route("/{project}", func(r chi.Router) {
 			r.Post("/legacy-root", s.handleEnsureLegacyRoot)
@@ -62,6 +64,16 @@ func (s *Server) registerMemoryGitRoutes(api chi.Router) {
 		r.Post("/manifests", s.handleCreateManifest)
 		r.Get("/manifests/{id}", s.handleGetManifest)
 	})
+}
+
+// handleListProjects returns every registered project for the UI switcher.
+func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
+	projects, err := s.store.ListProjects(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{"projects": projects})
 }
 
 // --- Legacy root ---

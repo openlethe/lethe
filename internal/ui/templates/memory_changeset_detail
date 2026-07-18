@@ -1,0 +1,56 @@
+{{$cs := .cs}}
+<div>
+  <div style="margin:18px 0;">
+    <a href="/ui/memory/changesets?project={{.project}}&ref={{.ref}}" class="mono" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);">← changesets</a>
+  </div>
+
+  <div style="border:1px solid var(--border);border-radius:9px;background:var(--surface);overflow:hidden;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;gap:10px;background:linear-gradient(120deg,var(--water),#146f86);color:#e8f2f5;padding:9px 14px;">
+      <span style="font:600 11px var(--mono);background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.35);border-radius:5px;padding:2px 8px;color:#fff;">commit</span>
+      <span class="mono" style="font-size:12px;color:#fff;font-weight:600;">{{index $cs "changeset_id"}}</span>
+      <span style="margin-left:auto;font-size:11.5px;color:#a9dcea;">{{since (index $cs "created_at")}}</span>
+    </div>
+    <div style="padding:16px;">
+      <div style="font-size:16px;font-weight:600;margin-bottom:12px;letter-spacing:-.01em;">{{index $cs "message"}}</div>
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:5px 16px;font-size:12px;">
+        <span class="mut">author</span><span class="mono">{{index $cs "author_principal"}}</span>
+        <span class="mut">ref</span><span class="mono">{{index $cs "ref_name"}}</span>
+        <span class="mut">parents</span><span class="mono">{{range index $cs "parent_ids"}}<a href="/ui/memory/changesets/{{.}}?project={{$.project}}&ref={{$.ref}}" style="color:var(--accent);">{{printf "%.10s" .}}</a> {{end}}</span>
+        <span class="mut">created</span><span>{{index $cs "created_at"}}</span>
+        <span class="mut">idempotency</span><span class="mono mut">{{index $cs "idempotency_key"}}</span>
+        <span class="mut">schema</span><span class="mono mut">{{index $cs "schema_version"}}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="mut" style="font:600 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;margin-bottom:10px;">
+    {{len (index $cs "ops")}} operation{{if ne (len (index $cs "ops")) 1}}s{{end}}
+  </div>
+
+  {{range $op := (index $cs "ops")}}
+  {{$t := index $op "op_type"}}
+  <div style="border:1px solid var(--border);border-radius:9px;background:var(--surface);overflow:hidden;margin-bottom:14px;">
+    <div style="display:flex;align-items:center;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);background:var(--surface2);flex-wrap:wrap;">
+      <span style="font:600 10px var(--mono);letter-spacing:.08em;padding:2px 9px;border-radius:999px;color:var(--water-deep);background:var(--water-tint);border:1px solid rgba(18,136,165,.3);">{{$t}}</span>
+      <span class="mono mut" style="font-size:11px;">op #{{index $op "ordinal"}}</span>
+      <span class="mono mut" style="font-size:11px;margin-left:auto;">
+        {{with index $op "target_event_id"}}→ {{.}} · {{end}}{{with index $op "resulting_event_id"}}{{.}}{{end}}
+      </span>
+    </div>
+    {{with index $op "payload"}}
+    <div style="padding:14px;">
+      {{with index . "content"}}<div style="font-size:13.5px;line-height:1.7;max-width:70ch;margin-bottom:10px;">{{.}}</div>{{end}}
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        {{with index . "kind"}}<span style="font:11px var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:1px 8px;color:var(--muted);">{{.}}</span>{{end}}
+        {{with index . "event_type"}}<span style="font:11px var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:1px 8px;color:var(--muted);">{{.}}</span>{{end}}
+        {{with index . "scope"}}<span style="font:11px var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:1px 8px;color:var(--muted);">{{.}}</span>{{end}}
+        {{with index . "tags"}}{{range .}}<span style="font:11px var(--mono);background:var(--water-tint);border-radius:999px;padding:1px 8px;color:var(--water-deep);">{{.}}</span>{{end}}{{end}}
+      </div>
+      <details style="margin-top:10px;"><summary class="mono mut" style="font-size:10.5px;cursor:pointer;letter-spacing:.08em;text-transform:uppercase;">raw payload</summary>
+        <pre class="mono mut" style="margin-top:8px;font-size:11px;white-space:pre-wrap;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:10px;">{{prettyJSON .}}</pre>
+      </details>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+</div>

@@ -1,0 +1,49 @@
+{{template "memory_tabs" .}}
+
+<div style="margin-top:22px;">
+  <div style="display:grid;grid-template-columns:110px minmax(0,1fr) 90px;gap:12px;padding:4px 14px 7px;font:600 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);">
+    <span>Changeset</span><span>Message</span><span style="text-align:right">Age</span>
+  </div>
+
+  {{if .own}}
+  <div style="border-top:1px solid var(--border2);">
+    {{range $cs := .own}}
+    <a href="/ui/memory/changesets/{{index $cs "changeset_id"}}?project={{$.project}}&ref={{$.ref}}" style="display:grid;grid-template-columns:110px minmax(0,1fr) 90px;gap:12px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border2);text-decoration:none;">
+      <span class="mono" style="font-size:12px;color:var(--accent);font-weight:600;">{{printf "%.10s" (index $cs "changeset_id")}}</span>
+      <div style="min-width:0;">
+        <div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{index $cs "message"}}</div>
+        <div class="mono mut" style="font-size:11px;margin-top:2px;">{{index $cs "author_principal"}} · {{index $cs "ref_name"}}</div>
+      </div>
+      <span class="mono mut" style="font-size:11px;text-align:right;">{{since (index $cs "created_at")}}</span>
+    </a>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if .ancestry}}
+  <div style="display:flex;align-items:center;gap:10px;padding:12px 14px 6px;font:600 10px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint);">
+    <span>—— shared ancestry ——</span>
+    {{if .own}}<span style="font-weight:400;text-transform:none;letter-spacing:0;">(changesets above are this ref's own segment)</span>{{end}}
+  </div>
+  <div style="border-top:1px solid var(--border2);opacity:.62;">
+    {{range $cs := .ancestry}}
+    <a href="/ui/memory/changesets/{{index $cs "changeset_id"}}?project={{$.project}}&ref={{$.ref}}" style="display:grid;grid-template-columns:110px minmax(0,1fr) 90px;gap:12px;align-items:center;padding:9px 14px;border-bottom:1px solid var(--border2);text-decoration:none;">
+      <span class="mono" style="font-size:12px;color:var(--accent);">{{printf "%.10s" (index $cs "changeset_id")}}</span>
+      <div style="min-width:0;">
+        <div style="font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{index $cs "message"}}</div>
+        <div class="mono mut" style="font-size:11px;margin-top:2px;">{{index $cs "author_principal"}} · {{index $cs "ref_name"}}</div>
+      </div>
+      <span class="mono mut" style="font-size:11px;text-align:right;">{{since (index $cs "created_at")}}</span>
+    </a>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if not .changesets}}
+  <div style="border:1px solid var(--border);border-radius:9px;background:var(--surface);padding:34px;text-align:center;">
+    <div class="mut" style="font-size:13px;">No changesets reachable from <span class="mono">{{.ref}}</span>.</div>
+  </div>
+  {{end}}
+</div>
+
+{{template "memory_status" .}}

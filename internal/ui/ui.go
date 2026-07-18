@@ -32,6 +32,22 @@ var apiBase string
 
 func init() {
 	funcMap := template.FuncMap{
+		"findRef": func(refs []interface{}, name string) map[string]interface{} {
+			for _, r := range refs {
+				if rm, ok := r.(map[string]interface{}); ok && rm["ref_name"] == name {
+					return rm
+				}
+			}
+			return nil
+		},
+		"queryEscape": url.QueryEscape,
+		"prettyJSON": func(v interface{}) string {
+			b, err := json.MarshalIndent(v, "", "  ")
+			if err != nil {
+				return fmt.Sprintf("%v", v)
+			}
+			return string(b)
+		},
 		"since": func(v interface{}) string {
 			var t time.Time
 			switch x := v.(type) {
@@ -149,6 +165,11 @@ func init() {
 		"templates/events",
 		"templates/flags",
 		"templates/live",
+		"templates/memory_home",
+		"templates/memory_memories",
+		"templates/memory_changesets",
+		"templates/memory_changeset_detail",
+		"templates/memory_refs",
 		"templates/session_checkpoints",
 		"templates/session_detail",
 		"templates/session_events",
@@ -225,6 +246,16 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 		title = "Flags"
 	case "live":
 		title = "Live"
+	case "memory_home":
+		title = "Memory"
+	case "memory_memories":
+		title = "Memories"
+	case "memory_changesets":
+		title = "Changesets"
+	case "memory_changeset_detail":
+		title = "Changeset"
+	case "memory_refs":
+		title = "Refs"
 	case "assembly_detail":
 		title = "Assembly Detail"
 	default:
@@ -232,12 +263,13 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 	}
 
 	type RenderData struct {
-		Title        string
-		Content      template.HTML
-		Layout       string // optional extra CSS class for the page wrapper
-		Data         interface{}
-		Request      *http.Request
-		CurrentRoute string
+		Title         string
+		Content       template.HTML
+		Layout        string // optional extra CSS class for the page wrapper
+		Data          interface{}
+		Request       *http.Request
+		CurrentRoute  string
+		ShowLegacyNav bool
 	}
 
 	// Pre-render page content to a string so each page is independent.
@@ -256,12 +288,13 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 	}
 
 	rd := RenderData{
-		Title:        title + " — Lethe",
-		Content:      template.HTML(pageContent), // #nosec G203 -- pageContent is pre-rendered from the server's own trusted templates.
-		Data:         data,
-		Request:      r,
-		CurrentRoute: name,
-		Layout:       "",
+		Title:         title + " — Lethe",
+		Content:       template.HTML(pageContent), // #nosec G203 -- pageContent is pre-rendered from the server's own trusted templates.
+		Data:          data,
+		Request:       r,
+		CurrentRoute:  name,
+		Layout:        "",
+		ShowLegacyNav: !strings.HasPrefix(name, "memory_"),
 	}
 	if err := templates.ExecuteTemplate(w, "layout", rd); err != nil {
 		log.Printf("Render(%q) layout error: %v", name, err)
@@ -324,8 +357,8 @@ func authTokenFromRequest(r *http.Request) string {
 	return ""
 }
 
-// httpGetJSON fetches a JSON resource and returns the parsed map.
-func httpGetJSON[T map[string]int | map[string]interface{}](ctx context.Context, authToken string, url string) (T, error) {
+// httpGetJSON fetches a JSON resource and returns the parsed value.
+func httpGetJSON[T any](ctx context.Context, authToken string, url string) (T, error) {
 	type result struct {
 		val T
 		err error
@@ -346,6 +379,10 @@ func httpGetJSON[T map[string]int | map[string]interface{}](ctx context.Context,
 			return
 		}
 		defer resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			ch <- result{err: fmt.Errorf("api returned %s for %s", resp.Status, url)}
+			return
+		}
 		var val T
 		if err := json.NewDecoder(resp.Body).Decode(&val); err != nil {
 			ch <- result{err: err}

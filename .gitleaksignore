@@ -12,3 +12,5 @@ f6abe3510ba0c339596ce9b230d2bf2f3df90840:internal/api/merge_authorization_test.g
 # Same two fixtures on the parallel staging/remediation lineage commits — identical content, distinct SHAs.
 9ea4333cb7fb4ada3c854414b689a7d95367a100:.github/workflows/release.yml:generic-api-key:55
 9ac79854ce25aa0306583f497b37bd07a6f0117a:internal/api/merge_authorization_test.go:generic-api-key:15
+# release.yml CI placeholder on the merged-main lineage (commit 48825a9)
+48825a95c2560f693d03b5ad922e14ee4237077a:.github/workflows/release.yml:generic-api-key:55
