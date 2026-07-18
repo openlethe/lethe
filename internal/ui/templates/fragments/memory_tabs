@@ -36,6 +36,11 @@
     <a href="/ui/memory/changesets?project={{.project}}&ref={{.ref | queryEscape}}" style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:6px;color:{{if eq .page "changesets"}}var(--text){{else}}var(--muted){{end}};font-size:12.5px;font-weight:600;text-decoration:none;{{if eq .page "changesets"}}background:var(--surface);box-shadow:0 1px 3px rgba(4,20,26,.14);{{end}}">⟟ Changesets <span style="font:10px var(--mono);color:var(--water-deep);background:var(--water-tint);border-radius:999px;padding:0 6px;">{{len .changesets}}</span></a>
     <a href="/ui/memory/refs?project={{.project}}&ref={{.ref | queryEscape}}" style="display:flex;align-items:center;gap:6px;padding:5px 11px;border-radius:6px;color:{{if eq .page "refs"}}var(--text){{else}}var(--muted){{end}};font-size:12.5px;font-weight:600;text-decoration:none;{{if eq .page "refs"}}background:var(--surface);box-shadow:0 1px 3px rgba(4,20,26,.14);{{end}}">⎇ Refs <span style="font:10px var(--mono);color:var(--water-deep);background:var(--water-tint);border-radius:999px;padding:0 6px;">{{len .refs}}</span></a>
   </nav>
-  <span style="margin-left:auto;display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:0 11px;height:34px;color:var(--faint);font-size:12px;min-width:200px;">filter memory… <kbd style="font:10px var(--mono);border:1px solid var(--border);border-radius:4px;padding:0 4px;color:var(--muted);margin-left:auto;">/</kbd></span>
+  <form method="get" action="/ui/memory/memories" style="margin-left:auto;display:flex;align-items:center;gap:7px;background:var(--surface);border:1px solid var(--border);border-radius:7px;padding:0 11px;height:34px;color:var(--faint);font-size:12px;min-width:200px;">
+    <input type="hidden" name="project" value="{{.project}}">
+    <input type="hidden" name="ref" value="{{.ref}}">
+    <input name="q" value="{{with .q}}{{.}}{{end}}" placeholder="filter memory…" style="border:none;outline:none;background:transparent;color:var(--text);font-size:12px;width:100%;">
+    <kbd style="font:10px var(--mono);border:1px solid var(--border);border-radius:4px;padding:0 4px;color:var(--muted);">/</kbd>
+  </form>
 </div>
 {{end}}

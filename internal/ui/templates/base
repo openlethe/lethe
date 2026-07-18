@@ -425,7 +425,10 @@
 <body>
   <div class="rail">
     <span class="mark"><span class="wave">≋</span>lethe</span>
-    <span class="path">{{if .ShowLegacyNav}}sessions <span>›</span> memory{{else}}memory <span>›</span> git{{end}}</span>
+    <span style="display:inline-flex;background:rgba(255,255,255,.08);border-radius:999px;padding:2px;gap:2px;margin-left:6px;">
+      <a href="/ui/dashboard" style="padding:3px 12px;border-radius:999px;font-size:11px;text-decoration:none;{{if .ShowLegacyNav}}background:#fff;color:var(--ink);font-weight:700;{{else}}color:#7d99a3;{{end}}">≋ sessions</a>
+      <a href="/ui/memory" style="padding:3px 12px;border-radius:999px;font-size:11px;text-decoration:none;{{if .ShowLegacyNav}}color:#7d99a3;{{else}}background:#fff;color:var(--ink);font-weight:700;{{end}}">🗂 memory git</a>
+    </span>
     <span class="right">
       <span class="live"><span class="dot"></span>live</span>
       <span>chain ✓</span>

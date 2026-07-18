@@ -194,8 +194,9 @@ func main() {
 		r.With(apiServer.AuthMiddleware()).Get("/live", apiServer.HandleSSE())
 	}
 	if resolvedMode.GitEnabled() {
-		// Repository-style Memory Git browser (no legacy session dashboard).
-		ui.SetupMemoryRoutes(r, apiBase, apiServer.AuthMiddleware())
+		// Repository-style Memory Git browser. In hybrid mode the legacy
+		// dashboard owns /ui; in git-only mode /ui redirects to the browser.
+		ui.SetupMemoryRoutes(r, apiBase, !resolvedMode.LegacyEnabled(), apiServer.AuthMiddleware())
 	}
 
 	// Resolve assembly retention settings.

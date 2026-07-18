@@ -7,6 +7,7 @@ package ui
 // surface shows Lethe-side truth: accepted memory, history, and refs.
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -17,14 +18,18 @@ import (
 
 // SetupMemoryRoutes registers the Memory Git browser on the root mux under
 // /ui. Registered as literal routes (not a sub-mount) so it can coexist with
-// the legacy UI sub-router in hybrid mode.
-func SetupMemoryRoutes(r *chi.Mux, baseURL string, middleware ...func(http.Handler) http.Handler) {
+// the legacy UI sub-router in hybrid mode. rootRedirect controls whether
+// /ui redirects to the memory home (git-only mode); in hybrid mode the
+// legacy dashboard owns /ui and the rail switcher links here instead.
+func SetupMemoryRoutes(r *chi.Mux, baseURL string, rootRedirect bool, middleware ...func(http.Handler) http.Handler) {
 	apiBase = baseURL
 	var routes chi.Router = r
 	if len(middleware) > 0 {
 		routes = r.With(middleware...)
 	}
-	routes.Get("/ui", redirectTo("/ui/memory"))
+	if rootRedirect {
+		routes.Get("/ui", redirectTo("/ui/memory"))
+	}
 	routes.Get("/ui/memory", handleMemoryHome)
 	routes.Get("/ui/memory/memories", handleMemoryMemories)
 	routes.Get("/ui/memory/changesets", handleMemoryChangesets)
@@ -204,6 +209,20 @@ func handleMemoryMemories(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+	if q != "" {
+		var filtered []interface{}
+		for _, m := range memories {
+			mm, _ := m.(map[string]interface{})
+			content, _ := mm["content"].(string)
+			hay := strings.ToLower(content + " " + strings.Join(toStrings(mm["tags"]), " ") + " " + fmt.Sprint(mm["memory_id"]))
+			if strings.Contains(hay, q) {
+				filtered = append(filtered, m)
+			}
+		}
+		memories = filtered
+	}
+
 	kindColors := map[string]string{
 		"decision": "#96690a", "task": "#3a6ea8", "flag": "#c24334", "fact": "#17805a",
 		"record": "#1288a5", "observation": "#5c6f64", "outcome": "#7a4fb8",
@@ -264,6 +283,7 @@ func handleMemoryMemories(w http.ResponseWriter, r *http.Request) {
 		"changesets": changesets,
 		"ctx":        ctxRes,
 		"groups":     groups,
+		"q":          r.URL.Query().Get("q"),
 		"page":       "memory",
 	})
 }
