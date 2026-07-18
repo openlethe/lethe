@@ -58,25 +58,27 @@ source builds: [docs/installation.md](docs/installation.md) ·
 
 ## Documentation
 
-| Topic | Document |
-|---|---|
-| Platform overview & concepts | [docs/overview.md](docs/overview.md) |
-| Installation | [docs/installation.md](docs/installation.md) |
-| Runtime modes (legacy / git / hybrid) | [docs/runtime-modes.md](docs/runtime-modes.md) |
-| Memory Git user guide | [docs/memory-git.md](docs/memory-git.md) |
-| Legacy mode | [docs/legacy-mode.md](docs/legacy-mode.md) |
-| Architecture | [docs/architecture.md](docs/architecture.md) |
-| Configuration (env vars) | [docs/configuration.md](docs/configuration.md) |
-| Deployment & operations | [docs/deployment.md](docs/deployment.md) |
-| Compose variations | [docs/docker-compose.md](docs/docker-compose.md) |
-| HTTP API reference | [docs/api.md](docs/api.md) |
-| OpenClaw integration | [docs/openclaw.md](docs/openclaw.md) |
-| Client integrations (ChatGPT, Claude Code, Cursor, MCP) | [docs/integrations.md](docs/integrations.md) |
-| Migration & upgrading | [docs/migration.md](docs/migration.md) |
-| FAQ | [docs/faq.md](docs/faq.md) |
-| Memory Git protocol (`memory_git/v1`) | [docs/memory-git-v1.md](docs/memory-git-v1.md) |
-| Context projection (`memory-context/v1`) | [docs/memory-context-bridge.md](docs/memory-context-bridge.md) |
-| Metrics & observability | [docs/observability.md](docs/observability.md) |
+Read in order:
+
+1. [Overview](docs/overview.md) — what Lethe is and isn't, principles, ecosystem
+2. [Installation](docs/installation.md) — Docker, git mode, hybrid, source build
+3. [Runtime modes](docs/runtime-modes.md) — legacy vs git vs hybrid, how to choose
+4. [Memory Git](docs/memory-git.md) — versioned memory, refs, changesets, proposals, merges
+5. [Legacy mode](docs/legacy-mode.md) — session memory and the OpenClaw experience
+6. [Architecture](docs/architecture.md) — components, boundary, data model, security
+7. [Configuration](docs/configuration.md) — every environment variable
+8. [Deployment & operations](docs/deployment.md) — production checklist, upgrades, backup
+9. [Compose variations](docs/docker-compose.md) — legacy, git, hybrid, governed stack
+10. [HTTP API reference](docs/api.md) — every route, both surfaces
+11. [OpenClaw](docs/openclaw.md) — the plugin integration
+12. [Integrations](docs/integrations.md) — ChatGPT, Claude Code, Cursor, MCP, multi-agent
+13. [Migration & upgrading](docs/migration.md) — version migrations, legacy ↔ Memory Git
+14. [FAQ](docs/faq.md)
+
+Protocol and deep-dive references:
+[memory-git-v1.md](docs/memory-git-v1.md) (the `memory_git/v1` contract) ·
+[memory-context-bridge.md](docs/memory-context-bridge.md) (projection & manifests) ·
+[observability.md](docs/observability.md) (metrics, SLOs, alerts)
 
 ## Related projects
 
