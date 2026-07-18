@@ -103,7 +103,13 @@ services:
       CHARON_OAUTH_HMAC_KEY: ${CHARON_OAUTH_HMAC_KEY:?}
       CHARON_MERGE_HMAC_KEY: ${CHARON_MERGE_HMAC_KEY:?}
       CHARON_PUBLIC_URL: ${CHARON_PUBLIC_URL:?}
-      CHARON_OAUTH_DEFAULT_USER: ${CHARON_OAUTH_DEFAULT_USER:?}
+      CHARON_OAUTH_CLIENT_ID: ${CHARON_OAUTH_CLIENT_ID:-chatgpt-mcp}
+      CHARON_OAUTH_REDIRECT_URIS: ${CHARON_OAUTH_REDIRECT_URIS:?required in OAuth mode}
+      CHARON_OAUTH_DEFAULT_USER: ${CHARON_OAUTH_DEFAULT_USER:?must name an existing principal}
+      # A fresh browser pairing key is generated and printed in the logs on
+      # every start — no manual pairing secret is required.
+      CHARON_OAUTH_GENERATE_PAIRING_SECRET: "true"
+      CHARON_OAUTH_ALLOW_AUTHOR_SCOPES: ${CHARON_OAUTH_ALLOW_AUTHOR_SCOPES:-false}
     volumes:
       - charon-data:/data
     ports: ["127.0.0.1:18484:18484"]
@@ -128,12 +134,7 @@ volumes:
   charon-data:
 ```
 
-The `charon` service also needs its OAuth block
-(`CHARON_OAUTH_CLIENT_ID`, `CHARON_OAUTH_REDIRECT_URIS`,
-`CHARON_OAUTH_DEFAULT_USER`, and
-`CHARON_OAUTH_GENERATE_PAIRING_SECRET: "true"` — a fresh browser pairing
-key is generated and printed in the logs on every start; no manual pairing
-secret is required). The authoritative versions of both services (with full
+The pairing key is **generated automatically** — `CHARON_OAUTH_GENERATE_PAIRING_SECRET: "true"` means every Charon start prints a fresh browser authorization key in the logs (`docker compose logs charon`). You only set `CHARON_OAUTH_PAIRING_SECRET` yourself if you deliberately disable generation and want one stable key. The authoritative versions of both services (with full
 hardening: non-root 10001, `cap_drop: ALL`, read-only FS, limits) live in
 the [charon repository](https://github.com/openlethe/charon/blob/main/docker-compose.yml).
 

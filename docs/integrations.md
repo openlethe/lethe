@@ -9,11 +9,22 @@ ChatGPT connects to Charon's primary gateway over HTTPS and completes an
 S256 PKCE flow gated by an operator-held pairing key.
 
 1. Deploy the governed stack ([docker-compose.md](docker-compose.md#variation-d--governed-stack-lethe-git--charon)).
-2. Tunnel `127.0.0.1:18484` to a public HTTPS URL; set `CHARON_PUBLIC_URL`
+2. **Create the role principals** (once — the gateway refuses to start while
+   `CHARON_OAUTH_DEFAULT_USER` names a principal that does not exist):
+
+   ```bash
+   docker compose run --rm --no-deps --entrypoint charon charon \
+     principal reconcile "Local Memory Author" propose default
+   ```
+
+   Set `CHARON_OAUTH_DEFAULT_USER` to that principal's name or ID.
+3. Tunnel `127.0.0.1:18484` to a public HTTPS URL; set `CHARON_PUBLIC_URL`
    to it and allow ChatGPT in `CHARON_OAUTH_REDIRECT_URIS`.
-3. Restart Charon and copy the current pairing key from the startup banner
-   (`docker compose logs charon`) — it regenerates on every restart.
-4. Add the connector in ChatGPT and paste the pairing key when prompted.
+4. Restart Charon and copy the current pairing key from the startup banner
+   (`docker compose logs charon`). **It is generated automatically on every
+   start** — you never set it by hand; a static
+   `CHARON_OAUTH_PAIRING_SECRET` is only for deliberately stable keys.
+5. Add the connector in ChatGPT and paste the pairing key when prompted.
 
 Tokens are capped to `memory.read · search · thread.read · propose` by
 default; review/merge never come over OAuth.

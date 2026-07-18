@@ -50,6 +50,15 @@ head, reconcile against it, and resubmit with a **new** idempotency key.
 A replayed merge authorization is also a hard rejection, even if the ref
 cycled back to the same head.
 
+**The gateway says "`CHARON_OAUTH_PAIRING_SECRET` is required". Do I need to set it?**
+Usually no — that error means the OAuth block never reached the container,
+not that a secret is missing. Pass
+`CHARON_OAUTH_GENERATE_PAIRING_SECRET=true` (the released compose does) and
+every Charon start prints a fresh browser authorization key in the logs
+(`docker compose logs charon`). You only set a static
+`CHARON_OAUTH_PAIRING_SECRET` (32+ characters) when you deliberately
+disable generation for one stable key.
+
 **Can multiple agents share one memory?**
 Yes — that is the designed center of the system: one Lethe Git, one Charon,
 a propose-profile principal per writing agent, an independent reviewer
