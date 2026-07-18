@@ -113,7 +113,13 @@ services:
     environment:
       CHARON_MODE: memory-git
       CHARON_AUTH_MODE: obol
-      # ... same shared keys and upstream ...
+      CHARON_UPSTREAM: http://host.docker.internal:18485
+      CHARON_ALLOW_INSECURE_UPSTREAM: "1"
+      LETHE_API_KEY: ${LETHE_API_KEY:?}
+      CHARON_OBOL_HMAC_KEY: ${CHARON_OBOL_HMAC_KEY:?}
+      CHARON_OAUTH_HMAC_KEY: ${CHARON_OAUTH_HMAC_KEY:?}
+      CHARON_MERGE_HMAC_KEY: ${CHARON_MERGE_HMAC_KEY:?}
+      CHARON_PUBLIC_URL: http://127.0.0.1:18486
     volumes:
       - charon-data:/data
     ports: ["127.0.0.1:18486:18484"]
@@ -122,9 +128,30 @@ volumes:
   charon-data:
 ```
 
-The authoritative versions of the Charon services (with full hardening:
-non-root 10001, `cap_drop: ALL`, read-only FS, limits) live in the
-[charon repository](https://github.com/openlethe/charon/blob/main/docker-compose.yml).
+The `charon` service also needs its OAuth block
+(`CHARON_OAUTH_CLIENT_ID`, `CHARON_OAUTH_REDIRECT_URIS`,
+`CHARON_OAUTH_DEFAULT_USER`, and
+`CHARON_OAUTH_GENERATE_PAIRING_SECRET: "true"` — a fresh browser pairing
+key is generated and printed in the logs on every start; no manual pairing
+secret is required). The authoritative versions of both services (with full
+hardening: non-root 10001, `cap_drop: ALL`, read-only FS, limits) live in
+the [charon repository](https://github.com/openlethe/charon/blob/main/docker-compose.yml).
+
+**Before first start**, `CHARON_OAUTH_DEFAULT_USER` must resolve to an
+existing principal (ID or name). Create the role principals once after the
+databases exist:
+
+```bash
+docker compose run --rm --no-deps --entrypoint charon charon \
+  principal reconcile "Local Memory Author"   propose  <project>
+docker compose run --rm --no-deps --entrypoint charon charon \
+  principal reconcile "Local Memory Reviewer" review   <project>
+docker compose run --rm --no-deps --entrypoint charon charon \
+  principal reconcile "Local Memory Reader"   readonly <project>
+```
+
+(Or run the charon repository's `./setup.sh`, which does env, principals,
+Obols, and startup in one pass.)
 
 ## Rules of thumb
 
