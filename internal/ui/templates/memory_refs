@@ -12,7 +12,7 @@
       <div style="min-width:0;">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span style="color:var(--water);font-size:13px;">⎇</span>
-          <a href="/ui/memory/changesets?project={{$.project}}&ref={{index $ref "ref_name" | queryEscape}}" class="mono" style="font-size:13px;font-weight:600;color:var(--text);">{{index $ref "ref_name"}}</a>
+          <a href="/ui/memory/changesets?project={{$.project}}&ref={{index $ref "ref_name"}}" class="mono" style="font-size:13px;font-weight:600;color:var(--text);">{{index $ref "ref_name"}}</a>
           {{if index $ref "protected"}}<span style="font:10.5px var(--mono);padding:1px 8px;border-radius:999px;color:var(--water-deep);border:1px solid rgba(18,136,165,.35);background:var(--water-tint);">🔒</span>{{end}}
           {{if eq (index $ref "ref_name") $.ref}}<span style="font:10.5px var(--mono);padding:1px 8px;border-radius:999px;color:#fff;background:var(--water);">current</span>{{end}}
         </div>

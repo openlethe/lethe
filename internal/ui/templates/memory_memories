@@ -9,7 +9,7 @@
       <span style="color:{{index $g "color"}};font-size:13px;">{{index $g "icon"}}</span>
       <span style="font-size:14px;font-weight:700;letter-spacing:-.01em;">{{index $g "kind"}}/</span>
       <span style="font:11px var(--mono);color:var(--muted);">{{len (index $g "items")}} rec</span>
-      <a href="/ui/memory/memories?project={{$.project}}&ref={{$.ref | queryEscape}}" class="mut" style="margin-left:auto;font-size:11px;">all kinds</a>
+      <a href="/ui/memory/memories?project={{$.project}}&ref={{$.ref}}" class="mut" style="margin-left:auto;font-size:11px;">all kinds</a>
     </div>
 
     {{range (index $g "items")}}

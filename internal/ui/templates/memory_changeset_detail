@@ -1,7 +1,7 @@
 {{$cs := .cs}}
 <div>
   <div style="margin:18px 0;">
-    <a href="/ui/memory/changesets?project={{.project}}&ref={{.ref | queryEscape}}" class="mono" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);">← changesets</a>
+    <a href="/ui/memory/changesets?project={{.project}}&ref={{.ref}}" class="mono" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);">← changesets</a>
   </div>
 
   <div style="border:1px solid var(--border);border-radius:9px;background:var(--surface);overflow:hidden;margin-bottom:20px;">

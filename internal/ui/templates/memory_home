@@ -22,7 +22,7 @@
 
     {{/* kind folder rails */}}
     {{range .composition}}
-    <a href="/ui/memory/memories?project={{$.project}}&ref={{$.ref | queryEscape}}&kind={{.kind}}" style="display:grid;grid-template-columns:minmax(0,260px) 86px minmax(0,1fr);gap:12px;align-items:center;padding:8px 14px;border-top:1px solid var(--border2);position:relative;text-decoration:none;">
+    <a href="/ui/memory/memories?project={{$.project}}&ref={{$.ref}}&kind={{.kind}}" style="display:grid;grid-template-columns:minmax(0,260px) 86px minmax(0,1fr);gap:12px;align-items:center;padding:8px 14px;border-top:1px solid var(--border2);position:relative;text-decoration:none;">
       <span style="position:absolute;left:0;top:0;bottom:0;width:3px;background:{{.color}};border-radius:0 3px 3px 0;"></span>
       <span style="display:flex;align-items:center;gap:9px;font-weight:600;color:var(--text);"><span style="color:{{.color}};">▸</span><span style="font-size:13px;">{{.kind}}/</span></span>
       <span style="font:11px var(--mono);color:var(--muted);">{{.count}} rec</span>
@@ -53,7 +53,7 @@
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;">
           {{with index . "tags"}}{{range .}}<span style="font:11px var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:1px 8px;color:var(--muted);">{{.}}</span>{{end}}{{end}}
           <span style="font:10.5px var(--mono);color:var(--faint);">{{index . "memory_id"}}</span>
-          <a href="/ui/memory/memories?project={{$.project}}&ref={{$.ref | queryEscape}}&kind={{index . "kind"}}" style="font-size:12px;font-weight:600;margin-left:auto;">open in {{index . "kind"}}/ →</a>
+          <a href="/ui/memory/memories?project={{$.project}}&ref={{$.ref}}&kind={{index . "kind"}}" style="font-size:12px;font-weight:600;margin-left:auto;">open in {{index . "kind"}}/ →</a>
         </div>
       </div>
     </details>
