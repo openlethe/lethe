@@ -1,0 +1,12 @@
+{{define "memory_tabs"}}
+<div style="display:flex;gap:2px;margin-bottom:22px;border-bottom:1px solid var(--border);align-items:center;flex-wrap:wrap;">
+  {{$base := printf "?project=%s" .project}}
+  <a href="/ui/memory{{$base}}" style="padding:8px 16px;font-size:13px;text-decoration:none;border-bottom:2px solid {{if eq .page "memory"}}var(--accent){{else}}transparent{{end}};color:{{if eq .page "memory"}}var(--accent){{else}}var(--muted){{end}};">🗂 Memories</a>
+  <a href="/ui/memory/changesets{{$base}}" style="padding:8px 16px;font-size:13px;text-decoration:none;border-bottom:2px solid {{if eq .page "changesets"}}var(--accent){{else}}transparent{{end}};color:{{if eq .page "changesets"}}var(--accent){{else}}var(--muted){{end}};">⟟ Changesets</a>
+  <a href="/ui/memory/refs{{$base}}" style="padding:8px 16px;font-size:13px;text-decoration:none;border-bottom:2px solid {{if eq .page "refs"}}var(--accent){{else}}transparent{{end}};color:{{if eq .page "refs"}}var(--accent){{else}}var(--muted){{end}};">⎇ Refs</a>
+  <form method="get" action="/ui/memory" style="margin-left:auto;display:flex;gap:6px;align-items:center;">
+    <span style="font-size:11px;color:var(--faint,var(--muted));font-family:var(--mono);">project</span>
+    <input name="project" value="{{.project}}" style="background:var(--bg,#05070a);border:1px solid var(--border);color:var(--text);font-family:var(--mono);font-size:12px;padding:4px 8px;border-radius:4px;width:150px;">
+  </form>
+</div>
+{{end}}

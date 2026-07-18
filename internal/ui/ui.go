@@ -32,6 +32,14 @@ var apiBase string
 
 func init() {
 	funcMap := template.FuncMap{
+		"queryEscape": url.QueryEscape,
+		"prettyJSON": func(v interface{}) string {
+			b, err := json.MarshalIndent(v, "", "  ")
+			if err != nil {
+				return fmt.Sprintf("%v", v)
+			}
+			return string(b)
+		},
 		"since": func(v interface{}) string {
 			var t time.Time
 			switch x := v.(type) {
@@ -149,6 +157,10 @@ func init() {
 		"templates/events",
 		"templates/flags",
 		"templates/live",
+		"templates/memory_home",
+		"templates/memory_changesets",
+		"templates/memory_changeset_detail",
+		"templates/memory_refs",
 		"templates/session_checkpoints",
 		"templates/session_detail",
 		"templates/session_events",
@@ -225,6 +237,14 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 		title = "Flags"
 	case "live":
 		title = "Live"
+	case "memory_home":
+		title = "Memory"
+	case "memory_changesets":
+		title = "Changesets"
+	case "memory_changeset_detail":
+		title = "Changeset"
+	case "memory_refs":
+		title = "Refs"
 	case "assembly_detail":
 		title = "Assembly Detail"
 	default:
@@ -324,8 +344,8 @@ func authTokenFromRequest(r *http.Request) string {
 	return ""
 }
 
-// httpGetJSON fetches a JSON resource and returns the parsed map.
-func httpGetJSON[T map[string]int | map[string]interface{}](ctx context.Context, authToken string, url string) (T, error) {
+// httpGetJSON fetches a JSON resource and returns the parsed value.
+func httpGetJSON[T any](ctx context.Context, authToken string, url string) (T, error) {
 	type result struct {
 		val T
 		err error

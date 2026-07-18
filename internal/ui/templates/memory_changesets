@@ -1,0 +1,36 @@
+{{template "memory_tabs" .}}
+
+<div style="margin-bottom:16px;display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+  <div>
+    <h1 style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px;">Changesets</h1>
+    <p style="font-size:13px;color:var(--muted);">history reachable from <span style="font-family:var(--mono);color:var(--accent);">{{.ref}}</span></p>
+  </div>
+</div>
+
+{{if .changesets}}
+<div class="card">
+  {{range $i, $cs := .changesets}}
+  <a href="/ui/memory/changesets/{{index $cs "changeset_id"}}?project={{$.project}}" style="display:flex;align-items:center;gap:14px;padding:13px 18px;text-decoration:none;{{if $i}}border-top:1px solid var(--border);{{end}}">
+    <span style="font-size:15px;color:var(--accent);">⟟</span>
+    <div style="min-width:0;flex:1;">
+      <div style="font-size:13px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{index $cs "message"}}</div>
+      <div style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-top:3px;">
+        {{index $cs "author_principal"}} · {{index $cs "ref_name"}}
+      </div>
+    </div>
+    <div style="flex-shrink:0;text-align:right;">
+      <div style="font-family:var(--mono);font-size:11px;color:var(--accent);">{{printf "%.12s" (index $cs "changeset_id")}}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:3px;">{{since (index $cs "created_at")}} ago</div>
+    </div>
+  </a>
+  {{end}}
+</div>
+{{else}}
+<div class="card">
+  <div class="empty-state">
+    <div style="font-size:24px;margin-bottom:8px;">⟟</div>
+    <div>No changesets reachable from {{.ref}}.</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:4px;">Pick another ref from the Refs tab.</div>
+  </div>
+</div>
+{{end}}

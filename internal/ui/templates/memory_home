@@ -1,0 +1,56 @@
+{{template "memory_tabs" .}}
+
+{{$head := index .ctx "head_changeset_id"}}
+<div class="card" style="margin-bottom:18px;">
+  <div style="padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:15px;">⎇</span>
+      <span style="font-family:var(--mono);font-size:13px;color:var(--text);">refs/shared/main</span>
+      <span style="font-size:10px;font-family:var(--mono);padding:2px 8px;border-radius:10px;background:rgba(57,208,232,.12);color:var(--accent);border:1px solid rgba(57,208,232,.25);">🔒 protected</span>
+    </div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--muted);">
+      head <a href="/ui/memory/changesets/{{$head}}" style="color:var(--accent);">{{$head}}</a>
+    </div>
+  </div>
+</div>
+
+<div style="margin-bottom:14px;">
+  <h1 style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px;">Accepted memory</h1>
+  <p style="font-size:13px;color:var(--muted);">{{index .ctx "total_active"}} active at head · reconstructed exactly, corrections and supersedes applied</p>
+</div>
+
+{{if .memories}}
+{{range .memories}}
+<div class="card" style="margin-bottom:10px;">
+  <div style="padding:14px 18px;">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+      {{$kind := index . "kind"}}
+      <span style="font-size:10px;font-family:var(--mono);padding:2px 8px;border-radius:10px;border:1px solid;
+        {{if eq $kind "decision"}}color:#e8c98a;border-color:rgba(232,201,138,.4);background:rgba(232,201,138,.08);
+        {{else if eq $kind "flag"}}color:#e87a7a;border-color:rgba(232,122,122,.4);background:rgba(232,122,122,.08);
+        {{else if eq $kind "task"}}color:#7ab8e8;border-color:rgba(122,184,232,.4);background:rgba(122,184,232,.08);
+        {{else if eq $kind "fact"}}color:#8ae8a8;border-color:rgba(138,232,168,.4);background:rgba(138,232,168,.08);
+        {{else}}color:var(--accent);border-color:rgba(57,208,232,.35);background:rgba(57,208,232,.08);{{end}}">
+        {{$kind}}
+      </span>
+      <span style="font-size:11px;color:var(--muted);font-family:var(--mono);">{{index . "event_type"}}</span>
+      <span style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-left:auto;">{{index . "memory_id"}}</span>
+    </div>
+    <div style="font-size:13px;line-height:1.65;color:var(--text);">{{index . "content"}}</div>
+    {{with index . "tags"}}
+    <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;">
+      {{range .}}<span style="font-size:10px;font-family:var(--mono);padding:1px 7px;border-radius:9px;background:rgba(138,125,107,.12);color:var(--muted);border:1px solid rgba(138,125,107,.2);">{{.}}</span>{{end}}
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}
+{{else}}
+<div class="card">
+  <div class="empty-state">
+    <div style="font-size:24px;margin-bottom:8px;">🗂</div>
+    <div>No accepted memory on refs/shared/main for project {{.project}}.</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:4px;">Memory lands here through reviewed merges via Charon.</div>
+  </div>
+</div>
+{{end}}

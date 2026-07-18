@@ -1,0 +1,58 @@
+{{$cs := .cs}}
+<div style="margin-bottom:18px;">
+  <a href="/ui/memory/changesets" style="font-size:12px;color:var(--accent);text-decoration:none;">← changesets</a>
+</div>
+
+<div class="card" style="margin-bottom:18px;">
+  <div style="padding:16px 18px;">
+    <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:10px;">{{index $cs "message"}}</div>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:5px 16px;font-size:12px;">
+      <span style="color:var(--muted);">changeset</span><span style="font-family:var(--mono);color:var(--accent);">{{index $cs "changeset_id"}}</span>
+      <span style="color:var(--muted);">author</span><span style="font-family:var(--mono);color:var(--text);">{{index $cs "author_principal"}}</span>
+      <span style="color:var(--muted);">ref</span><span style="font-family:var(--mono);color:var(--text);">{{index $cs "ref_name"}}</span>
+      <span style="color:var(--muted);">parents</span><span style="font-family:var(--mono);color:var(--text);">
+        {{range index $cs "parent_ids"}}<a href="/ui/memory/changesets/{{.}}" style="color:var(--accent);">{{printf "%.12s" .}}</a> {{end}}</span>
+      <span style="color:var(--muted);">created</span><span style="color:var(--text);">{{index $cs "created_at"}}</span>
+      <span style="color:var(--muted);">idempotency</span><span style="font-family:var(--mono);color:var(--muted);">{{index $cs "idempotency_key"}}</span>
+      <span style="color:var(--muted);">schema</span><span style="font-family:var(--mono);color:var(--muted);">{{index $cs "schema_version"}}</span>
+    </div>
+  </div>
+</div>
+
+<h2 style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:12px;">{{len (index $cs "ops")}} operation{{if ne (len (index $cs "ops")) 1}}s{{end}}</h2>
+
+{{range $op := (index $cs "ops")}}
+{{$t := index $op "op_type"}}
+<div class="card" style="margin-bottom:12px;">
+  <div style="padding:12px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+    <span style="font-size:10px;font-family:var(--mono);padding:3px 9px;border-radius:10px;border:1px solid;
+      {{if eq $t "add_memory"}}color:#8ae8a8;border-color:rgba(138,232,168,.4);background:rgba(138,232,168,.08);
+      {{else if eq $t "correct_memory"}}color:#e8c98a;border-color:rgba(232,201,138,.4);background:rgba(232,201,138,.08);
+      {{else if eq $t "supersede_memory"}}color:#e87a7a;border-color:rgba(232,122,122,.4);background:rgba(232,122,122,.08);
+      {{else if eq $t "add_relationship"}}color:#7ab8e8;border-color:rgba(122,184,232,.4);background:rgba(122,184,232,.08);
+      {{else if or (eq $t "attach_evidence") (eq $t "attach_verification")}}color:#c792ea;border-color:rgba(199,146,234,.4);background:rgba(199,146,234,.08);
+      {{else}}color:var(--muted);border-color:rgba(138,125,107,.35);background:rgba(138,125,107,.08);{{end}}">
+      {{$t}}
+    </span>
+    <span style="font-size:11px;color:var(--muted);font-family:var(--mono);">#{{index $op "ordinal"}}</span>
+    <span style="font-size:11px;color:var(--muted);font-family:var(--mono);margin-left:auto;">
+      {{with index $op "target_event_id"}}→ {{.}}{{end}}
+      {{with index $op "resulting_event_id"}}{{.}}{{end}}
+    </span>
+  </div>
+  {{with index $op "payload"}}
+  <div style="padding:14px 18px;">
+    {{with index . "content"}}<div style="font-size:13px;line-height:1.65;color:var(--text);margin-bottom:10px;">{{.}}</div>{{end}}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;font-family:var(--mono);font-size:11px;color:var(--muted);">
+      {{with index . "kind"}}<span style="padding:1px 7px;border-radius:9px;border:1px solid var(--border);">{{.}}</span>{{end}}
+      {{with index . "event_type"}}<span style="padding:1px 7px;border-radius:9px;border:1px solid var(--border);">{{.}}</span>{{end}}
+      {{with index . "scope"}}<span style="padding:1px 7px;border-radius:9px;border:1px solid var(--border);">{{.}}</span>{{end}}
+      {{with index . "tags"}}{{range .}}<span style="padding:1px 7px;border-radius:9px;background:rgba(138,125,107,.12);border:1px solid rgba(138,125,107,.2);">{{.}}</span>{{end}}{{end}}
+    </div>
+    <details style="margin-top:10px;"><summary style="font-size:11px;color:var(--muted);cursor:pointer;">raw payload</summary>
+      <pre style="margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--muted);white-space:pre-wrap;">{{prettyJSON .}}</pre>
+    </details>
+  </div>
+  {{end}}
+</div>
+{{end}}

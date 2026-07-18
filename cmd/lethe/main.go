@@ -193,6 +193,10 @@ func main() {
 		// SSE endpoint — mounted at root so both /live and /ui/live work.
 		r.With(apiServer.AuthMiddleware()).Get("/live", apiServer.HandleSSE())
 	}
+	if resolvedMode.GitEnabled() {
+		// Repository-style Memory Git browser (no legacy session dashboard).
+		ui.SetupMemoryRoutes(r, apiBase, apiServer.AuthMiddleware())
+	}
 
 	// Resolve assembly retention settings.
 	retentionDays := *assemblyRetentionDays
