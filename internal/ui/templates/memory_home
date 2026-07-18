@@ -59,18 +59,45 @@
     </details>
     {{end}}
 
-    {{/* LETHE.md */}}
+    {{/* LETHE.md — operator CLI card */}}
     <div style="margin-top:26px;border:1px solid var(--border);border-radius:9px;background:var(--surface);overflow:hidden;">
-      <div style="border-bottom:1px solid var(--border);padding:8px 14px;font:600 11px var(--mono);letter-spacing:.1em;display:flex;align-items:center;gap:8px;color:var(--water-deep);background:var(--surface2);">≋ LETHE.md</div>
+      <div style="border-bottom:1px solid var(--border);padding:8px 14px;font:600 11px var(--mono);letter-spacing:.1em;display:flex;align-items:center;gap:8px;color:var(--water-deep);background:var(--surface2);">≋ LETHE.md · operate from the CLI</div>
       <div style="padding:18px 22px;font-size:13.5px;line-height:1.7;">
-        <h2 style="font-size:18px;padding-bottom:8px;margin-bottom:12px;font-weight:650;letter-spacing:-.01em;">{{.project}} · memory</h2>
-        <p style="margin-bottom:11px;">This repository is the <strong>durable memory</strong> of the {{.project}} agent collective. Agents write to owned refs (<code style="font:12px var(--mono);background:var(--water-tint);border-radius:5px;padding:1.5px 5px;color:var(--water-deep);">refs/agents/*</code>); reviewed changes land on <code style="font:12px var(--mono);background:var(--water-tint);border-radius:5px;padding:1.5px 5px;color:var(--water-deep);">refs/shared/main</code> through Charon merge proposals.</p>
-        <ul style="margin:0 0 11px 20px;">
-          <li style="margin-bottom:5px;"><strong>Memories</strong> are semantic records — facts, decisions, tasks, flags, outcomes — not raw events.</li>
-          <li style="margin-bottom:5px;"><strong>Changesets</strong> are atomic, idempotent, and validated before they become immutable history.</li>
-          <li style="margin-bottom:5px;"><strong>Corrections supersede</strong>, never delete: the full history stays reachable from any head.</li>
-        </ul>
-        <p style="color:var(--muted);font-size:12px;">Head <code style="font:12px var(--mono);background:var(--water-tint);border-radius:5px;padding:1.5px 5px;color:var(--water-deep);">{{printf "%.8s" (index .ctx "head_changeset_id")}}</code> · reconstructed server-side at read time.</p>
+        <p style="margin-bottom:14px;color:var(--muted);font-size:12.5px;">Everything below works as-is against this deployment. The API key is read from the container's own environment — it is never printed. Inside the container, the service listens on <code style="font:12px var(--mono);background:var(--water-tint);border-radius:5px;padding:1.5px 5px;color:var(--water-deep);">:18483</code>.</p>
+
+        <div style="display:grid;gap:12px;">
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># open a shell inside the memory store</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec -it lethe-git-local sh</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># follow the logs</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker logs -f lethe-git-local</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># health-check (key comes from the container env)</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec lethe-git-local sh -c 'wget -qO- --header="Authorization: Bearer $LETHE_API_KEY" http://127.0.0.1:18483/api/health'</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># list refs for a project</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec lethe-git-local sh -c 'wget -qO- --header="Authorization: Bearer $LETHE_API_KEY" "http://127.0.0.1:18483/api/memory/Archimedes/refs"'</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># snapshot the database, then verify it</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker cp lethe-git-local:/data/lethe.db /tmp/lethe-snap.db && sqlite3 /tmp/lethe-snap.db "PRAGMA integrity_check;"</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># restart (from the lethe repo directory)</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker compose -f docker-compose.git.yml --env-file .env.git restart</code>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--muted);margin-bottom:4px;"># the governed path — proposals and audit go through Charon</div>
+            <code style="display:block;font:12px var(--mono);background:var(--ink);color:#39d0e8;border-radius:6px;padding:8px 12px;">docker exec charon-charon-1 charon proposal ls
+docker exec charon-charon-1 charon ledger verify</code>
+          </div>
+        </div>
+
+        <p style="margin-top:14px;color:var(--muted);font-size:12px;">Rule of thumb: <strong>read</strong> via the API or this UI, <strong>write</strong> through Charon — never edit the database by hand.</p>
       </div>
     </div>
   </main>
