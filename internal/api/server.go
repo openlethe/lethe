@@ -219,6 +219,7 @@ func (s *Server) registerRoutes() {
 
 			// Threads (standalone).
 			api.Route("/threads", func(r chi.Router) {
+				r.Get("/", s.handleListThreads)
 				r.Post("/", s.handleCreateThread)
 				r.Get("/{threadID}", s.handleGetThread)
 				r.Patch("/{threadID}", s.handleUpdateThread)

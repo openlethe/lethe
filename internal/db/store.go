@@ -563,6 +563,49 @@ func (s *Store) GetThreadsBySession(ctx context.Context, sessionID string, statu
 	return threads, rows.Err()
 }
 
+// ListThreads returns threads across sessions, optionally filtered by status,
+// newest activity first, capped at limit rows. The dashboard's open-threads
+// board is backed by this cross-session view.
+func (s *Store) ListThreads(ctx context.Context, status *models.ThreadState, limit int) ([]*models.Thread, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	var q string
+	var args []interface{}
+	if status != nil {
+		q = `SELECT thread_id, session_id, name, title, status, created_at, updated_at, resolved_at
+		     FROM threads WHERE status=? ORDER BY updated_at DESC LIMIT ?`
+		args = []interface{}{*status, limit}
+	} else {
+		q = `SELECT thread_id, session_id, name, title, status, created_at, updated_at, resolved_at
+		     FROM threads ORDER BY updated_at DESC LIMIT ?`
+		args = []interface{}{limit}
+	}
+	rows, err := s.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var threads []*models.Thread
+	for rows.Next() {
+		var t models.Thread
+		var resolvedAt sql.NullTime
+		if err := rows.Scan(&t.ThreadID, &t.SessionID, &t.Name, &t.Title, &t.Status,
+			&t.CreatedAt, &t.UpdatedAt, &resolvedAt); err != nil {
+			return nil, err
+		}
+		if resolvedAt.Valid {
+			t.ResolvedAt = &resolvedAt.Time
+		}
+		threads = append(threads, &t)
+	}
+	return threads, rows.Err()
+}
+
 // UpdateThreadStatus updates a thread's status and resolved_at timestamp.
 func (s *Store) UpdateThreadStatus(ctx context.Context, threadID string, status models.ThreadState) error {
 	var q string

@@ -435,3 +435,54 @@ func TestCreateEventSetsCreatedAt(t *testing.T) {
 		t.Errorf("created_at=%v, want between %v and %v", events[0].CreatedAt, before, after)
 	}
 }
+
+func TestListThreads(t *testing.T) {
+	s, cleanup := newTestStore(t)
+	defer cleanup()
+	ctx := context.Background()
+	setupAgentProject(t, s, "agent-1", "proj-1")
+
+	for _, id := range []string{"sess-a", "sess-b"} {
+		if err := s.CreateSession(ctx, &models.Session{SessionID: id, AgentID: "agent-1", ProjectID: "proj-1", State: models.SessionActive}); err != nil {
+			t.Fatalf("CreateSession %s: %v", id, err)
+		}
+	}
+	seed := func(id, session string, status models.ThreadState) {
+		if err := s.CreateThread(ctx, &models.Thread{ThreadID: id, SessionID: session, Name: id, Title: id, Status: status}); err != nil {
+			t.Fatalf("CreateThread %s: %v", id, err)
+		}
+	}
+	seed("t1", "sess-a", models.ThreadOpen)
+	seed("t2", "sess-b", models.ThreadOpen)
+	seed("t3", "sess-a", models.ThreadResolved)
+
+	all, err := s.ListThreads(ctx, nil, 0)
+	if err != nil {
+		t.Fatalf("ListThreads all: %v", err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("ListThreads all = %d, want 3", len(all))
+	}
+
+	open := models.ThreadOpen
+	openThreads, err := s.ListThreads(ctx, &open, 0)
+	if err != nil {
+		t.Fatalf("ListThreads open: %v", err)
+	}
+	if len(openThreads) != 2 {
+		t.Fatalf("ListThreads open = %d, want 2", len(openThreads))
+	}
+	for _, th := range openThreads {
+		if th.Status != models.ThreadOpen {
+			t.Fatalf("status filter leaked %q", th.Status)
+		}
+	}
+
+	limited, err := s.ListThreads(ctx, nil, 1)
+	if err != nil {
+		t.Fatalf("ListThreads limited: %v", err)
+	}
+	if len(limited) != 1 {
+		t.Fatalf("ListThreads limited = %d, want 1", len(limited))
+	}
+}

@@ -932,6 +932,30 @@ func (s *Server) handleUpdateThread(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{"thread": thread})
 }
 
+// handleListThreads returns threads across sessions, newest activity first.
+// The dashboard's open-threads board calls this route directly.
+func (s *Server) handleListThreads(w http.ResponseWriter, r *http.Request) {
+	var statusFilter *models.ThreadState
+	if status := r.URL.Query().Get("status"); status != "" {
+		st := models.ThreadState(status)
+		statusFilter = &st
+	}
+	limit := 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	threads, err := s.store.ListThreads(r.Context(), statusFilter, limit)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{"threads": threads})
+}
+
 // handleGetThreads returns threads for a session.
 func (s *Server) handleGetThreads(w http.ResponseWriter, r *http.Request) {
 	sessionID := chi.URLParam(r, "sessionID")
