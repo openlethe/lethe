@@ -1,32 +1,29 @@
 {{template "memory_tabs" .}}
 
-<div class="gh" style="margin-top:20px;">
-  <div class="card" style="overflow:hidden;">
-    <div class="gh-head">
-      <span style="font-size:14px;">⟟</span>
-      <span style="font-size:12px;font-weight:600;">{{len .changesets}} changesets</span>
-      <span class="gh-muted" style="font-size:12px;">on</span>
-      <span class="gh-mono" style="font-size:12px;">{{.ref}}</span>
-    </div>
+<div class="lx" style="margin-top:22px;">
+  <div class="kick">log / {{.ref}}</div>
+  <h1 style="font-size:30px;letter-spacing:-.02em;margin:8px 0 4px;font-weight:700;">Changesets</h1>
+  <p class="mut" style="font-size:13px;">{{len .changesets}} reachable from <span class="mono">{{.ref}}</span></p>
+  <div class="rule" style="margin-top:20px;"></div>
 
-    {{if .changesets}}
-    {{range $i, $cs := .changesets}}
-    <a class="gh-row" href="/ui/memory/changesets/{{index $cs "changeset_id"}}?project={{$.project}}" style="text-decoration:none;">
-      <span style="width:26px;height:26px;border-radius:50%;background:var(--gh-bg);border:1px solid var(--gh-border);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--gh-muted);flex-shrink:0;">⟟</span>
-      <div style="min-width:0;flex:1;">
-        <div style="font-size:13px;font-weight:600;color:var(--gh-text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{index $cs "message"}}</div>
-        <div class="gh-muted gh-mono" style="font-size:11px;margin-top:2px;">{{index $cs "author_principal"}} · {{index $cs "ref_name"}}</div>
+  {{if .changesets}}
+  <div>
+    {{range $cs := .changesets}}
+    <a href="/ui/memory/changesets/{{index $cs "changeset_id"}}?project={{$.project}}" style="display:flex;align-items:baseline;gap:16px;padding:12px 4px;border-bottom:1px solid var(--line);">
+      <span class="mono" style="font-size:12px;color:var(--deep);flex-shrink:0;width:96px;">{{printf "%.10s" (index $cs "changeset_id")}}</span>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:14px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{index $cs "message"}}</div>
+        <div class="mono mut" style="font-size:11px;margin-top:2px;">{{index $cs "author_principal"}} · {{index $cs "ref_name"}}</div>
       </div>
-      <div style="flex-shrink:0;text-align:right;">
-        <span class="gh-mono" style="font-size:12px;color:var(--gh-link);">{{printf "%.10s" (index $cs "changeset_id")}}</span>
-        <div class="gh-muted" style="font-size:11px;margin-top:2px;">{{since (index $cs "created_at")}} ago</div>
-      </div>
+      <span class="mono mut" style="font-size:11px;flex-shrink:0;">{{since (index $cs "created_at")}}</span>
     </a>
     {{end}}
-    {{else}}
-    <div class="gh-row" style="justify-content:center;padding:32px;">
-      <span class="gh-muted" style="font-size:13px;">No changesets reachable from <span class="gh-mono">{{.ref}}</span>.</span>
-    </div>
-    {{end}}
   </div>
+  {{else}}
+  <div class="cellx" style="margin-top:26px;padding:34px;text-align:center;">
+    <div class="mut" style="font-size:13px;">No changesets reachable from <span class="mono">{{.ref}}</span>.</div>
+  </div>
+  {{end}}
 </div>
+
+{{template "memory_status" .}}

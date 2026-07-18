@@ -26,6 +26,7 @@ func SetupMemoryRoutes(r *chi.Mux, baseURL string, middleware ...func(http.Handl
 	}
 	routes.Get("/ui", redirectTo("/ui/memory"))
 	routes.Get("/ui/memory", handleMemoryHome)
+	routes.Get("/ui/memory/memories", handleMemoryMemories)
 	routes.Get("/ui/memory/changesets", handleMemoryChangesets)
 	routes.Get("/ui/memory/changesets/{id}", handleMemoryChangesetDetail)
 	routes.Get("/ui/memory/refs", handleMemoryRefs)
@@ -62,9 +63,27 @@ func memoryChrome(r *http.Request, project, ref string) (refs []interface{}, cha
 	return refs, changesets
 }
 
-// handleMemoryHome renders accepted memory at a ref head — the repository
-// "tree" view, defaulting to the protected shared ref.
+// handleMemoryHome renders the editorial landing: section cards with live
+// counts and the merge-path explainer.
 func handleMemoryHome(w http.ResponseWriter, r *http.Request) {
+	project := memoryProject(r)
+	ref := memoryRef(r)
+	refs, changesets := memoryChrome(r, project, ref)
+	ctxRes, _ := httpGetJSON[map[string]interface{}](r.Context(), authTokenFromRequest(r),
+		apiBase+"/api/memory/"+url.PathEscape(project)+"/context?ref="+url.QueryEscape(ref)+"&limit=1")
+	Render(w, r, "memory_home", map[string]interface{}{
+		"project":    project,
+		"ref":        ref,
+		"refs":       refs,
+		"changesets": changesets,
+		"ctx":        ctxRes,
+		"page":       "home",
+	})
+}
+
+// handleMemoryMemories renders the Treehouse: accepted memory grouped by kind
+// ("kinds as folders"), every record expandable.
+func handleMemoryMemories(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
 	ref := memoryRef(r)
 	refs, changesets := memoryChrome(r, project, ref)
@@ -76,26 +95,44 @@ func handleMemoryHome(w http.ResponseWriter, r *http.Request) {
 			memories = m
 		}
 	}
-	tagSet := map[string]bool{}
-	var tags []string
+
+	icons := map[string]string{"decision": "◆", "task": "☑", "flag": "⚑", "fact": "✓", "record": "≡", "observation": "◉"}
+	order := []string{"decision", "task", "flag", "fact", "record", "observation"}
+	buckets := map[string][]interface{}{}
 	for _, m := range memories {
 		mm, _ := m.(map[string]interface{})
-		for _, t := range toStrings(mm["tags"]) {
-			if !tagSet[t] {
-				tagSet[t] = true
-				tags = append(tags, t)
-			}
+		kind, _ := mm["kind"].(string)
+		if kind == "" {
+			kind = "record"
+		}
+		buckets[kind] = append(buckets[kind], m)
+	}
+	var groups []map[string]interface{}
+	seen := map[string]bool{}
+	for _, kind := range order {
+		if items := buckets[kind]; len(items) > 0 {
+			groups = append(groups, map[string]interface{}{"kind": kind, "icon": icons[kind], "items": items})
+			seen[kind] = true
 		}
 	}
-	sort.Strings(tags)
-	Render(w, r, "memory_home", map[string]interface{}{
+	var rest []string
+	for kind := range buckets {
+		if !seen[kind] {
+			rest = append(rest, kind)
+		}
+	}
+	sort.Strings(rest)
+	for _, kind := range rest {
+		groups = append(groups, map[string]interface{}{"kind": kind, "icon": "≡", "items": buckets[kind]})
+	}
+
+	Render(w, r, "memory_memories", map[string]interface{}{
 		"project":    project,
 		"ref":        ref,
 		"refs":       refs,
 		"changesets": changesets,
 		"ctx":        ctxRes,
-		"memories":   memories,
-		"tags":       tags,
+		"groups":     groups,
 		"page":       "memory",
 	})
 }

@@ -1,0 +1,47 @@
+{{template "memory_tabs" .}}
+
+<div class="lx" style="margin-top:22px;">
+  <div class="kick">tree / {{.ref}}</div>
+  <h1 style="font-size:30px;letter-spacing:-.02em;margin:8px 0 4px;font-weight:700;">Accepted memory</h1>
+  <p class="mut" style="font-size:13px;">{{index .ctx "total_active"}} files across {{len .groups}} kinds · reconstructed exactly at <span class="mono">{{printf "%.10s" (index .ctx "head_changeset_id")}}</span></p>
+  <div class="rule" style="margin-top:20px;"></div>
+
+  {{range .groups}}
+  <div style="margin-top:26px;">
+    {{/* folder header */}}
+    <div style="display:flex;align-items:baseline;gap:10px;border-bottom:1px solid var(--ink);padding-bottom:6px;">
+      <span class="mono" style="font-size:13px;color:var(--deep);">{{.icon}}</span>
+      <span style="font-size:16px;font-weight:700;letter-spacing:-.01em;">{{.kind}}/</span>
+      <span class="kick">{{len .items}} file{{if ne (len .items) 1}}s{{end}}</span>
+    </div>
+
+    {{range .items}}
+    <details style="border-bottom:1px solid var(--line);">
+      <summary style="display:flex;align-items:center;gap:12px;padding:10px 4px;cursor:pointer;list-style:none;">
+        <span class="mono" style="font-size:11px;color:var(--mut);width:16px;flex-shrink:0;">▸</span>
+        <span class="mono" style="font-size:12px;color:var(--deep);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px;flex-shrink:0;" title="{{index . "memory_id"}}">{{index . "memory_id"}}</span>
+        <span class="mut" style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;">{{index . "content"}}</span>
+      </summary>
+      <div style="padding:4px 4px 16px 28px;">
+        <div style="font-size:14px;line-height:1.75;color:var(--ink);max-width:75ch;">{{index . "content"}}</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;align-items:center;">
+          <span class="pillb">{{index . "kind"}}</span>
+          <span class="pill">{{index . "event_type"}}</span>
+          {{with index . "scope"}}<span class="pill">{{.}}</span>{{end}}
+          {{with index . "tags"}}{{range .}}<span class="pill">{{.}}</span>{{end}}{{end}}
+          <span class="mono mut" style="font-size:10.5px;margin-left:auto;">{{index . "memory_id"}}</span>
+        </div>
+      </div>
+    </details>
+    {{end}}
+  </div>
+  {{end}}
+
+  {{if not .groups}}
+  <div class="cellx" style="margin-top:26px;padding:34px;text-align:center;">
+    <div class="mut" style="font-size:13px;">No accepted memory at <span class="mono">{{.ref}}</span> — nothing has crossed review yet.</div>
+  </div>
+  {{end}}
+</div>
+
+{{template "memory_status" .}}

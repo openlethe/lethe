@@ -1,0 +1,11 @@
+{{define "memory_status"}}
+<div class="lx" style="margin-top:40px;">
+  <div class="rule" style="background:var(--line);"></div>
+  <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-top:12px;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--mut);text-transform:uppercase;">
+    <span>project: {{.project}}</span>
+    <span>ref: {{.ref}}</span>
+    <span>head <a href="/ui/memory/changesets/{{index .ctx "head_changeset_id"}}?project={{.project}}" style="color:var(--deep);">{{printf "%.10s" (index .ctx "head_changeset_id")}}</a></span>
+    <span>reconstructed at head ✓</span>
+  </div>
+</div>
+{{end}}

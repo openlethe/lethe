@@ -158,6 +158,7 @@ func init() {
 		"templates/flags",
 		"templates/live",
 		"templates/memory_home",
+		"templates/memory_memories",
 		"templates/memory_changesets",
 		"templates/memory_changeset_detail",
 		"templates/memory_refs",
@@ -239,6 +240,8 @@ func Render(w http.ResponseWriter, r *http.Request, name string, data interface{
 		title = "Live"
 	case "memory_home":
 		title = "Memory"
+	case "memory_memories":
+		title = "Memories"
 	case "memory_changesets":
 		title = "Changesets"
 	case "memory_changeset_detail":

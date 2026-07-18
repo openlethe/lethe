@@ -1,36 +1,36 @@
 {{template "memory_tabs" .}}
 
-<div class="gh" style="margin-top:20px;">
-  <div class="card" style="overflow:hidden;">
-    <div class="gh-head">
-      <span style="font-size:14px;">⎇</span>
-      <span style="font-size:12px;font-weight:600;">{{len .refs}} refs</span>
-      <span class="gh-muted" style="font-size:12px;">in</span>
-      <span class="gh-mono" style="font-size:12px;">{{.project}}</span>
-    </div>
+<div class="lx" style="margin-top:22px;">
+  <div class="kick">branches / {{.project}}</div>
+  <h1 style="font-size:30px;letter-spacing:-.02em;margin:8px 0 4px;font-weight:700;">Refs</h1>
+  <p class="mut" style="font-size:13px;">{{len .refs}} branches of memory · shared protected, agent-owned, sessions, topics</p>
+  <div class="rule" style="margin-top:20px;"></div>
 
-    {{if .refs}}
-    {{range $i, $ref := .refs}}
-    <div class="gh-row">
-      <span style="font-size:13px;color:var(--gh-muted);">⎇</span>
-      <div style="min-width:0;flex:1;">
+  {{if .refs}}
+  <div>
+    {{range $ref := .refs}}
+    <div style="display:flex;align-items:baseline;gap:14px;padding:12px 4px;border-bottom:1px solid var(--line);">
+      <span class="mono" style="font-size:12px;color:var(--deep);">⎇</span>
+      <div style="flex:1;min-width:0;">
         <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <a class="gh-mono" style="font-size:13px;" href="/ui/memory/changesets?project={{$.project}}&ref={{index $ref "ref_name" | queryEscape}}">{{index $ref "ref_name"}}</a>
-          {{if index $ref "protected"}}<span class="gh-prot">🔒</span>{{end}}
-          {{if eq (index $ref "ref_name") $.ref}}<span class="gh-pill" style="color:var(--gh-link);border-color:rgba(9,105,218,.4);">current</span>{{end}}
+          <a href="/ui/memory/changesets?project={{$.project}}&ref={{index $ref "ref_name" | queryEscape}}" class="mono" style="font-size:13px;font-weight:600;color:var(--ink);">{{index $ref "ref_name"}}</a>
+          {{if index $ref "protected"}}<span class="prot">🔒 protected</span>{{end}}
+          {{if eq (index $ref "ref_name") $.ref}}<span class="pillb">current</span>{{end}}
         </div>
-        <div class="gh-muted gh-mono" style="font-size:11px;margin-top:2px;">created by {{index $ref "created_by_principal"}}</div>
+        <div class="mono mut" style="font-size:11px;margin-top:2px;">created by {{index $ref "created_by_principal"}}</div>
       </div>
       <div style="flex-shrink:0;text-align:right;">
-        <a class="gh-mono" style="font-size:12px;" href="/ui/memory/changesets/{{index $ref "head_changeset_id"}}?project={{$.project}}">{{printf "%.10s" (index $ref "head_changeset_id")}}</a>
-        <div class="gh-muted" style="font-size:11px;margin-top:2px;">updated {{since (index $ref "updated_at")}} ago</div>
+        <a href="/ui/memory/changesets/{{index $ref "head_changeset_id"}}?project={{$.project}}" class="mono" style="font-size:12px;color:var(--deep);">{{printf "%.10s" (index $ref "head_changeset_id")}}</a>
+        <div class="mono mut" style="font-size:10.5px;margin-top:2px;">updated {{since (index $ref "updated_at")}}</div>
       </div>
-    </div>
-    {{end}}
-    {{else}}
-    <div class="gh-row" style="justify-content:center;padding:32px;">
-      <span class="gh-muted" style="font-size:13px;">No refs for project {{.project}} — initialize with memory_repo_init via Charon.</span>
     </div>
     {{end}}
   </div>
+  {{else}}
+  <div class="cellx" style="margin-top:26px;padding:34px;text-align:center;">
+    <div class="mut" style="font-size:13px;">No refs for project {{.project}} — initialize with memory_repo_init via Charon.</div>
+  </div>
+  {{end}}
 </div>
+
+{{template "memory_status" .}}

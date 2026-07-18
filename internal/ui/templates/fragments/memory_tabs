@@ -1,55 +1,52 @@
 {{define "memory_tabs"}}
+{{/* Lethe Memory UI chrome — paper editorial skin (concept: Treehouse) */}}
 <style>
-  .gh{--gh-bg:#f6f8fa;--gh-surface:#ffffff;--gh-border:#d0d7de;--gh-text:#1f2328;--gh-muted:#57606a;--gh-faint:#8c959f;--gh-link:#0969da;--gh-green:#1a7f37;--gh-amber:#9a6700;--gh-purple:#8250df;--gh-red:#cf222e;--gh-mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace}
-  .gh,.gh .card{background:var(--gh-surface);color:var(--gh-text)}
-  .gh .card{border:1px solid var(--gh-border);border-radius:6px}
-  .gh a{color:var(--gh-link);text-decoration:none}
-  .gh a:hover{text-decoration:underline}
-  .gh .gh-muted{color:var(--gh-muted)}
-  .gh .gh-mono{font-family:var(--gh-mono)}
-  .gh .gh-head{background:var(--gh-bg);border-bottom:1px solid var(--gh-border);padding:9px 16px;display:flex;align-items:center;gap:10px;border-radius:6px 6px 0 0}
-  .gh .gh-row{display:flex;align-items:center;gap:12px;padding:9px 16px;border-top:1px solid var(--gh-border)}
-  .gh .gh-row:first-of-type{border-top:none}
-  .gh .gh-pill{font-family:var(--gh-mono);font-size:11px;padding:1px 8px;border-radius:12px;border:1px solid var(--gh-border);color:var(--gh-muted)}
-  .gh .gh-prot{font-family:var(--gh-mono);font-size:11px;padding:1px 8px;border-radius:12px;border:1px solid rgba(26,127,55,.4);color:var(--gh-green);background:rgba(26,127,55,.08)}
-  .gh select{background:var(--gh-surface);border:1px solid var(--gh-border);border-radius:6px;color:var(--gh-text);font-family:var(--gh-mono);font-size:12px;padding:4px 8px}
-  .gh .gh-tab{padding:7px 14px;font-size:13px;border-bottom:2px solid transparent;color:var(--gh-muted)}
-  .gh .gh-tab:hover{color:var(--gh-text);text-decoration:none}
-  .gh .gh-tab.on{color:var(--gh-text);border-bottom-color:var(--gh-link);font-weight:600}
+  .lx{--paper:#f4f1ec;--ink:#16130f;--line:#d9d3c8;--mut:#6f675b;--cyan:#39d0e8;--deep:#0f4c5c;--dark:#04141a;--mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
+  .lx,.lx .card{background:var(--paper);color:var(--ink)}
+  .lx .card{border:1px solid var(--line);border-radius:0}
+  .lx a{color:var(--ink);text-decoration:none}
+  .lx a:hover{color:var(--deep)}
+  .lx .mut{color:var(--mut)}
+  .lx .mono{font-family:var(--mono)}
+  .lx .kick{font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--mut)}
+  .lx .rule{height:1px;background:var(--ink)}
+  .lx .gridline{border-left:1px solid var(--line);border-top:1px solid var(--line)}
+  .lx .cellx{border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+  .lx .pill{font-family:var(--mono);font-size:10.5px;padding:2px 8px;border:1px solid var(--line);color:var(--mut);letter-spacing:.06em}
+  .lx .pillb{font-family:var(--mono);font-size:10.5px;padding:2px 8px;border:1px solid var(--ink);background:var(--ink);color:var(--paper);letter-spacing:.06em}
+  .lx .prot{font-family:var(--mono);font-size:10.5px;padding:2px 8px;border:1px solid var(--deep);color:var(--deep);background:rgba(57,208,232,.10);letter-spacing:.06em}
+  .lx select{background:var(--paper);border:1px solid var(--line);color:var(--ink);font-family:var(--mono);font-size:11.5px;padding:4px 8px;border-radius:0}
+  .lx input[type=text]{background:var(--paper);border:1px solid var(--line);color:var(--ink);font-family:var(--mono);font-size:11.5px;padding:4px 8px;border-radius:0;width:140px}
+  .lx .tab{padding:6px 12px;font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;border-bottom:2px solid transparent;color:var(--mut)}
+  .lx .tab:hover{color:var(--ink)}
+  .lx .tab.on{color:var(--ink);border-bottom-color:var(--cyan)}
 </style>
-<div class="gh">
-  {{/* repo header */}}
-  <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
-    <span style="font-size:18px;color:var(--gh-muted);">🗂</span>
-    <span style="font-size:18px;">
-      <a href="/ui/memory">{{.project}}</a>
-      <span class="gh-muted">/</span>
-      <b>memory</b>
-    </span>
-    <span class="gh-prot">🔒 refs/shared/main</span>
-    <span class="gh-muted" style="font-size:12px;">accepted memory, reconstructed exactly at head</span>
-  </div>
-
-  {{/* branch bar + tabs */}}
-  {{$currentURL := "/ui/memory"}}
-  {{if eq .page "changesets"}}{{$currentURL = "/ui/memory/changesets"}}
-  {{else if eq .page "refs"}}{{$currentURL = "/ui/memory/refs"}}{{end}}
-  <div style="display:flex;align-items:center;gap:14px;border-bottom:1px solid var(--gh-border);flex-wrap:wrap;">
-    <div style="padding-bottom:6px;">
+<div class="lx">
+  <div style="display:flex;align-items:center;gap:14px;padding:4px 0 12px;flex-wrap:wrap;">
+    <span class="kick">Lethe · memory git</span>
+    <span class="kick" style="color:var(--ink);">{{.project}} / memory</span>
+    <span class="prot">🔒 refs/shared/main</span>
+    <span style="margin-left:auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <select onchange="if(this.value)location.href=this.value">
+        {{$currentURL := "/ui/memory/memories"}}
+        {{if eq .page "changesets"}}{{$currentURL = "/ui/memory/changesets"}}
+        {{else if eq .page "refs"}}{{$currentURL = "/ui/memory/refs"}}{{end}}
         {{range .refs}}
         {{$rn := index . "ref_name"}}
         <option value="{{$currentURL}}?project={{$.project}}&ref={{$rn | queryEscape}}" {{if eq $rn $.ref}}selected{{end}}>⎇ {{$rn}}</option>
         {{end}}
       </select>
-    </div>
-    <a class="gh-tab {{if eq .page "memory"}}on{{end}}" href="/ui/memory?project={{.project}}&ref={{.ref | queryEscape}}">🗂 Memories</a>
-    <a class="gh-tab {{if eq .page "changesets"}}on{{end}}" href="/ui/memory/changesets?project={{.project}}&ref={{.ref | queryEscape}}">⟟ Changesets <span class="gh-pill">{{len .changesets}}</span></a>
-    <a class="gh-tab {{if eq .page "refs"}}on{{end}}" href="/ui/memory/refs?project={{.project}}&ref={{.ref | queryEscape}}">⎇ Refs <span class="gh-pill">{{len .refs}}</span></a>
-    <form method="get" style="margin-left:auto;padding-bottom:6px;">
-      <input name="project" value="{{.project}}" class="gh-mono" style="background:var(--gh-surface);border:1px solid var(--gh-border);border-radius:6px;color:var(--gh-text);font-size:12px;padding:4px 8px;width:140px;" placeholder="project">
-      {{if .ref}}<input type="hidden" name="ref" value="{{.ref}}">{{end}}
-    </form>
+      <form method="get" style="display:flex;gap:6px;align-items:center;">
+        <input type="text" name="project" value="{{.project}}" placeholder="project">
+        {{if .ref}}<input type="hidden" name="ref" value="{{.ref}}">{{end}}
+      </form>
+    </span>
+  </div>
+  <div style="display:flex;gap:2px;border-bottom:1px solid var(--line);">
+    <a class="tab {{if eq .page "home"}}on{{end}}" href="/ui/memory?project={{.project}}&ref={{.ref | queryEscape}}">Home</a>
+    <a class="tab {{if eq .page "memory"}}on{{end}}" href="/ui/memory/memories?project={{.project}}&ref={{.ref | queryEscape}}">Memories <span class="pill">{{index .ctx "total_active"}}</span></a>
+    <a class="tab {{if eq .page "changesets"}}on{{end}}" href="/ui/memory/changesets?project={{.project}}&ref={{.ref | queryEscape}}">Changesets <span class="pill">{{len .changesets}}</span></a>
+    <a class="tab {{if eq .page "refs"}}on{{end}}" href="/ui/memory/refs?project={{.project}}&ref={{.ref | queryEscape}}">Refs <span class="pill">{{len .refs}}</span></a>
   </div>
 </div>
 {{end}}
