@@ -37,13 +37,13 @@ func SetupMemoryRoutes(r *chi.Mux, baseURL string, rootRedirect bool, middleware
 	routes.Get("/ui/memory/refs", handleMemoryRefs)
 }
 
-// memoryProject resolves the project scope. Prototype default; a projects
-// list endpoint lands when this is ported from the playground.
+// memoryProject resolves the project scope. Fresh deployments use the
+// conventional "default" project; any project can be typed in the picker.
 func memoryProject(r *http.Request) string {
 	if p := strings.TrimSpace(r.URL.Query().Get("project")); p != "" {
 		return p
 	}
-	return "Archimedes"
+	return "default"
 }
 
 func memoryRef(r *http.Request) string {
@@ -314,16 +314,28 @@ func toStrings(v interface{}) []string {
 	return out
 }
 
-// handleMemoryChangesets renders the commit log reachable from a ref.
+// handleMemoryChangesets renders the commit log reachable from a ref, split
+// into the ref's own segment and the shared ancestry it descends from.
 func handleMemoryChangesets(w http.ResponseWriter, r *http.Request) {
 	project := memoryProject(r)
 	ref := memoryRef(r)
 	refs, changesets, ctx := memoryChrome(r, project, ref)
+	var own, ancestry []interface{}
+	for _, c := range changesets {
+		cm, _ := c.(map[string]interface{})
+		if cm["ref_name"] == ref {
+			own = append(own, c)
+		} else {
+			ancestry = append(ancestry, c)
+		}
+	}
 	Render(w, r, "memory_changesets", map[string]interface{}{
 		"project":    project,
 		"ref":        ref,
 		"refs":       refs,
 		"changesets": changesets,
+		"own":        own,
+		"ancestry":   ancestry,
 		"ctx":        ctx,
 		"page":       "changesets",
 	})
