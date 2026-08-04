@@ -100,6 +100,28 @@ update_manifest() {
     fi
 }
 
+update_source_version() {
+    local file="$PLUGIN_SOURCE/src/context-engine.ts" plugin_ver="$1"
+    if [[ ! -f "$file" ]]; then
+        echo "ERROR: Missing runtime source version file: $file" >&2
+        return 1
+    fi
+
+    local tmp_file="${file}.tmp"
+    if ! RELEASE_PLUGIN_VERSION="$plugin_ver" perl -0pe '
+        my $replaced = 0;
+        $replaced += s/(\n\s*version:\s*")[^"]+("\s*,)/$1 . $ENV{RELEASE_PLUGIN_VERSION} . $2/e;
+        $replaced += s/(plugin_version:\s*this\.info\.version\s*\?\?\s*")[^"]+(")/$1 . $ENV{RELEASE_PLUGIN_VERSION} . $2/e;
+        die "expected exactly two runtime version literals\n" unless $replaced == 2;
+    ' "$file" >"$tmp_file"; then
+        rm -f "$tmp_file"
+        echo "ERROR: Failed to update both runtime source version literals in $file" >&2
+        return 1
+    fi
+    mv "$tmp_file" "$file"
+    echo "  ✓ context-engine runtime version → $plugin_ver"
+}
+
 update_lockfile_root() {
     local file="$1" plugin_ver="$2"
     if [[ -f "$file" ]]; then
@@ -190,6 +212,10 @@ update_manifest "$PLUGIN_SOURCE/openclaw.plugin.json" "$NEW_VERSION"
 update_manifest "$PLUGIN_DIST/openclaw.plugin.json" "$NEW_VERSION"
 echo ""
 
+echo "==> Bumping runtime source version..."
+update_source_version "$NEW_VERSION"
+echo ""
+
 # ──────────────────── 2) rebuild dist ────────────────────
 echo "==> Building distribution..."
 cd "$PLUGIN_SOURCE"
@@ -203,8 +229,15 @@ echo "==> Syncing dist/ to plugins/lethe/dist/..."
 mkdir -p "$PLUGIN_DIST/dist"
 rsync -a --delete "$PLUGIN_SOURCE/dist/" "$PLUGIN_DIST/dist/"
 
-# Also sync top-level JS files that plugins/lethe expects at root
-cp -f "$PLUGIN_SOURCE/index.js" "$PLUGIN_DIST/index.js" 2>/dev/null || true
+# The packaged entrypoint is at plugins/lethe/index.js and imports these
+# compiled modules from the distribution package root, not from ./dist/.
+for compiled in index.js context-engine.js context-engine-types.js tools.js; do
+    if [[ ! -f "$PLUGIN_SOURCE/dist/$compiled" ]]; then
+        echo "ERROR: Missing compiled runtime module: plugin/dist/$compiled" >&2
+        exit 1
+    fi
+    cp -f "$PLUGIN_SOURCE/dist/$compiled" "$PLUGIN_DIST/$compiled"
+done
 echo "  ✓ dist/ synced"
 echo ""
 
