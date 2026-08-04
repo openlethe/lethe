@@ -149,7 +149,7 @@ export class LetheContextEngine {
     info = {
         id: "mentholmike-lethe",
         name: "Lethe",
-        version: "0.4.0",
+        version: "0.4.2",
         ownsCompaction: true,
     };
     constructor(cfg) {
@@ -526,7 +526,7 @@ export class LetheContextEngine {
         const report = {
             assembly_id: assemblyId,
             source: "openclaw-plugin",
-            plugin_version: this.info.version ?? "0.4.0",
+            plugin_version: this.info.version ?? "0.4.2",
             assembler_version: "openclaw-memory-git-v1",
             message_count: params.messages.length,
             provided_token_budget: params.tokenBudget,
