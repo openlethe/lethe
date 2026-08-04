@@ -75,6 +75,15 @@ update_pkg() {
     local file="$1" plugin_ver="$2" oc_ver="$3"
     jq --arg pv "$plugin_ver" --arg ov "$oc_ver" '
         .version = $pv |
+        .devDependencies.openclaw = $ov |
+        # Keep the exact tested prerelease as the floor. Stable releases have
+        # higher precedence than their prerelease versions; unrelated future
+        # prereleases are not claimed compatible until tested.
+        .peerDependencies.openclaw = (
+            if .peerDependencies.openclaw then
+                ">=" + $ov
+            else .peerDependencies.openclaw end
+        ) |
         .openclaw.compat.pluginApi = $ov |
         .openclaw.build.openclawVersion = $ov
     ' "$file" >"${file}.tmp" && mv "${file}.tmp" "$file"
@@ -100,6 +109,12 @@ update_lockfile_root() {
         ' "$file" >"${file}.tmp" && mv "${file}.tmp" "$file"
         echo "  ✓ $(basename "$(dirname "$file")")/package-lock.json → $plugin_ver"
     fi
+}
+
+refresh_lockfile() {
+    local dir="$1"
+    (cd "$dir" && npm install --package-lock-only --ignore-scripts --silent)
+    echo "  ✓ $(basename "$dir")/package-lock.json regenerated"
 }
 
 # ──────────────────── args ────────────────────
@@ -162,6 +177,11 @@ update_pkg "$PLUGIN_SOURCE/package.json" "$NEW_VERSION" "$OPENCLAW_VERSION"
 update_pkg "$PLUGIN_DIST/package.json"  "$NEW_VERSION" "$OPENCLAW_VERSION"
 update_lockfile_root "$PLUGIN_SOURCE/package-lock.json" "$NEW_VERSION"
 update_lockfile_root "$PLUGIN_DIST/package-lock.json" "$NEW_VERSION"
+echo ""
+
+echo "==> Regenerating OpenClaw dependency lockfiles..."
+refresh_lockfile "$PLUGIN_SOURCE"
+refresh_lockfile "$PLUGIN_DIST"
 echo ""
 
 # ──────────────────── 1b) bump openclaw.plugin.json ────────────────────
