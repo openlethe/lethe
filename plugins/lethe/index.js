@@ -61,7 +61,7 @@ const plugin = definePluginEntry({
             autoLog,
             memoryGitContext,
         }));
-        // Register memory tools: memory.record, memory.log, memory.flag, memory.task, memory_search
+        // Register memory tools: lethe_record, lethe_log, lethe_flag, lethe_task, lethe_search
         const tools = new LetheTools({ endpoint, apiKey, agentId, projectId });
         api.registerTool(() => tools.getRecordTool());
         api.registerTool(() => tools.getLogTool());

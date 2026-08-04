@@ -38,7 +38,7 @@ async function lethePost(
 // Tool schemas (Typebox)
 // ---------------------------------------------------------------------------
 
-// memory.record — deliberate decision with reasoning
+// lethe_record — deliberate decision with reasoning
 const RecordParams = Type.Object({
   content: Type.String({
     description:
@@ -55,7 +55,7 @@ const RecordParams = Type.Object({
   ),
 });
 
-// memory.log — ambient observation
+// lethe_log — ambient observation
 const LogParams = Type.Object({
   content: Type.String({
     description: "An observation, event, or note worth remembering.",
@@ -66,7 +66,7 @@ const LogParams = Type.Object({
   tags: Type.Optional(Type.Array(Type.String())),
 });
 
-// memory.flag — agent self-reported uncertainty
+// lethe_flag — agent self-reported uncertainty
 const FlagParams = Type.Object({
   content: Type.String({
     description:
@@ -83,7 +83,7 @@ const FlagParams = Type.Object({
   ),
 });
 
-// memory.task — track a task through status transitions
+// lethe_task — track a task through status transitions
 const TaskParams = Type.Object({
   title: Type.String({
     description: "Short, descriptive title for the task.",
@@ -107,7 +107,7 @@ const TaskParams = Type.Object({
   ),
 });
 
-// memory_search — search Lethe events within the configured project
+// lethe_search — search Lethe events within the configured project
 const SearchParams = Type.Object({
   query: Type.String({
     description: "Search terms — keywords, phrases, or topic to find in stored memory events.",
@@ -149,7 +149,7 @@ export class LetheTools {
 
   getRecordTool(): AgentTool<typeof RecordParams> {
     return this.makeTool({
-      name: "lethe.record",
+      name: "lethe_record",
       description:
         "Record a deliberate decision the agent has made, including the reasoning behind it. Use this for architecture choices, trade-off resolutions, and any conclusions reached during the session.",
       params: RecordParams,
@@ -189,7 +189,7 @@ export class LetheTools {
 
   getLogTool(): AgentTool<typeof LogParams> {
     return this.makeTool({
-      name: "lethe.log",
+      name: "lethe_log",
       description:
         "Log an ambient observation, event, or note. Lower stakes than record — use this to track what's happening without requiring structured reasoning.",
       params: LogParams,
@@ -224,7 +224,7 @@ export class LetheTools {
 
   getFlagTool(): AgentTool<typeof FlagParams> {
     return this.makeTool({
-      name: "lethe.flag",
+      name: "lethe_flag",
       description:
         "Flag a knowledge gap, uncertainty, or educated guess. The confidence score surfaces this for human review. Use when you know you're working with incomplete information.",
       params: FlagParams,
@@ -266,7 +266,7 @@ export class LetheTools {
 
   getTaskTool(): AgentTool<typeof TaskParams> {
     return this.makeTool({
-      name: "lethe.task",
+      name: "lethe_task",
       description:
         "Track a task through status transitions (todo → in_progress → done | blocked). Each transition is recorded as a separate event with a parent link, building a full audit trail.",
       params: TaskParams,

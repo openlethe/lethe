@@ -6,10 +6,10 @@
   "kind": "context-engine",
   "contracts": {
     "tools": [
-      "lethe.record",
-      "lethe.log",
-      "lethe.flag",
-      "lethe.task",
+      "lethe_record",
+      "lethe_log",
+      "lethe_flag",
+      "lethe_task",
       "lethe_search"
     ]
   },
