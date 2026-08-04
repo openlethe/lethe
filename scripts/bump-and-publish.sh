@@ -33,7 +33,7 @@ get_openclaw_version() {
     # Fallback: installed binary
     if command -v openclaw &>/dev/null; then
         local v
-        v=$(openclaw --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        v=$(openclaw --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?' | head -1)
         [[ -n "$v" ]] && { echo "$v"; return 0; }
     fi
 
@@ -72,8 +72,8 @@ bump_patch() {
 }
 
 update_pkg() {
-    local file="$1" plugin_ver="$2" oc_ver="$3"
-    jq --arg pv "$plugin_ver" --arg ov "$oc_ver" '
+    local file="$1" plugin_ver="$2" plugin_api_ver="$3" oc_ver="$4"
+    jq --arg pv "$plugin_ver" --arg pav "$plugin_api_ver" --arg ov "$oc_ver" '
         .version = $pv |
         .devDependencies.openclaw = $ov |
         # Keep the exact tested prerelease as the floor. Stable releases have
@@ -84,10 +84,10 @@ update_pkg() {
                 ">=" + $ov
             else .peerDependencies.openclaw end
         ) |
-        .openclaw.compat.pluginApi = $ov |
+        .openclaw.compat.pluginApi = $pav |
         .openclaw.build.openclawVersion = $ov
     ' "$file" >"${file}.tmp" && mv "${file}.tmp" "$file"
-    echo "  ✓ $(basename "$(dirname "$file")")/package.json → $plugin_ver (oc $oc_ver)"
+    echo "  ✓ $(basename "$(dirname "$file")")/package.json → $plugin_ver (api $plugin_api_ver, oc $oc_ver)"
 }
 
 update_manifest() {
@@ -139,6 +139,18 @@ refresh_lockfile() {
     echo "  ✓ $(basename "$dir")/package-lock.json regenerated"
 }
 
+plugin_api_version() {
+    local oc_ver="$1"
+    # OpenClaw numeric correction releases (for example 2026.7.1-2) expose
+    # the base release as the plugin API. Keep the full correction release for
+    # build/dependency metadata, but declare the base API for compatibility.
+    if [[ "$oc_ver" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-[0-9]+$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo "$oc_ver"
+    fi
+}
+
 # ──────────────────── args ────────────────────
 for arg in "$@"; do
     case "$arg" in
@@ -164,7 +176,9 @@ echo "Current version:  $CURRENT_VERSION"
 echo "New version:      $NEW_VERSION"
 
 OPENCLAW_VERSION="${OPENCLAW_VERSION:-$(get_openclaw_version)}"
+PLUGIN_API_VERSION="${OPENCLAW_PLUGIN_API:-$(plugin_api_version "$OPENCLAW_VERSION")}"
 echo "OpenClaw version: $OPENCLAW_VERSION"
+echo "Plugin API:       $PLUGIN_API_VERSION"
 echo ""
 
 if $DRY_RUN; then
@@ -195,8 +209,8 @@ $DRY_RUN && { echo ""; echo "Dry run complete."; exit 0; }
 
 # ──────────────────── 1) bump package.json files ────────────────────
 echo "==> Bumping package.json files..."
-update_pkg "$PLUGIN_SOURCE/package.json" "$NEW_VERSION" "$OPENCLAW_VERSION"
-update_pkg "$PLUGIN_DIST/package.json"  "$NEW_VERSION" "$OPENCLAW_VERSION"
+update_pkg "$PLUGIN_SOURCE/package.json" "$NEW_VERSION" "$PLUGIN_API_VERSION" "$OPENCLAW_VERSION"
+update_pkg "$PLUGIN_DIST/package.json"  "$NEW_VERSION" "$PLUGIN_API_VERSION" "$OPENCLAW_VERSION"
 update_lockfile_root "$PLUGIN_SOURCE/package-lock.json" "$NEW_VERSION"
 update_lockfile_root "$PLUGIN_DIST/package-lock.json" "$NEW_VERSION"
 echo ""

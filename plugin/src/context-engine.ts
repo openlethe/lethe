@@ -246,7 +246,7 @@ export class LetheContextEngine implements ContextEngine {
   readonly info: ContextEngineInfo = {
     id: "mentholmike-lethe",
     name: "Lethe",
-    version: "0.4.2",
+    version: "0.4.3",
     ownsCompaction: true,
   };
 
@@ -731,7 +731,7 @@ export class LetheContextEngine implements ContextEngine {
     const report: AssemblyReport = {
       assembly_id: assemblyId,
       source: "openclaw-plugin",
-      plugin_version: this.info.version ?? "0.4.2",
+      plugin_version: this.info.version ?? "0.4.3",
       assembler_version: "openclaw-memory-git-v1",
       message_count: params.messages.length,
       provided_token_budget: params.tokenBudget,
