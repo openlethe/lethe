@@ -41,6 +41,6 @@
     "@types/node": "^20.0.0",
     "openclaw": "2026.7.1-2",
     "typescript": "^5.4.0",
-    "tsc-alias": "^1.8.0"
+    "tsc-alias": "^1.9.2"
   }
 }
