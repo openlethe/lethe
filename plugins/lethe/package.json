@@ -19,10 +19,10 @@
   ],
   "openclaw": {
     "compat": {
-      "pluginApi": "2026.7.1"
+      "pluginApi": "2026.8.1"
     },
     "build": {
-      "openclawVersion": "2026.7.1-2"
+      "openclawVersion": "2026.8.1"
     },
     "extensions": [
       "./index.js"
@@ -38,12 +38,12 @@
   },
   "peerDependencies": {
     "@mariozechner/pi-agent-core": "^0.70.0",
-    "openclaw": ">=2026.7.1-2"
+    "openclaw": ">=2026.8.1"
   },
   "devDependencies": {
     "@mariozechner/pi-agent-core": "^0.70.0",
     "@types/node": "^20.0.0",
-    "openclaw": "2026.7.1-2",
+    "openclaw": "2026.8.1",
     "typescript": "^5.4.0",
     "tsc-alias": "^1.8.0"
   }
