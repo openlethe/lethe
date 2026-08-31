@@ -1,10 +1,6 @@
 import {
   delegateCompactionToRuntime,
 } from "openclaw/plugin-sdk/core";
-import {
-  type ContextEngine,
-  type ContextEngineInfo,
-} from "openclaw/plugin-sdk";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type {
   BootstrapResult,
@@ -67,7 +63,7 @@ interface AfterTurnParams {
 
 interface CompactParams {
   sessionId: string;
-  sessionKey?: string;
+  sessionKey: string;
   sessionFile: string;
   tokenBudget?: number;
   force?: boolean;
@@ -242,11 +238,11 @@ function warnLetheResponse(operation: string, response: Response): void {
 // LetheContextEngine
 // ---------------------------------------------------------------------------
 
-export class LetheContextEngine implements ContextEngine {
-  readonly info: ContextEngineInfo = {
+export class LetheContextEngine {
+  readonly info = {
     id: "mentholmike-lethe",
     name: "Lethe",
-    version: "0.4.4",
+    version: "0.4.5",
     ownsCompaction: true,
   };
 
@@ -731,7 +727,7 @@ export class LetheContextEngine implements ContextEngine {
     const report: AssemblyReport = {
       assembly_id: assemblyId,
       source: "openclaw-plugin",
-      plugin_version: this.info.version ?? "0.4.4",
+      plugin_version: this.info.version ?? "0.4.5",
       assembler_version: "openclaw-memory-git-v1",
       message_count: params.messages.length,
       provided_token_budget: params.tokenBudget,

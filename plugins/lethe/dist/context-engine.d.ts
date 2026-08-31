@@ -1,4 +1,3 @@
-import { type ContextEngine, type ContextEngineInfo } from "openclaw/plugin-sdk";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { BootstrapResult, AssembleResult, CompactResult, IngestResult, ContextEngineRuntimeContext } from "./context-engine-types.js";
 export interface LetheContextEngineConfig {
@@ -38,7 +37,7 @@ interface AfterTurnParams {
 }
 interface CompactParams {
     sessionId: string;
-    sessionKey?: string;
+    sessionKey: string;
     sessionFile: string;
     tokenBudget?: number;
     force?: boolean;
@@ -46,9 +45,14 @@ interface CompactParams {
     runtimeContext?: ContextEngineRuntimeContext;
 }
 export declare function letheFetch(endpoint: string, apiKey: string, path: string, body?: unknown, signal?: AbortSignal): Promise<Response>;
-export declare class LetheContextEngine implements ContextEngine {
+export declare class LetheContextEngine {
     private cfg;
-    readonly info: ContextEngineInfo;
+    readonly info: {
+        id: string;
+        name: string;
+        version: string;
+        ownsCompaction: boolean;
+    };
     constructor(cfg: LetheContextEngineConfig);
     bootstrap({ sessionId, sessionKey, }: {
         sessionId: string;
