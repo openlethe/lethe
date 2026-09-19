@@ -1,156 +1,187 @@
-#!/bin/bash
-# lethe-log — Low-friction event recording for Lethe memory layer
+#!/usr/bin/env bash
+# lethe-log — restricted CLI fallback for Lethe memory events
 # Usage: lethe-log <record|log|flag|task> <message> [options]
 #
-# Requires: curl, jq
-# API: http://localhost:18483 (LETHE_API env var overrides)
+# Endpoint policy:
+#   - Default: http://localhost:18483 only.
+#   - Remote: requires LETHE_ALLOW_REMOTE=1, an https:// endpoint, and an
+#     exact host:port entry in LETHE_ALLOWED_REMOTE_ENDPOINTS.
+#
+# Required: curl, jq
+# Session: SESSION_KEY or LETHE_SESSION_ID; no implicit or hard-coded fallback.
 
-set -e
+set -euo pipefail
+
+die() {
+  echo "lethe-log: $*" >&2
+  exit 1
+}
 
 API="${LETHE_API:-http://localhost:18483}"
+ALLOW_REMOTE="${LETHE_ALLOW_REMOTE:-0}"
+ALLOWED_REMOTE_ENDPOINTS="${LETHE_ALLOWED_REMOTE_ENDPOINTS:-}"
+API_KEY="${LETHE_API_KEY:-}"
+SESSION_ID="${SESSION_KEY:-${LETHE_SESSION_ID:-}}"
 
-# SESSION_KEY: injected by Lethe plugin at runtime
-# FALLBACK_SESSION_KEY: used when SESSION_KEY is empty (e.g. Discord channel session)
-FALLBACK_SID="86e09dc7-7ed9-4776-9b0e-d8c7678a0357"
-SESSION_ID="${SESSION_KEY:-${LETHE_SESSION_ID:-${FALLBACK_SID}}}"
+case "$API" in
+  http://localhost:18483|http://127.0.0.1:18483)
+    ;;
+  https://*)
+    [[ "$ALLOW_REMOTE" == "1" ]] || die "remote storage requires LETHE_ALLOW_REMOTE=1"
+    REMOTE_HOSTPORT="${API#https://}"
+    [[ "$REMOTE_HOSTPORT" != */* && "$REMOTE_HOSTPORT" != *\?* && "$REMOTE_HOSTPORT" != *#* ]] ||
+      die "remote endpoint must contain only an https host and optional port"
+    if [[ "$REMOTE_HOSTPORT" == *:* ]]; then
+      REMOTE_HOST="${REMOTE_HOSTPORT%%:*}"
+      REMOTE_PORT="${REMOTE_HOSTPORT##*:}"
+    else
+      REMOTE_HOST="$REMOTE_HOSTPORT"
+      REMOTE_PORT="443"
+    fi
+    [[ "$REMOTE_HOST" =~ ^[A-Za-z0-9.-]+$ ]] || die "remote endpoint host is invalid"
+    [[ "$REMOTE_PORT" =~ ^[0-9]+$ && "$REMOTE_PORT" -ge 1 && "$REMOTE_PORT" -le 65535 ]] ||
+      die "remote endpoint port is invalid"
+    ENDPOINT_LIST=",${ALLOWED_REMOTE_ENDPOINTS//[[:space:]]/},"
+    [[ "$ENDPOINT_LIST" == *",${REMOTE_HOST}:${REMOTE_PORT},"* ]] ||
+      die "remote endpoint is not in LETHE_ALLOWED_REMOTE_ENDPOINTS"
+    ;;
+  *)
+    die "unsupported endpoint; use loopback http://localhost:18483 or an explicitly approved https endpoint"
+    ;;
+esac
 
-# project_id for Lethe API
-PROJECT_ID="default"
+[[ -n "$SESSION_ID" ]] || die "set SESSION_KEY or LETHE_SESSION_ID; no session fallback is used"
+[[ "$SESSION_ID" =~ ^[A-Za-z0-9._-]+$ ]] || die "session identifier contains unsupported characters"
+
+curl_json() {
+  local method="$1"
+  local url="$2"
+  local payload="${3:-}"
+  local -a args=(
+    --fail
+    --silent
+    --show-error
+    --connect-timeout 5
+    --max-time 15
+    --proto '=http,https'
+    --request "$method"
+    "$url"
+    --header "Content-Type: application/json"
+  )
+
+  if [[ -n "$API_KEY" ]]; then
+    args+=(--header "Authorization: Bearer $API_KEY")
+  fi
+  if [[ "$method" == "POST" || "$method" == "PUT" ]]; then
+    args+=(--data "$payload")
+  fi
+
+  # No --location: a successful response cannot redirect memory data elsewhere.
+  curl "${args[@]}"
+}
 
 CMD="${1:-}"
 MSG="${2:-}"
+[[ -n "$CMD" && -n "$MSG" ]] || die "usage: lethe-log <record|log|flag|task> <message> [options]"
+case "$CMD" in
+  record|log|flag|task)
+    ;;
+  *)
+    die "unknown command '$CMD'; use record, log, flag, or task"
+    ;;
+esac
 
-if [ -z "$CMD" ] || [ -z "$MSG" ]; then
-  echo "Usage: lethe-log <record|log|flag|task> <message> [options]" >&2
-  echo "" >&2
-  echo "Commands:" >&2
-  echo "  record <msg>   Record a decision or conclusion" >&2
-  echo "  log <msg>      Log an observation or finding" >&2
-  echo "  flag <msg>     Flag uncertainty for human review" >&2
-  echo "  task <msg>     Create or update a task" >&2
-  echo "" >&2
-  echo "Options:" >&2
-  echo "  --confidence 0.9   Confidence score (0.0-1.0)" >&2
-  echo "  --tags tag1,tag2   Comma-separated tags" >&2
-  echo "  --status todo      Task status (todo|in_progress|done|blocked)" >&2
-  echo "  --task-id ID       Update existing task by event ID" >&2
-  exit 1
-fi
-
-# Parse options
 CONFIDENCE="0.8"
 TAGS=""
 STATUS=""
 TASK_ID=""
 
 shift 2
-while [ $# -gt 0 ]; do
+while [[ $# -gt 0 ]]; do
   case "$1" in
-    --confidence) CONFIDENCE="$2"; shift 2 ;;
-    --tags) TAGS="$2"; shift 2 ;;
-    --status) STATUS="$2"; shift 2 ;;
-    --task-id) TASK_ID="$2"; shift 2 ;;
-    *) shift ;;
+    --confidence)
+      [[ $# -ge 2 ]] || die "--confidence requires a value"
+      CONFIDENCE="$2"
+      shift 2
+      ;;
+    --tags)
+      [[ $# -ge 2 ]] || die "--tags requires a value"
+      TAGS="$2"
+      shift 2
+      ;;
+    --status)
+      [[ $# -ge 2 ]] || die "--status requires a value"
+      STATUS="$2"
+      shift 2
+      ;;
+    --task-id)
+      [[ $# -ge 2 ]] || die "--task-id requires a value"
+      TASK_ID="$2"
+      shift 2
+      ;;
+    *)
+      die "unknown option '$1'"
+      ;;
   esac
 done
 
-# Build tags JSON array
-if [ -n "$TAGS" ]; then
-  # Split on comma, filter empty
-  TAGS_JSON="["
-  first=true
-  IFS=',' read -ra TAG_ARRAY <<< "$TAGS"
-  for tag in "${TAG_ARRAY[@]}"; do
-    tag=$(echo "$tag" | tr -d '[:space:]')
-    if [ -n "$tag" ]; then
-      if [ "$first" = true ]; then
-        first=false
-      else
-        TAGS_JSON="$TAGS_JSON,"
-      fi
-      TAGS_JSON="$TAGS_JSON\"$tag\""
-    fi
-  done
-  TAGS_JSON="$TAGS_JSON]"
-else
-  TAGS_JSON="[]"
+if ! jq -e -n --arg value "$CONFIDENCE"   '$value | tonumber | select(. >= 0 and . <= 1)' >/dev/null; then
+  die "confidence must be a number from 0.0 to 1.0"
 fi
 
-post_event() {
-  local payload="$1"
-  curl -s -X POST "${API}/api/events" \
-    -H "Content-Type: application/json" \
-    -d "$payload"
-}
+if [[ -n "$TASK_ID" ]]; then
+  [[ "$TASK_ID" =~ ^[A-Za-z0-9._-]+$ ]] || die "task identifier contains unsupported characters"
+fi
 
-update_event() {
-  local event_id="$1"
-  local payload="$2"
-  curl -s -X PUT "${API}/api/sessions/${SESSION_ID}/events/${event_id}" \
-    -H "Content-Type: application/json" \
-    -d "$payload"
-}
+TAGS_JSON="$(jq -cn --arg raw "$TAGS" '
+  $raw
+  | split(",")
+  | map(gsub("^\\s+|\\s+$"; ""))
+  | map(select(length > 0))
+')"
 
-if [ "$CMD" = "task" ]; then
+if [[ "$CMD" == "task" ]]; then
   STATUS="${STATUS:-todo}"
-  
-  if [ -n "$TASK_ID" ]; then
-    PAYLOAD=$(jq -n \
-      --arg stat "$STATUS" \
-      '{task_status: $stat}')
-    RESULT=$(update_event "$TASK_ID" "$PAYLOAD")
-    echo "Task updated: $RESULT"
-  else
-    PAYLOAD=$(jq -n \
-      --arg sid "$SESSION_ID" \
-      --arg pid "$PROJECT_ID" \
-      --arg content "$MSG" \
-      --arg stat "$STATUS" \
-      --argjson conf "$CONFIDENCE" \
-      --argjson tags "$TAGS_JSON" \
-      '{
-        session_id: $sid,
-        project_id: $pid,
-        event_type: "task",
-        content: $content,
-        confidence: $conf,
-        tags: $tags,
-        task_title: $content,
-        task_status: $stat
-      }')
-    RESULT=$(post_event "$PAYLOAD")
-    EVENT_ID=$(echo "$RESULT" | jq -r '.event_id' 2>/dev/null)
-    if [ -n "$EVENT_ID" ] && [ "$EVENT_ID" != "null" ]; then
-      echo "Task created: $EVENT_ID"
-    else
-      echo "Error: $RESULT" >&2
-      exit 1
-    fi
-  fi
+  case "$STATUS" in
+    todo|in_progress|done|blocked)
+      ;;
+    *)
+      die "task status must be todo, in_progress, done, or blocked"
+      ;;
+  esac
+fi
+
+if [[ "$CMD" == "task" && -n "$TASK_ID" ]]; then
+  PAYLOAD="$(jq -cn --arg status "$STATUS" '{task_status: $status}')"
+  RESULT="$(curl_json PUT "$API/api/sessions/$SESSION_ID/events/$TASK_ID" "$PAYLOAD")"
+  jq -e . >/dev/null <<<"$RESULT" || die "Lethe returned invalid JSON for task update"
+  echo "Task updated: $TASK_ID ($STATUS)"
+  exit 0
+fi
+
+if [[ "$CMD" == "task" ]]; then
+  PAYLOAD="$(jq -cn     --arg session_id "$SESSION_ID"     --arg content "$MSG"     --arg status "$STATUS"     --argjson confidence "$CONFIDENCE"     --argjson tags "$TAGS_JSON"     '{
+      session_id: $session_id,
+      event_type: "task",
+      content: $content,
+      confidence: $confidence,
+      tags: $tags,
+      task_title: $content,
+      task_status: $status
+    }')"
 else
-  PAYLOAD=$(jq -n \
-    --arg sid "$SESSION_ID" \
-    --arg pid "$PROJECT_ID" \
-    --arg type "$CMD" \
-    --arg content "$MSG" \
-    --argjson conf "$CONFIDENCE" \
-    --argjson tags "$TAGS_JSON" \
-    '{
-      session_id: $sid,
-      project_id: $pid,
+  PAYLOAD="$(jq -cn     --arg session_id "$SESSION_ID"     --arg type "$CMD"     --arg content "$MSG"     --argjson confidence "$CONFIDENCE"     --argjson tags "$TAGS_JSON"     '{
+      session_id: $session_id,
       event_type: $type,
       content: $content,
-      confidence: $conf,
+      confidence: $confidence,
       tags: $tags
-    }')
-  
-  RESULT=$(post_event "$PAYLOAD")
-  EVENT_ID=$(echo "$RESULT" | jq -r '.event_id' 2>/dev/null)
-  
-  if [ -n "$EVENT_ID" ] && [ "$EVENT_ID" != "null" ]; then
-    echo "OK ($EVENT_ID): $MSG"
-  else
-    echo "Error: $RESULT" >&2
-    exit 1
-  fi
+    }')"
 fi
+
+RESULT="$(curl_json POST "$API/api/sessions/$SESSION_ID/events" "$PAYLOAD")"
+if ! EVENT_ID="$(jq -er '.event_id // empty' <<<"$RESULT")" || [[ -z "$EVENT_ID" ]]; then
+  die "Lethe response did not include an event identifier"
+fi
+
+echo "Recorded $CMD event $EVENT_ID"

@@ -206,6 +206,7 @@ export class LetheTools {
                 const res = await lethePost(endpoint, apiKey, `/api/sessions/${sk}/events`, {
                     event_type: "task",
                     content: title,
+                    task_title: title,
                     task_status: status,
                     parent_event_id: parentEventId,
                 });
