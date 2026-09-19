@@ -18,28 +18,11 @@ function letheHeaders(apiKey) {
 // Request deadline and response body cap. A Lethe server that accepts a
 // connection but stalls (headers or body) must not block agent hooks
 // indefinitely, and an unbounded response body must not exhaust memory.
-// Both knobs are parsed defensively so a bad value can never wedge hooks.
+// Keep these limits fixed in the plugin artifact. They are safety boundaries,
+// not user data or credentials, and avoiding ambient environment overrides
+// keeps the network-writing path explicit and auditable.
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
-const MIN_FETCH_TIMEOUT_MS = 1_000;
-const MAX_FETCH_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_BODY_BYTES = 5 * 1024 * 1024;
-const MIN_MAX_BODY_BYTES = 1_024;
-const MAX_MAX_BODY_BYTES = 64 * 1024 * 1024;
-function envInt(name, fallback, min, max) {
-    const raw = process.env[name];
-    if (!raw)
-        return fallback;
-    const parsed = Number.parseInt(raw, 10);
-    if (!Number.isFinite(parsed))
-        return fallback;
-    return Math.min(max, Math.max(min, parsed));
-}
-function fetchTimeoutMs() {
-    return envInt("LETHE_FETCH_TIMEOUT_MS", DEFAULT_FETCH_TIMEOUT_MS, MIN_FETCH_TIMEOUT_MS, MAX_FETCH_TIMEOUT_MS);
-}
-function maxBodyBytes() {
-    return envInt("LETHE_FETCH_MAX_BODY_BYTES", DEFAULT_MAX_BODY_BYTES, MIN_MAX_BODY_BYTES, MAX_MAX_BODY_BYTES);
-}
 // Reads a response body with a hard byte cap. Rejects early when a declared
 // content-length already exceeds the cap, and aborts mid-stream when the
 // actual bytes do. Returns the raw bytes for a bounded re-materialization.
@@ -72,8 +55,9 @@ async function readCappedBody(response, cap) {
     }
     return body;
 }
-export async function letheFetch(endpoint, apiKey, path, body, signal) {
-    const timeoutMs = fetchTimeoutMs();
+export async function letheFetch(endpoint, apiKey, path, body, signal, options) {
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS;
+    const bodyCap = options?.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -97,7 +81,7 @@ export async function letheFetch(endpoint, apiKey, path, body, signal) {
         });
         // The deadline stays armed across the body read: a server that sends
         // headers but stalls the body is capped by the same timeout.
-        const bytes = await readCappedBody(response, maxBodyBytes());
+        const bytes = await readCappedBody(response, bodyCap);
         return new Response(bytes.length > 0 ? bytes : null, {
             status: response.status,
             statusText: response.statusText,

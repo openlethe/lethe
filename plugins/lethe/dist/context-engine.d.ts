@@ -45,7 +45,13 @@ interface CompactParams {
     currentTokenCount?: number;
     runtimeContext?: ContextEngineRuntimeContext;
 }
-export declare function letheFetch(endpoint: string, apiKey: string, path: string, body?: unknown, signal?: AbortSignal): Promise<Response>;
+export interface LetheFetchOptions {
+    /** Test-only override; production callers use the fixed safety limit. */
+    timeoutMs?: number;
+    /** Test-only override; production callers use the fixed safety limit. */
+    maxBodyBytes?: number;
+}
+export declare function letheFetch(endpoint: string, apiKey: string, path: string, body?: unknown, signal?: AbortSignal, options?: LetheFetchOptions): Promise<Response>;
 export declare class LetheContextEngine implements ContextEngine {
     private cfg;
     readonly info: ContextEngineInfo;

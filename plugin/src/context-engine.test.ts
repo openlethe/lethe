@@ -491,27 +491,13 @@ describe("LetheContextEngine assemble", () => {
 
 describe("letheFetch deadline and body cap", () => {
   let originalFetch: typeof fetch;
-  let savedEnv: Record<string, string | undefined>;
-
-  const ENV_KEYS = ["LETHE_FETCH_TIMEOUT_MS", "LETHE_FETCH_MAX_BODY_BYTES"];
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
-    savedEnv = {};
-    for (const key of ENV_KEYS) {
-      savedEnv[key] = process.env[key];
-      delete process.env[key];
-    }
-    // Short deadline so stall tests run fast (floor is 1000ms).
-    process.env.LETHE_FETCH_TIMEOUT_MS = "1000";
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    for (const key of ENV_KEYS) {
-      if (savedEnv[key] === undefined) delete process.env[key];
-      else process.env[key] = savedEnv[key];
-    }
   });
 
   // A server that accepts the connection but never sends headers: the fetch
@@ -543,7 +529,9 @@ describe("letheFetch deadline and body cap", () => {
     mockStalledHeaders();
     const start = Date.now();
     await assert.rejects(
-      letheFetch("http://localhost:1", "k", "/api/sessions/x"),
+      letheFetch("http://localhost:1", "k", "/api/sessions/x", undefined, undefined, {
+        timeoutMs: 1000,
+      }),
       (err: any) => {
         assert.match(err.message, /timed out after 1000ms/);
         return true;
@@ -556,7 +544,9 @@ describe("letheFetch deadline and body cap", () => {
   it("aborts when the response body stalls after headers", async () => {
     mockStalledBody();
     await assert.rejects(
-      letheFetch("http://localhost:1", "k", "/api/sessions/x"),
+      letheFetch("http://localhost:1", "k", "/api/sessions/x", undefined, undefined, {
+        timeoutMs: 1000,
+      }),
       /timed out after 1000ms/
     );
   });
@@ -574,7 +564,6 @@ describe("letheFetch deadline and body cap", () => {
   });
 
   it("rejects a streamed body that exceeds the cap", async () => {
-    process.env.LETHE_FETCH_MAX_BODY_BYTES = "1024";
     globalThis.fetch = (async () => {
       const stream = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -585,20 +574,23 @@ describe("letheFetch deadline and body cap", () => {
       return new Response(stream, { status: 200 });
     }) as any;
     await assert.rejects(
-      letheFetch("http://localhost:1", "k", "/api/sessions/x"),
+      letheFetch("http://localhost:1", "k", "/api/sessions/x", undefined, undefined, {
+        maxBodyBytes: 1024,
+      }),
       /exceeded cap of 1024 bytes/
     );
   });
 
   it("rejects upfront when content-length exceeds the cap", async () => {
-    process.env.LETHE_FETCH_MAX_BODY_BYTES = "1024";
     globalThis.fetch = (async () =>
       new Response("x".repeat(2048), {
         status: 200,
         headers: { "Content-Length": "2048" },
       })) as any;
     await assert.rejects(
-      letheFetch("http://localhost:1", "k", "/api/sessions/x"),
+      letheFetch("http://localhost:1", "k", "/api/sessions/x", undefined, undefined, {
+        maxBodyBytes: 1024,
+      }),
       /content-length 2048 exceeds cap of 1024 bytes/
     );
   });
