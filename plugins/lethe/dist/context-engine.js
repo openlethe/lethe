@@ -253,8 +253,8 @@ export class LetheContextEngine {
             await bestEffortPost(endpoint, apiKey, `/api/sessions/${encodeURIComponent(sessionKey)}/heartbeat`, { token_budget: tokenBudget }, "heartbeat");
             return;
         }
-        // Real turn: write a checkpoint. Optional diagnostic auto event logging is
-        // off by default so normal tool use does not become permanent memory.
+        // Real turns always write a checkpoint. When autoLog is enabled, ingest()
+        // also persists message text/tool results alongside tool and thread events.
         const lastMsg = messages[messages.length - 1];
         const openThreads = extractOpenThreads(lastMsg);
         const lastTool = lastMsg ? extractLastTool(lastMsg) : null;

@@ -7,8 +7,8 @@ export interface LetheContextEngineConfig {
     agentId: string;
     projectId: string;
     /**
-     * Optional noisy diagnostic logging. When disabled (default), Lethe keeps
-     * checkpoints but does not turn every tool call/thread marker into events.
+     * When enabled, persists user/assistant message text and serialized tool
+     * results as events. Disabled by default; checkpoints are still written.
      */
     autoLog?: boolean;
     /**

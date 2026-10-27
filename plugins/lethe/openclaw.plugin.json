@@ -35,7 +35,7 @@
       },
       "autoLog": {
         "type": "boolean",
-        "description": "Enable diagnostic automatic event logs for tool calls/thread markers. Checkpoints are always written. Default: false.",
+        "description": "When enabled, sends user and assistant message text and serialized tool-result content to the configured Lethe server as persistent log events, in addition to tool-call and open-thread markers. Disabled by default; real turns still write checkpoints with extracted thread and last-tool metadata.",
         "default": false
       },
       "memoryGitContext": {
